@@ -49,11 +49,42 @@ func open(title: String, options: Array) -> void:
 	var n := 1
 	for opt in options:
 		var b := Button.new()
-		b.text = "[%d]\n%s\n\n%s" % [n, opt["name"], opt["desc"]]
 		b.focus_mode = Control.FOCUS_NONE
-		b.add_theme_font_size_override("font_size", 22)
-		b.custom_minimum_size = Vector2(320, 200)
+		b.custom_minimum_size = Vector2(320, 300)
 		b.pressed.connect(_on_pick.bind(opt["id"]))
+		var col := VBoxContainer.new()
+		col.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		col.alignment = BoxContainer.ALIGNMENT_CENTER
+		col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		col.add_theme_constant_override("separation", 10)
+		b.add_child(col)
+		var num := Label.new()
+		num.text = "[%d]" % n
+		num.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		num.add_theme_font_size_override("font_size", 20)
+		num.add_theme_color_override("font_color", Color(1.0, 0.9, 0.5))
+		num.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		col.add_child(num)
+		var holder := CenterContainer.new()
+		holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		col.add_child(holder)
+		var icon := IconRect.new()
+		icon.custom_minimum_size = Vector2(88, 88)
+		icon.kind = str(opt.get("icon", ""))
+		holder.add_child(icon)
+		var card_title := Label.new()
+		card_title.text = str(opt["name"])
+		card_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		card_title.add_theme_font_size_override("font_size", 26)
+		card_title.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		col.add_child(card_title)
+		var desc := Label.new()
+		desc.text = str(opt["desc"])
+		desc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		desc.add_theme_font_size_override("font_size", 18)
+		desc.add_theme_color_override("font_color", Color(0.78, 0.8, 0.88))
+		desc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		col.add_child(desc)
 		_row.add_child(b)
 		_ids.append(opt["id"])
 		n += 1

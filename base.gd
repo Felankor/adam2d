@@ -30,22 +30,20 @@ var hp_bonus: int = 0
 var max_energy: float = 100.0
 var energy: float = 100.0
 var energy_regen: float = 20.0
-var shot_cost: float = 20.0
-var shot_interval: float = 0.2
 
-var cannon_damage: float = 10.0
-var auto_damage: float = 6.0
+# 0 Machinegun, 1 Cannon, 2 Rocket Launcher, 3 Laser Gun (see Weapons)
+var weapon_tier: int = 0
 var damage_mult: float = 1.0
 
-var auto_cannons: int = 0
-var auto_interval: float = 2.0
+var auto_cannons: int = 0          # number of auto-weapons (built by Gunner allies)
+var auto_interval: float = 1.5
 var auto_range: float = 450.0
-var laser: bool = false
+var laser: bool = false            # laser SIGHT (aim line), not the Laser Gun
 
 var gunners: int = 0
-var smiths: int = 0
+var scientists: int = 0
 var engineers: int = 0
-var medics: int = 0
+var mechanics: int = 0
 
 # Active skills: 4 slots, triggered with the skill keybinds (V, B, N, M by default).
 var skill_slots: Array[String] = ["barrier", "", "", ""]
@@ -59,6 +57,7 @@ var _auto_timer: float = 0.0
 var _heal_acc: float = 0.0
 var _anim: float = 0.0
 var _hurt: float = 0.0
+var _muzzle: float = 0.0
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_PAUSABLE
@@ -98,6 +97,13 @@ func upgrade_auto_rate() -> void:
 	auto_interval = maxf(auto_interval * 0.85, 0.3)
 	auto_range = minf(auto_range + RANGE_STEP, MAX_RANGE)
 
+func upgrade_weapon() -> bool:
+	if weapon_tier >= Weapons.MAX_TIER:
+		return false
+	weapon_tier += 1
+	queue_redraw()
+	return true
+
 func use_skill(slot: int) -> bool:
 	if slot < 0 or slot >= skill_slots.size():
 		return false
@@ -120,14 +126,15 @@ func to_dict() -> Dictionary:
 		"max_energy": max_energy,
 		"energy_regen": energy_regen,
 		"damage_mult": damage_mult,
+		"weapon_tier": weapon_tier,
 		"auto_cannons": auto_cannons,
 		"auto_interval": auto_interval,
 		"auto_range": auto_range,
 		"laser": laser,
 		"gunners": gunners,
-		"smiths": smiths,
+		"scientists": scientists,
 		"engineers": engineers,
-		"medics": medics,
+		"mechanics": mechanics,
 		"skills": skill_slots.duplicate(),
 	}
 
@@ -140,14 +147,15 @@ func from_dict(d: Dictionary) -> void:
 	energy = max_energy
 	energy_regen = float(d.get("energy_regen", 20.0))
 	damage_mult = float(d.get("damage_mult", 1.0))
+	weapon_tier = clampi(int(d.get("weapon_tier", 1)), 0, Weapons.MAX_TIER)
 	auto_cannons = int(d.get("auto_cannons", 0))
-	auto_interval = float(d.get("auto_interval", 2.0))
+	auto_interval = float(d.get("auto_interval", 1.5))
 	auto_range = float(d.get("auto_range", 450.0))
 	laser = bool(d.get("laser", false))
 	gunners = int(d.get("gunners", 0))
-	smiths = int(d.get("smiths", 0))
+	scientists = int(d.get("scientists", d.get("smiths", 0)))
 	engineers = int(d.get("engineers", 0))
-	medics = int(d.get("medics", 0))
+	mechanics = int(d.get("mechanics", d.get("medics", 0)))
 	var saved: Array = d.get("skills", [])
 	for i in skill_slots.size():
 		skill_slots[i] = str(saved[i]) if i < saved.size() else skill_slots[i]
@@ -156,6 +164,7 @@ func from_dict(d: Dictionary) -> void:
 func _process(delta: float) -> void:
 	_anim += delta
 	_hurt = maxf(_hurt - delta, 0.0)
+	_muzzle = maxf(_muzzle - delta, 0.0)
 	energy = minf(energy + energy_regen * delta, max_energy)
 	_fire_cd -= delta
 	aim_angle = (get_global_mouse_position() - global_position).angle()
@@ -168,38 +177,90 @@ func _process(delta: float) -> void:
 			barrier_time = 0.0
 			Sfx.play("barrier_end")
 
-	# Manual cannon: hold left mouse button, costs energy
-	if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and _fire_cd <= 0.0 and energy >= shot_cost:
-		energy -= shot_cost
-		_fire_cd = shot_interval
-		_shoot(aim_angle, cannon_damage * damage_mult, "shoot")
+	# Manual weapon: hold left mouse button, costs energy
+	var cost: float = Weapons.ENERGY_COST[weapon_tier]
+	if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and _fire_cd <= 0.0 and energy >= cost:
+		energy -= cost
+		_fire_cd = Weapons.INTERVAL[weapon_tier]
+		var dmg: float = Weapons.DAMAGE[weapon_tier]
+		var angle := aim_angle
+		if weapon_tier == 0:
+			angle += randf_range(-0.045, 0.045)   # machinegun spread
+		_fire(angle, dmg * damage_mult, false)
+		_muzzle = 0.07
 
-	# Auto cannons: share one timer, so shots are evenly spread out
+	# Auto-weapons: share one timer, so shots are evenly spread out.
+	# They use the same weapon tier as the manual weapon.
 	if auto_cannons > 0:
 		_auto_timer -= delta
 		if _auto_timer <= 0.0:
 			var target := _nearest_enemy()
 			if target != null:
-				_shoot((target.global_position - global_position).angle(), auto_damage * damage_mult, "auto")
+				var adm: float = Weapons.AUTO_DAMAGE[weapon_tier]
+				_fire((target.global_position - global_position).angle(), adm * damage_mult, true)
 				_auto_timer = auto_interval / auto_cannons
 
-	# Medics: slow healing
-	if medics > 0 and hp < max_hp:
-		_heal_acc += medics * 0.5 * delta
+	# Mechanics: slow repairs
+	if mechanics > 0 and hp < max_hp:
+		_heal_acc += mechanics * 0.5 * delta
 		if _heal_acc >= 1.0:
 			_heal_acc -= 1.0
 			heal(1.0)
 
 	queue_redraw()
 
-func _shoot(angle: float, dmg: float, sound: String) -> void:
-	var p := Projectile.new()
+func _fire(angle: float, dmg: float, is_auto: bool) -> void:
 	var dir := Vector2.RIGHT.rotated(angle)
-	p.position = position + dir * (body_radius() + 14.0)
-	p.velocity = dir * 800.0
+	var muzzle := position + dir * (body_radius() + 14.0)
+	var sound: String = Weapons.SOUNDS[weapon_tier]
+	Sfx.play(sound, -6.0 if is_auto else 0.0)
+	if weapon_tier == 3:
+		_fire_beam(muzzle, dir, dmg)
+		return
+	var p := Projectile.new()
+	p.position = muzzle
+	match weapon_tier:
+		0:
+			p.kind = "bullet"
+			p.velocity = dir * 1500.0
+			p.life = 1.4
+		2:
+			p.kind = "rocket"
+			p.velocity = dir * 640.0
+			p.life = 2.5
+			p.splash = 110.0
+		_:
+			p.kind = "shell"
+			p.velocity = dir * 850.0
+			p.life = 2.0
 	p.damage = dmg
 	get_parent().add_child(p)
-	Sfx.play(sound, -4.0 if sound == "auto" else 0.0)
+
+# Laser Gun: an instant beam that pierces everything on its line.
+func _fire_beam(origin: Vector2, dir: Vector2, dmg: float) -> void:
+	var length := 1700.0
+	for node in get_tree().get_nodes_in_group("mobs"):
+		var e := node as Enemy
+		if e == null or e.dead:
+			continue
+		var rel := e.position - origin
+		var along := rel.dot(dir)
+		if along < -e.radius or along > length:
+			continue
+		if absf(rel.cross(dir)) <= e.radius + 4.0:
+			e.take_damage(dmg)
+	for node in get_tree().get_nodes_in_group("bolts"):
+		var b := node as Node2D
+		if b == null:
+			continue
+		var rel_b := b.position - origin
+		if rel_b.dot(dir) > 0.0 and absf(rel_b.cross(dir)) <= 18.0:
+			Fx.spawn(get_parent(), "spark", b.position, Color(0.5, 1.0, 1.0), "", 1.1, 0.35)
+			b.queue_free()
+	var fx := BeamFx.new()
+	fx.start = origin
+	fx.finish = origin + dir * length
+	get_parent().add_child(fx)
 
 func _nearest_enemy() -> Enemy:
 	var best: Enemy = null
@@ -250,9 +311,10 @@ func _draw() -> void:
 			draw_rect(Rect2(pos - Vector2(s, s) * 0.5, Vector2(s, s)), col.darkened(0.25))
 	if auto_cannons > 0:
 		draw_arc(Vector2.ZERO, auto_range, 0.0, TAU, 96, Color(1, 1, 1, 0.12), 2.0)
+		var auto_col: Color = Weapons.COLORS[weapon_tier]
 		for i in auto_cannons:
 			var a := TAU * i / auto_cannons
-			draw_circle(Vector2.RIGHT.rotated(a) * (r + 8.0), 7.0, Color.ORANGE)
+			draw_circle(Vector2.RIGHT.rotated(a) * (r + 8.0), 7.0, auto_col)
 	var dir := Vector2.RIGHT.rotated(aim_angle)
 	if laser:
 		var laser_start := dir * (r + 20.0)
@@ -260,7 +322,7 @@ func _draw() -> void:
 		draw_line(laser_start, laser_end, Color(1.0, 0.1, 0.1, 0.18), 7.0)
 		draw_line(laser_start, laser_end, Color(1.0, 0.25, 0.25, 0.8), 1.8)
 		draw_circle(laser_end, 4.0, Color(1.0, 0.35, 0.35, 0.9))
-	draw_line(Vector2.ZERO, dir * (r + 20.0), Color.DIM_GRAY, 9.0)
+	_draw_barrel(dir, r)
 	if barrier_time > 0.0:
 		var blink := 1.0
 		if barrier_time < 1.0:
@@ -268,3 +330,25 @@ func _draw() -> void:
 		var pulse := 0.5 + 0.5 * sin(_anim * 8.0)
 		draw_circle(Vector2.ZERO, r * 1.75, Color(0.3, 0.8, 1.0, (0.16 + 0.08 * pulse) * blink))
 		draw_arc(Vector2.ZERO, r * 1.75, 0.0, TAU, 64, Color(0.5, 0.95, 1.0, 0.9 * blink), 4.0)
+
+# The manual weapon changes its look with the weapon tier.
+func _draw_barrel(dir: Vector2, r: float) -> void:
+	var tip := dir * (r + 22.0)
+	var col: Color = Weapons.COLORS[weapon_tier]
+	match weapon_tier:
+		0:
+			var side := dir.orthogonal() * 3.5
+			draw_line(side, tip + side, Color(0.45, 0.46, 0.5), 4.5)
+			draw_line(-side, tip - side, Color(0.45, 0.46, 0.5), 4.5)
+			draw_circle(Vector2.ZERO, 8.0, Color(0.3, 0.3, 0.34))
+		1:
+			draw_line(Vector2.ZERO, tip, Color.DIM_GRAY, 9.0)
+		2:
+			draw_line(Vector2.ZERO, dir * (r + 28.0), Color(0.35, 0.42, 0.3), 15.0)
+			draw_line(dir * (r + 22.0), dir * (r + 29.0), Color(0.75, 0.3, 0.2), 16.0)
+		3:
+			draw_line(Vector2.ZERO, tip, Color(0.32, 0.36, 0.5), 8.0)
+			draw_circle(tip, 6.0, Color(0.5, 0.95, 1.0, 0.9))
+			draw_circle(tip, 10.0, Color(0.3, 0.9, 1.0, 0.25))
+	if _muzzle > 0.0:
+		draw_circle(tip + dir * 6.0, 10.0 * (_muzzle / 0.07), Color(col.r, col.g, col.b, 0.9))

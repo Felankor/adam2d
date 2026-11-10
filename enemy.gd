@@ -3,8 +3,10 @@ extends Node2D
 
 signal died(enemy: Enemy)
 signal arrived(enemy: Enemy)
+signal shoot(origin: Vector2, dmg: float)    # tanks fire shells at the base
 
-var kind: String = "soldier"      # "soldier", "tank", "mech" (Boss uses "boss")
+var kind: String = "soldier"      # "soldier", "tank", "mech", "void" (Boss uses "boss")
+var is_minion: bool = false       # summoned by a boss: no gold, vanishes when the boss dies
 var is_ally: bool = false
 var hp: float = 10.0
 var max_hp: float = 10.0
@@ -16,6 +18,21 @@ var target: Vector2 = Vector2.ZERO
 var reach: float = 40.0
 var radius: float = 15.0
 var dead: bool = false
+var dmg_taken_mult: float = 1.0   # < 1 means this enemy absorbs part of every hit
+
+# Ranged enemies (tanks) stop at shoot_range and fire at the base.
+var shoots: bool = false
+var shoot_range: float = 430.0
+var _shoot_cd: float = 0.8
+
+# Dodging (mechs and bosses): sidestep shots that fly straight at us.
+var dodge_chance: float = 0.0
+var dodge_cd_time: float = 1.2
+var dodge_dash: float = 450.0
+var _dodge_cd: float = 0.0
+var _dodge_scan: float = 0.0
+var _dash: Vector2 = Vector2.ZERO
+var _dash_time: float = 0.0
 
 var _flash: float = 0.0
 var _bar_time: float = 0.0
@@ -37,11 +54,17 @@ static func make(k: String, level: int) -> Enemy:
 			e.hp = (40.0 + lvl * 12.0) * GameState.hp_mult()
 			e.speed = minf(32.0 + lvl * 1.5, 70.0) * GameState.speed_mult()
 			e.damage = 3.0 * dmg_mult
+			e.shoots = true
+			e.shoot_range = randf_range(400.0, 470.0)
+			e._shoot_cd = randf_range(0.5, 1.4)
 			e.armor = 0.35
 			e.reward = 4 + int(level * 0.5)
 			e.radius = 27.0
 		"mech":
-			e.hp = (6.0 + lvl * 1.5) * GameState.hp_mult()
+			e.hp = (20.0 + lvl * 2.5) * GameState.hp_mult()
+			e.dodge_chance = 0.6
+			e.dodge_cd_time = 1.1
+			e.dodge_dash = 460.0
 			e.speed = minf(170.0 + lvl * 6.0, 320.0) * GameState.speed_mult()
 			e.damage = 2.0 * dmg_mult
 			e.reward = 3 + int(level * 0.4)
@@ -56,6 +79,29 @@ static func make(k: String, level: int) -> Enemy:
 	e.max_hp = e.hp
 	return e
 
+# A weak soldier summoned by a boss. Gives no gold.
+static func make_minion(level: int, hp_scale: float = 0.35) -> Enemy:
+	var e := Enemy.make("soldier", level)
+	e.hp = maxf(e.hp * hp_scale, 3.0)
+	e.max_hp = e.hp
+	e.damage *= 0.5
+	e.reward = 0
+	e.is_minion = true
+	return e
+
+# A "lesser Void Overlord": half the speed and damage of its master.
+static func make_void_lesser(hp: float, dmg: float, spd: float) -> Enemy:
+	var e := Enemy.new()
+	e.kind = "void"
+	e.hp = hp
+	e.max_hp = hp
+	e.damage = dmg
+	e.speed = spd
+	e.reward = 0
+	e.radius = 24.0
+	e.is_minion = true
+	return e
+
 static func make_ally() -> Enemy:
 	var e := Enemy.new()
 	e.kind = "soldier"
@@ -68,6 +114,10 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_PAUSABLE
 	add_to_group("mobs")
 	add_to_group("allies" if is_ally else "enemies")
+	if is_minion:
+		add_to_group("minions")
+	if kind == "void":
+		add_to_group("void_lessers")
 
 func _tick_common(delta: float) -> void:
 	_flash = maxf(_flash - delta, 0.0)
@@ -92,17 +142,63 @@ func _hit_reaction(from_dir: Vector2, strength: float) -> void:
 func _process(delta: float) -> void:
 	_tick_common(delta)
 	var to_target := target - position
-	if to_target.length() <= reach:
+	var dist := to_target.length()
+	# Tanks stop in range and shell the base until they are destroyed.
+	if shoots and dist <= shoot_range:
+		_heading = to_target.angle()
+		_shoot_cd -= delta
+		if _shoot_cd <= 0.0:
+			_shoot_cd = 2.4
+			shoot.emit(position + Vector2.RIGHT.rotated(_heading) * 38.0, damage)
+			Sfx.play("tank_fire", -3.0)
+		queue_redraw()
+		return
+	if dist <= reach:
 		dead = true
 		arrived.emit(self)
 		queue_free()
 		return
-	var dir := to_target.normalized()
+	var dir := to_target / dist
 	_heading = dir.angle()
 	var spd := _move_speed()
-	position += dir * spd * delta
+	position += (dir * spd + _update_dodge(delta)) * delta
 	_walk += delta * spd * 0.12
 	queue_redraw()
+
+# Finds one of our shots flying straight at us (used for dodging).
+func _incoming_shot() -> Projectile:
+	for node in get_tree().get_nodes_in_group("shots"):
+		var shot := node as Projectile
+		if shot == null:
+			continue
+		var to_me := position - shot.position
+		var dist := to_me.length()
+		if dist < 300.0 and dist > 10.0 and shot.velocity.normalized().dot(to_me / dist) > 0.93:
+			return shot
+	return null
+
+# Returns the extra sideways velocity of a dodge dash (zero when not dodging).
+func _update_dodge(delta: float) -> Vector2:
+	if dodge_chance <= 0.0 or is_ally:
+		return Vector2.ZERO
+	_dodge_cd = maxf(_dodge_cd - delta, 0.0)
+	if _dash_time > 0.0:
+		_dash_time -= delta
+		return _dash
+	_dodge_scan -= delta
+	if _dodge_cd <= 0.0 and _dodge_scan <= 0.0:
+		_dodge_scan = 0.05
+		var shot := _incoming_shot()
+		if shot != null:
+			if randf() < dodge_chance:
+				var side := 1.0 if randf() < 0.5 else -1.0
+				_dash = shot.velocity.normalized().orthogonal() * side * dodge_dash
+				_dash_time = 0.22
+				_dodge_cd = dodge_cd_time
+				Sfx.play("dodge", -8.0)
+			else:
+				_dodge_cd = 0.35   # failed the roll: try again shortly
+	return Vector2.ZERO
 
 func take_damage(amount: float) -> void:
 	if dead:
@@ -116,7 +212,7 @@ func take_damage(amount: float) -> void:
 		died.emit(self)
 		queue_free()
 		return
-	var dealt := amount * (1.0 - armor)
+	var dealt := amount * (1.0 - armor) * dmg_taken_mult
 	hp -= dealt
 	_flash = 0.12
 	_bar_time = 2.5
@@ -159,6 +255,8 @@ func _draw() -> void:
 			_draw_tank(s)
 		"mech":
 			_draw_mech(s)
+		"void":
+			_draw_void_lesser(s)
 		_:
 			_draw_soldier(sgn, s)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
@@ -228,3 +326,15 @@ func _draw_mech(s: float) -> void:
 	draw_rect(Rect2(-2, -8, 14, 16), _c(Color(0.5, 0.85, 0.95)))
 	draw_rect(Rect2(10, -3, 20, 6), _c(Color(0.25, 0.27, 0.33)))
 	draw_circle(Vector2(-16, 0), 3.0, _c(Color(1.0, 0.2, 0.2)))
+
+func _draw_void_lesser(s: float) -> void:
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2(s, s))
+	var bob := sin(_walk * 0.8) * 2.0
+	draw_circle(Vector2(5, 10), radius, Color(0, 0, 0, 0.25))
+	draw_circle(Vector2(0, bob), radius + 6.0, Color(0.55, 0.2, 0.9, 0.22))
+	draw_circle(Vector2(0, bob), radius, _c(Color(0.22, 0.08, 0.35)))
+	draw_arc(Vector2(0, bob), radius * 0.8, _walk * 0.3, _walk * 0.3 + 4.0, 16, Color(0.7, 0.4, 1.0, 0.8), 2.5)
+	var f := Vector2.RIGHT.rotated(_heading)
+	draw_circle(Vector2(0, bob) + f * radius * 0.25, radius * 0.38, Color(0.95, 0.92, 1.0))
+	draw_circle(Vector2(0, bob) + f * radius * 0.4, radius * 0.2, Color(0.6, 0.2, 0.95))
+	draw_circle(Vector2(0, bob) + f * radius * 0.45, radius * 0.08, Color.BLACK)

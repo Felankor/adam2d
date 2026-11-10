@@ -27,6 +27,8 @@ func _draw() -> void:
 	_bar(Vector2(x, s.y - 160.0), Vector2(w, h), base.energy / base.max_energy, Color.ORANGE, en_text)
 	_bar(Vector2(x, s.y - 126.0), Vector2(w, h), base.hp / base.max_hp, Color.LIME_GREEN, hp_text)
 	_draw_skills(s)
+	_draw_weapon(Vector2(x - 82.0, s.y - 160.0))
+	_draw_helpers()
 
 func _text(pos: Vector2, text: String, font_size: int, color: Color) -> void:
 	var font := ThemeDB.fallback_font
@@ -89,3 +91,25 @@ func _draw_skill_icon(id: String, r: Rect2) -> void:
 			var outline := pts.duplicate()
 			outline.append(pts[0])
 			draw_polyline(outline, Color.WHITE, 2.5)
+
+# Current weapon icon next to the energy and health bars.
+func _draw_weapon(pos: Vector2) -> void:
+	Icons.draw(self, Weapons.id_of(base.weapon_tier), pos, 62.0 / 64.0, true)
+	var col: Color = Weapons.COLORS[base.weapon_tier]
+	draw_rect(Rect2(pos, Vector2(62, 62)), col, false, 2.0)
+
+# Helper allies as icons with counts (no profession names, just like the coin).
+func _draw_helpers() -> void:
+	var kinds := ["gunner", "scientist", "engineer", "mechanic"]
+	var counts := [base.gunners, base.scientists, base.engineers, base.mechanics]
+	var x := 28.0
+	var y := 118.0
+	for i in 4:
+		var kind: String = kinds[i]
+		var n: int = counts[i]
+		var dim := n == 0
+		Icons.draw(self, kind, Vector2(x, y), 44.0 / 64.0, true)
+		if dim:
+			draw_rect(Rect2(Vector2(x, y), Vector2(44, 44)), Color(0, 0, 0, 0.55))
+		_text(Vector2(x + 50.0, y + 32.0), "x %d" % n, 24, Color(1, 1, 1, 0.45) if dim else Color.WHITE)
+		x += 130.0

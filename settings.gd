@@ -20,6 +20,7 @@ static func load_and_apply() -> void:
 		sfx_volume = cfg.get_value("audio", "sfx_volume", 1.0)
 		muted = cfg.get_value("audio", "muted", false)
 	Keybinds.load_from(cfg)
+	DisplayServer.window_set_title("Castle in the Sky")
 	apply_scaling()
 	apply()
 

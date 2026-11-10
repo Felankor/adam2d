@@ -1,9 +1,12 @@
 class_name EnemyBolt
 extends Node2D
 
-# Purple energy orb fired by bosses at the base. Our shots can destroy it.
+# Something fired at the base that our shots can destroy:
+# style "orb"   = purple boss energy orb
+# style "shell" = orange tank shell
 signal hit_base(damage: float)
 
+var style: String = "orb"
 var target: Vector2 = Vector2.ZERO
 var speed: float = 260.0
 var damage: float = 2.0
@@ -24,6 +27,12 @@ func _process(delta: float) -> void:
 	queue_redraw()
 
 func _draw() -> void:
+	if style == "shell":
+		var dir := (target - position).normalized()
+		draw_line(Vector2.ZERO, -dir * 16.0, Color(1.0, 0.5, 0.1, 0.45), 6.0)
+		draw_circle(Vector2.ZERO, 9.0, Color(0.95, 0.45, 0.1))
+		draw_circle(Vector2.ZERO, 5.0, Color(1.0, 0.85, 0.3))
+		return
 	draw_circle(Vector2.ZERO, 15.0, Color(0.75, 0.3, 1.0, 0.25))
 	draw_circle(Vector2.ZERO, 9.0, Color(0.75, 0.3, 1.0))
 	draw_circle(Vector2.ZERO, 4.0, Color.WHITE)

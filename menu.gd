@@ -1,5 +1,7 @@
 extends Control
 
+const BG_PATH := "res://art/menu_bg.png"
+
 var _main_box: VBoxContainer
 var _diff_box: VBoxContainer
 var _settings: SettingsPanel
@@ -8,28 +10,57 @@ func _ready() -> void:
 	Settings.load_and_apply()
 	Cursors.set_mode(Cursors.Mode.ARROW)
 
+	# Background: the floating castle painting (falls back to a dark gradient).
 	var bg := ColorRect.new()
-	bg.color = Color(0.07, 0.08, 0.11)
+	bg.color = Color(0.07, 0.10, 0.20)
 	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(bg)
+	if ResourceLoader.exists(BG_PATH):
+		var pic := TextureRect.new()
+		pic.texture = load(BG_PATH) as Texture2D
+		pic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		pic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+		pic.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		add_child(pic)
 
-	var center := CenterContainer.new()
-	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	add_child(center)
+	# The menu sits in a column on the left so the castle stays visible.
+	var margin := MarginContainer.new()
+	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	margin.add_theme_constant_override("margin_left", 110)
+	margin.add_theme_constant_override("margin_right", 60)
+	add_child(margin)
+
+	var left := CenterContainer.new()
+	left.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	margin.add_child(left)
+
+	var panel := PanelContainer.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.04, 0.06, 0.12, 0.62)
+	sb.set_corner_radius_all(18)
+	sb.set_content_margin_all(34)
+	panel.add_theme_stylebox_override("panel", sb)
+	left.add_child(panel)
 
 	var stack := VBoxContainer.new()
-	stack.add_theme_constant_override("separation", 28)
-	center.add_child(stack)
+	stack.add_theme_constant_override("separation", 22)
+	panel.add_child(stack)
 
 	var title := Label.new()
-	title.text = "ADAM 2D"
+	title.text = "CASTLE\nIN THE SKY"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 96)
+	title.add_theme_font_size_override("font_size", 84)
+	title.add_theme_color_override("font_color", Color(1.0, 0.92, 0.65))
+	title.add_theme_constant_override("outline_size", 14)
+	title.add_theme_color_override("font_outline_color", Color(0.12, 0.10, 0.25))
+	title.add_theme_constant_override("line_spacing", -6)
 	stack.add_child(title)
 
 	var subtitle := Label.new()
 	subtitle.text = "Grow your village into a Death Star"
 	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	subtitle.add_theme_font_size_override("font_size", 22)
+	subtitle.add_theme_color_override("font_color", Color(0.85, 0.9, 1.0))
 	stack.add_child(subtitle)
 
 	# ----- main buttons -----
@@ -57,7 +88,7 @@ func _ready() -> void:
 	diff_title.add_theme_font_size_override("font_size", 28)
 	_diff_box.add_child(diff_title)
 	_diff_box.add_child(_button("Beginner  -  the standard experience", _on_start.bind(0)))
-	_diff_box.add_child(_button("Seasoned  -  denser waves, faster and tougher enemies", _on_start.bind(1)))
+	_diff_box.add_child(_button("Seasoned  -  denser waves, tougher foes", _on_start.bind(1)))
 	_diff_box.add_child(_button("Back", _show_main))
 
 	# ----- settings -----
@@ -70,7 +101,7 @@ func _button(text: String, handler: Callable) -> Button:
 	var b := Button.new()
 	b.text = text
 	b.add_theme_font_size_override("font_size", 24)
-	b.custom_minimum_size = Vector2(560, 64)
+	b.custom_minimum_size = Vector2(600, 64)
 	b.pressed.connect(handler)
 	return b
 
