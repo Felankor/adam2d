@@ -57,6 +57,9 @@ var skill_cd: Array[float] = [0.0, 0.0, 0.0, 0.0]
 var skill_cd_max: Array[float] = [BARRIER_COOLDOWN, BOOST_COOLDOWN, 1.0, 1.0]
 var barrier_time: float = 0.0
 var boost_time: float = 0.0
+var move_speed: float = 280.0
+var move_mult: float = 1.0          # Thrusters perk: +5% per reward pick
+var _vel: Vector2 = Vector2.ZERO
 
 var aim_angle: float = 0.0
 var _fire_cd: float = 0.0
@@ -142,6 +145,7 @@ func to_dict() -> Dictionary:
 		"max_energy": max_energy,
 		"energy_regen": energy_regen,
 		"damage_mult": damage_mult,
+		"move_mult": move_mult,
 		"weapon_tier": weapon_tier,
 		"auto_cannons": auto_cannons,
 		"auto_interval": auto_interval,
@@ -163,6 +167,7 @@ func from_dict(d: Dictionary) -> void:
 	energy = max_energy
 	energy_regen = float(d.get("energy_regen", 20.0))
 	damage_mult = float(d.get("damage_mult", 1.0))
+	move_mult = float(d.get("move_mult", 1.0))
 	weapon_tier = clampi(int(d.get("weapon_tier", 1)), 0, Weapons.MAX_TIER)
 	auto_cannons = int(d.get("auto_cannons", 0))
 	auto_interval = float(d.get("auto_interval", 1.5))
@@ -185,6 +190,7 @@ func _process(delta: float) -> void:
 	energy = minf(energy + energy_regen * delta, max_energy)
 	_fire_cd -= delta
 	aim_angle = (get_global_mouse_position() - global_position).angle()
+	_move(delta)
 
 	for i in skill_cd.size():
 		skill_cd[i] = maxf(skill_cd[i] - delta, 0.0)
@@ -227,6 +233,22 @@ func _process(delta: float) -> void:
 			heal(1.0)
 
 	queue_redraw()
+
+# The castle can be flown around the map with the move keys (WASD by default).
+func _move(delta: float) -> void:
+	var dir := Vector2(
+		Input.get_action_strength("move_right") - Input.get_action_strength("move_left"),
+		Input.get_action_strength("move_down") - Input.get_action_strength("move_up"))
+	if dir.length() > 1.0:
+		dir = dir.normalized()
+	_vel = _vel.lerp(dir * move_speed * move_mult, 1.0 - exp(-7.0 * delta))
+	if _vel.length() < 1.0 and dir == Vector2.ZERO:
+		_vel = Vector2.ZERO
+		return
+	var view := Settings.view_rect()
+	var lo := view.position + Vector2(170.0, 210.0)
+	var hi := view.end - Vector2(170.0, 340.0)
+	position = (position + _vel * delta).clamp(lo, hi)
 
 func _fire(angle: float, dmg: float, is_auto: bool) -> void:
 	var dir := Vector2.RIGHT.rotated(angle)

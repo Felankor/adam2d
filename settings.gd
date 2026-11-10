@@ -5,6 +5,14 @@ const PATH := "user://settings.cfg"
 # The game is designed for a 1920x1080 virtual screen. Godot scales it to
 # the real window, so 1080p, 2K (1440p) and 4K monitors all look sharp.
 const WORLD_SIZE := Vector2(1920, 1080)
+const VIEW_ZOOM := 0.75    # default zoom and the size of the play area (0.75 = 2560x1440)
+const ZOOM_MIN := 0.5      # mouse-wheel zoom limits
+const ZOOM_MAX := 1.5
+
+# The part of the map the camera actually shows.
+static func view_rect() -> Rect2:
+	var size := WORLD_SIZE / VIEW_ZOOM
+	return Rect2((WORLD_SIZE - size) * 0.5, size)
 
 static var fullscreen: bool = false
 static var volume: float = 1.0

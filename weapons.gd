@@ -15,7 +15,7 @@ const INTERVAL := [0.1, 0.25, 0.6, 0.2]
 # Auto-weapon damage per shot (they fire every auto_interval seconds)
 const AUTO_DAMAGE := [3.0, 8.0, 18.0, 14.0]
 # Gold price of the upgrade that leads TO tier index+1
-const UPGRADE_PRICE := [100, 400, 1000]
+const UPGRADE_PRICE := [100, 400, 2000]
 # Projectile style per tier ("beam" = instant piercing laser)
 const STYLE := ["bullet", "shell", "rocket", "beam"]
 const SOUNDS := ["mg", "shoot", "rocket", "laser"]

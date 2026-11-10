@@ -3,8 +3,12 @@ extends RefCounted
 
 # Rebindable actions. Esc (menu), the number keys in the shop and the
 # mouse button are fixed.
-const ORDER := ["pause_game", "open_shop", "skill_1", "skill_2", "skill_3", "skill_4"]
+const ORDER := ["move_up", "move_left", "move_down", "move_right", "pause_game", "open_shop", "skill_1", "skill_2", "skill_3", "skill_4"]
 const LABELS := {
+	"move_up": "Move up",
+	"move_left": "Move left",
+	"move_down": "Move down",
+	"move_right": "Move right",
 	"pause_game": "Pause game",
 	"open_shop": "Open shop",
 	"skill_1": "Skill slot 1",
@@ -13,6 +17,10 @@ const LABELS := {
 	"skill_4": "Skill slot 4",
 }
 const DEFAULTS := {
+	"move_up": KEY_W,
+	"move_left": KEY_A,
+	"move_down": KEY_S,
+	"move_right": KEY_D,
 	"pause_game": KEY_SPACE,
 	"open_shop": KEY_TAB,
 	"skill_1": KEY_V,

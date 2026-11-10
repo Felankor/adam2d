@@ -29,6 +29,7 @@ const UPGRADES := [
 	{"id": "walls", "name": "Thicker walls", "icon": "walls", "desc": "Max health +10 and heal 10"},
 	{"id": "repair", "name": "Field repairs", "icon": "repair", "desc": "Heal 50% of max health"},
 	{"id": "coins", "name": "Tax collection", "icon": "coin", "desc": "Gain bonus gold\n(more in later levels)"},
+	{"id": "speed", "name": "Thrusters", "icon": "speed", "desc": "Castle move speed +5%"},
 	{"id": "laser", "name": "Laser sight", "icon": "sight", "desc": "A red laser shows exactly\nwhere your weapon will hit"},
 ]
 
@@ -64,6 +65,8 @@ var _msg: String = ""
 var _msg_time: float = 0.0
 var _banner_tween: Tween
 var _shake: float = 0.0
+var _zoom: float = Settings.VIEW_ZOOM
+var _zoom_target: float = Settings.VIEW_ZOOM
 var _clear_timer: float = -1.0
 var _boss_level: bool = false
 
@@ -81,6 +84,7 @@ func _ready() -> void:
 	if not data.is_empty():
 		_apply_save(data)
 	backdrop.biome = biome
+	_fit_backdrop(backdrop)
 	add_child(backdrop)
 	add_child(base)
 	base.destroyed.connect(_on_base_destroyed)
@@ -90,6 +94,7 @@ func _ready() -> void:
 	camera = Camera2D.new()
 	camera.position = Settings.WORLD_SIZE * 0.5
 	add_child(camera)
+	camera.zoom = Vector2(Settings.VIEW_ZOOM, Settings.VIEW_ZOOM)
 	camera.make_current()
 
 	var layer := CanvasLayer.new()
@@ -236,6 +241,8 @@ func _start_level() -> void:
 	var new_biome := _biome_for(level)
 	if new_biome != biome:
 		_change_biome(new_biome)
+		if new_biome < BIOME_ENEMY_NOTES.size() and BIOME_ENEMY_NOTES[new_biome] != "":
+			_notify(str(BIOME_ENEMY_NOTES[new_biome]), "skull", Color(1.0, 0.6, 0.3))
 	var title := "Level %d  -  %s" % [level, BIOME_NAMES[biome]]
 	_boss_level = level % LEVELS_PER_BIOME == 0
 	Enemy.space_mode = biome == SPACE_BIOME
@@ -263,6 +270,7 @@ func _change_biome(new_biome: int) -> void:
 	var old := backdrop
 	var fresh := Backdrop.new()
 	fresh.biome = new_biome
+	_fit_backdrop(fresh)
 	fresh.modulate.a = 0.0
 	add_child(fresh)
 	move_child(fresh, old.get_index() + 1)
@@ -270,6 +278,12 @@ func _change_biome(new_biome: int) -> void:
 	var tw := create_tween()
 	tw.tween_property(fresh, "modulate:a", 1.0, 3.0)
 	tw.tween_callback(old.queue_free)
+
+# The backdrop is drawn for 1920x1080; stretch it to cover the whole visible map.
+func _fit_backdrop(b: Backdrop) -> void:
+	var k := 1.0 / Settings.ZOOM_MIN
+	b.scale = Vector2(k, k)
+	b.position = Settings.WORLD_SIZE * 0.5 * (1.0 - k)
 
 func _show_banner(text: String, important: bool = false) -> void:
 	banner.text = text
@@ -295,6 +309,7 @@ func _show_banner(text: String, important: bool = false) -> void:
 
 func _process(delta: float) -> void:
 	_update_cursor()
+	_update_camera(delta)
 	if _manual_paused:
 		# Blink the "game paused" popup until the game resumes
 		pause_panel.visible = int(Time.get_ticks_msec() / 500.0) % 2 == 0
@@ -303,6 +318,9 @@ func _process(delta: float) -> void:
 	if get_tree().paused:
 		return
 	_update_shake(delta)
+	for group in ["enemies", "allies", "bolts"]:
+		for node in get_tree().get_nodes_in_group(group):
+			node.set("target", base.position)
 	if _msg_time > 0.0:
 		_msg_time -= delta
 		if _msg_time <= 0.0:
@@ -350,6 +368,22 @@ func _update_cursor() -> void:
 			over = true
 			break
 	Cursors.set_mode(Cursors.Mode.AGGRESSIVE if over else Cursors.Mode.CROSSHAIR)
+
+# Smooth mouse-wheel zoom. When zoomed in, the camera follows the castle but never
+# leaves the play area.
+func _update_camera(delta: float) -> void:
+	_zoom = lerpf(_zoom, _zoom_target, 1.0 - exp(-10.0 * delta))
+	camera.zoom = Vector2(_zoom, _zoom)
+	var view := Settings.WORLD_SIZE / _zoom
+	var arena := Settings.view_rect().size
+	var c := Settings.WORLD_SIZE * 0.5
+	var half := (arena - view) * 0.5
+	var want := c
+	if half.x > 0.0:
+		want.x = clampf(base.position.x, c.x - half.x, c.x + half.x)
+	if half.y > 0.0:
+		want.y = clampf(base.position.y, c.y - half.y, c.y + half.y)
+	camera.position = camera.position.lerp(want, 1.0 - exp(-6.0 * delta))
 
 func _add_shake(amount: float) -> void:
 	_shake = maxf(_shake, amount)
@@ -439,6 +473,9 @@ func _apply_upgrade(id: String) -> String:
 			var gain := 5 + level * 3
 			coins += gain
 			return "Collected %d gold" % gain
+		"speed":
+			base.move_mult += 0.05
+			return "Move speed +5%"
 		"laser":
 			base.laser = true
 			return "Laser sight installed"
@@ -448,21 +485,53 @@ func _apply_upgrade(id: String) -> String:
 
 # A point just outside the screen, in a random direction from the base.
 func _edge_spawn_pos() -> Vector2:
-	var d := Vector2.RIGHT.rotated(randf() * TAU)
-	var rect := Rect2(Vector2.ZERO, Settings.WORLD_SIZE).grow(60.0)
-	var tx := INF
-	var ty := INF
-	if absf(d.x) > 0.0001:
-		tx = ((rect.end.x if d.x > 0.0 else rect.position.x) - BASE_POS.x) / d.x
-	if absf(d.y) > 0.0001:
-		ty = ((rect.end.y if d.y > 0.0 else rect.position.y) - BASE_POS.y) / d.y
-	return BASE_POS + d * minf(tx, ty)
+	var rect := Settings.view_rect().grow(60.0)
+	var c := rect.get_center()
+	var pos := c
+	for attempt in 8:
+		var d := Vector2.RIGHT.rotated(randf() * TAU)
+		var tx := INF
+		var ty := INF
+		if absf(d.x) > 0.0001:
+			tx = ((rect.end.x if d.x > 0.0 else rect.position.x) - c.x) / d.x
+		if absf(d.y) > 0.0001:
+			ty = ((rect.end.y if d.y > 0.0 else rect.position.y) - c.y) / d.y
+		pos = c + d * minf(tx, ty)
+		if pos.distance_to(base.position) > 550.0:   # never spawn on top of the castle
+			break
+	return pos
+
+const BIOME_ENEMY_NOTES := [
+	"",
+	"Bloodworms swarm in - tiny, very fast and fragile!",
+	"Golems approach - they split into a smaller golem when destroyed!",
+	"Demons rise from the lava - tough, fast and brutal!",
+	"Hunter packs incoming - they dodge a lot and shoot from far away!",
+]
 
 func _pick_kind() -> String:
+	var special := ""
+	var w_special := 0.0
+	match biome:
+		1:
+			special = "worm"
+			w_special = 40.0
+		2:
+			special = "golem"
+			w_special = 22.0
+		3:
+			special = "demon"
+			w_special = 16.0
+		4:
+			special = "hunter"
+			w_special = 14.0
 	var w_mech := 0.0 if level < 2 else minf(18.0 + level * 1.5, 40.0)
 	var w_tank := 0.0 if level < 3 else minf(10.0 + level * 1.5, 30.0)
-	var total := 100.0 + w_mech + w_tank
+	var total := 100.0 + w_mech + w_tank + w_special
 	var r := randf() * total
+	if r < w_special:
+		return special
+	r -= w_special
 	if r < w_tank:
 		return "tank"
 	if r < w_tank + w_mech:
@@ -484,17 +553,32 @@ func _spawn_mob() -> void:
 	if biome != SPACE_BIOME and randf() < ALLY_CHANCE:   # no refugees in space
 		e = Enemy.make_ally()
 	else:
-		e = Enemy.make(_pick_kind(), level)
+		var k := _pick_kind()
+		if k == "hunter":
+			_spawn_hunters()
+			return
+		e = Enemy.make(k, level)
 		alive += 1
 	e.position = _edge_spawn_pos()
-	e.target = BASE_POS
+	e.target = base.position
 	e.reach = base.body_radius()
 	_register_mob(e)
+
+# Hunters arrive as a pack of five.
+func _spawn_hunters() -> void:
+	var center := _edge_spawn_pos()
+	for i in 5:
+		var h := Enemy.make("hunter", level)
+		h.position = center + Vector2.RIGHT.rotated(TAU * float(i) / 5.0) * 50.0
+		h.target = base.position
+		h.reach = base.body_radius()
+		alive += 1
+		_register_mob(h)
 
 func _spawn_soldier_at(pos: Vector2) -> void:
 	var s := Enemy.make("soldier", level)
 	s.position = pos
-	s.target = BASE_POS
+	s.target = base.position
 	s.reach = base.body_radius()
 	alive += 1
 	_register_mob(s, true)
@@ -507,7 +591,7 @@ func _spawn_minions(pos: Vector2, count: int) -> void:
 		var m := Enemy.make_minion(level)
 		var a := randf() * TAU
 		m.position = pos + Vector2.RIGHT.rotated(a) * randf_range(50.0, 120.0)
-		m.target = BASE_POS
+		m.target = base.position
 		m.reach = base.body_radius()
 		alive += 1
 		_register_mob(m, true)
@@ -516,7 +600,7 @@ func _spawn_boss() -> void:
 	var b := Boss.make_boss(level, biome)
 	b.boss_name = BOSS_NAMES[biome]
 	b.position = _edge_spawn_pos()
-	b.target = BASE_POS
+	b.target = base.position
 	b.died.connect(_on_enemy_died)
 	b.summon.connect(_spawn_minions)
 	b.summon_lesser.connect(_on_boss_lesser)
@@ -531,7 +615,7 @@ func _spawn_boss() -> void:
 func _on_boss_lesser(pos: Vector2, hp: float, dmg: float, spd: float) -> void:
 	var e := Enemy.make_void_lesser(hp, dmg, spd)
 	e.position = pos
-	e.target = BASE_POS
+	e.target = base.position
 	e.reach = base.body_radius()
 	alive += 1
 	_register_mob(e, true)
@@ -546,7 +630,7 @@ func _on_boss_beam(dmg: float) -> void:
 func _on_boss_bolt(from_pos: Vector2, dmg: float) -> void:
 	var b := EnemyBolt.new()
 	b.position = from_pos
-	b.target = BASE_POS
+	b.target = base.position
 	b.damage = dmg
 	b.reach = base.body_radius()
 	b.hit_base.connect(base.take_damage)
@@ -557,7 +641,7 @@ func _on_tank_shoot(origin: Vector2, dmg: float) -> void:
 	b.style = "shell"
 	b.speed = 340.0
 	b.position = origin
-	b.target = BASE_POS
+	b.target = base.position
 	b.damage = dmg
 	b.reach = base.body_radius()
 	b.hit_base.connect(base.take_damage)
@@ -572,9 +656,18 @@ func _on_enemy_died(e: Enemy) -> void:
 	if e.kind == "mech":
 		# The vehicle explodes and leaves 3 soldiers spread to its sides.
 		_add_shake(7.0)
-		var side := (BASE_POS - e.position).normalized().orthogonal()
+		var side := (base.position - e.position).normalized().orthogonal()
 		for off in [-55.0, 0.0, 55.0]:
 			_spawn_soldier_at(e.position + side * off)
+	elif e.kind == "golem" and not e.is_small:
+		# The golem crumbles and leaves one smaller golem behind.
+		_add_shake(9.0)
+		var sg := Enemy.make_small_golem(e)
+		sg.position = e.position
+		sg.target = base.position
+		sg.reach = base.body_radius()
+		alive += 1
+		_register_mob(sg, true)
 	elif e.kind == "boss":
 		_add_shake(22.0)
 		_notify("%s defeated!  +%d" % [BOSS_NAMES[biome], e.reward], "coin", Color(1.0, 0.85, 0.3))
@@ -621,6 +714,12 @@ func _recruit() -> void:
 # ---------- Input: Esc menu, pause, shop, skills ----------
 
 func _input(event: InputEvent) -> void:
+	var mb := event as InputEventMouseButton
+	if mb != null and mb.pressed and (mb.button_index == MOUSE_BUTTON_WHEEL_UP or mb.button_index == MOUSE_BUTTON_WHEEL_DOWN):
+		if not (shop_menu.visible or upgrade_menu.visible or pause_menu.visible):
+			var step := 1.1 if mb.button_index == MOUSE_BUTTON_WHEEL_UP else 1.0 / 1.1
+			_zoom_target = clampf(_zoom_target * step, Settings.ZOOM_MIN, Settings.ZOOM_MAX)
+		return
 	var key := event as InputEventKey
 	if key == null or not key.pressed or key.echo:
 		return

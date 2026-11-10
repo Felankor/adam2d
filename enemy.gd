@@ -9,7 +9,9 @@ signal shoot(origin: Vector2, dmg: float)    # tanks fire shells at the base
 static var space_mode: bool = false
 var space: bool = false
 
-var kind: String = "soldier"      # "soldier", "tank", "mech", "void" (Boss uses "boss")
+var kind: String = "soldier"      # "soldier", "tank", "mech", "worm", "golem", "demon", "hunter", "void" (Boss uses "boss")
+var is_small: bool = false        # a small golem (spawned when a golem dies) does not split again
+var shoot_interval: float = 2.4
 var is_minion: bool = false       # summoned by a boss: no gold, vanishes when the boss dies
 var is_ally: bool = false
 var hp: float = 10.0
@@ -73,6 +75,40 @@ static func make(k: String, level: int) -> Enemy:
 			e.damage = 2.0 * dmg_mult
 			e.reward = 3 + int(level * 0.4)
 			e.radius = 22.0
+		"worm":       # Mudland: Bloodworm - tiny, very fast, fragile
+			e.hp = (5.0 + lvl * 1.2) * GameState.hp_mult()
+			e.speed = minf(250.0 + lvl * 4.0, 400.0) * GameState.speed_mult()
+			e.damage = 0.7 * dmg_mult
+			e.reward = 1 + int(level * 0.3)
+			e.radius = 11.0
+		"golem":      # Rocky Mountain: bigger and stronger than a tank, same speed
+			e.hp = (90.0 + lvl * 25.0) * GameState.hp_mult()
+			e.speed = minf(32.0 + lvl * 1.5, 70.0) * GameState.speed_mult()
+			e.damage = 5.0 * dmg_mult
+			e.armor = 0.25
+			e.reward = 8 + int(level * 0.7)
+			e.radius = 38.0
+		"demon":      # Hell: faster and stronger than a golem, 3x its health
+			e.hp = (90.0 + lvl * 25.0) * 3.0 * GameState.hp_mult()
+			e.speed = minf(32.0 + lvl * 1.5, 70.0) * 1.6 * GameState.speed_mult()
+			e.damage = 8.0 * dmg_mult
+			e.armor = 0.1
+			e.reward = 25 + int(level * 1.2)
+			e.radius = 42.0
+		"hunter":     # Space: spawn in packs of 5, dodge again and again, shoot from far away
+			e.hp = (20.0 + lvl * 2.5) * GameState.hp_mult()
+			e.speed = minf(120.0 + lvl * 2.0, 190.0) * GameState.speed_mult()
+			e.damage = 1.5 * dmg_mult
+			e.shoots = true
+			e.shoot_range = randf_range(800.0, 940.0)    # twice a tank's range
+			e.shoot_interval = 3.0
+			e._shoot_cd = randf_range(0.5, 2.5)
+			e.dodge_chance = 0.9
+			e.dodge_cd_time = 0.3
+			e.dodge_dash = 420.0
+			e.reward = 3 + int(level * 0.4)
+			e.radius = 20.0
+			e.space = true
 		_:
 			e.kind = "soldier"
 			e.hp = (10.0 + lvl * 4.0) * GameState.hp_mult()
@@ -80,7 +116,7 @@ static func make(k: String, level: int) -> Enemy:
 			e.damage = 1.0 * dmg_mult
 			e.reward = 1 + int(level * 0.5)
 			e.radius = 15.0
-	if space_mode:
+	if space_mode and (e.kind == "tank" or e.kind == "mech" or e.kind == "soldier"):
 		e.space = true
 		match e.kind:
 			"tank":      # starship
@@ -99,6 +135,20 @@ static func make(k: String, level: int) -> Enemy:
 				e.dodge_cd_time = 1.0
 				e.dodge_dash = 420.0
 	e.max_hp = e.hp
+	return e
+
+# The smaller golem left behind when a golem is destroyed.
+static func make_small_golem(parent: Enemy) -> Enemy:
+	var e := Enemy.new()
+	e.kind = "golem"
+	e.is_small = true
+	e.hp = parent.max_hp * 0.4
+	e.max_hp = e.hp
+	e.speed = parent.speed
+	e.damage = parent.damage * 0.55
+	e.armor = parent.armor
+	e.reward = maxi(parent.reward / 2, 1)
+	e.radius = 22.0
 	return e
 
 # A weak soldier summoned by a boss. Gives no gold.
@@ -170,7 +220,7 @@ func _process(delta: float) -> void:
 		_heading = to_target.angle()
 		_shoot_cd -= delta
 		if _shoot_cd <= 0.0:
-			_shoot_cd = 2.4
+			_shoot_cd = shoot_interval
 			shoot.emit(position + Vector2.RIGHT.rotated(_heading) * 38.0, damage)
 			Sfx.play("tank_fire", -3.0)
 		position += _update_dodge(delta) * delta
@@ -242,8 +292,10 @@ func take_damage(amount: float) -> void:
 	_scale_pop = 0.12
 	var back := -Vector2.RIGHT.rotated(_heading)
 	match kind:
-		"tank":
-			_hit_reaction(back, 35.0)    # heavy: barely moves
+		"tank", "golem", "demon":
+			_hit_reaction(back, 35.0 if kind == "tank" else 20.0)    # heavy: barely moves
+		"worm":
+			_hit_reaction(back, 300.0)
 		"mech":
 			_hit_reaction(back, 260.0)   # light: gets thrown back
 		_:
@@ -257,7 +309,7 @@ func take_damage(amount: float) -> void:
 	Fx.spawn(par, "number", position + Vector2(0, -radius - 12.0), Color.WHITE, str(int(ceil(dealt))), 1.0, 0.7)
 	if hp <= 0.0:
 		dead = true
-		if kind == "mech":
+		if kind == "mech" or kind == "golem" or kind == "demon":
 			Fx.spawn(par, "explosion", position, Color.WHITE, "", 1.0, 0.6)
 			Sfx.play("explode")
 		else:
@@ -284,6 +336,14 @@ func _draw() -> void:
 				_draw_corvette(s)
 			else:
 				_draw_mech(s)
+		"worm":
+			_draw_worm(s)
+		"golem":
+			_draw_golem(s)
+		"demon":
+			_draw_demon(s)
+		"hunter":
+			_draw_hunter(s)
 		"void":
 			_draw_void_lesser(s)
 		_:
@@ -432,3 +492,74 @@ func _draw_corvette(s: float) -> void:
 	draw_line(Vector2(-12, 6), Vector2(18, 4), _c(Color(0.28, 0.3, 0.4)), 2.0)
 	draw_circle(Vector2(10, 0), 5.0, _c(Color(0.5, 0.92, 1.0)))
 	draw_circle(Vector2(-17, 0), 2.5, _c(Color(1.0, 0.2, 0.2)))
+
+# ---------- Biome-specific enemies ----------
+
+# Mudland: Bloodworm
+func _draw_worm(s: float) -> void:
+	draw_set_transform(Vector2.ZERO, _heading, Vector2(s, s))
+	for i in range(6, 0, -1):
+		var y := sin(_walk * 0.35 - float(i) * 0.9) * 4.0
+		var rr := 6.0 - float(i) * 0.6
+		draw_circle(Vector2(-float(i) * 5.0, y), rr, _c(Color(0.62, 0.1, 0.14).lerp(Color(0.32, 0.04, 0.08), float(i) / 6.0)))
+	draw_circle(Vector2(3, 0), 6.0, _c(Color(0.78, 0.16, 0.2)))
+	_poly([Vector2(8, -3), Vector2(13, 0), Vector2(8, 3)], Color(0.2, 0.02, 0.04))
+	draw_circle(Vector2(4, -3), 1.4, Color(1.0, 0.9, 0.3))
+	draw_circle(Vector2(4, 3), 1.4, Color(1.0, 0.9, 0.3))
+
+# Rocky Mountain: Golem (a small golem is the same drawing, scaled down)
+func _draw_golem(s: float) -> void:
+	var sc := s * (0.6 if is_small else 1.0)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2(sc, sc))
+	var swing := sin(_walk * 1.5) * 5.0
+	var rock := _c(Color(0.42, 0.38, 0.35))
+	var dark := _c(Color(0.26, 0.23, 0.22))
+	draw_circle(Vector2(6, 34), 28.0, Color(0, 0, 0, 0.22))
+	draw_circle(Vector2(-22, 6 + swing), 13.0, dark)
+	draw_circle(Vector2(22, 6 - swing), 13.0, dark)
+	draw_circle(Vector2(-22, 6 + swing), 10.0, rock)
+	draw_circle(Vector2(22, 6 - swing), 10.0, rock)
+	draw_circle(Vector2(-10, 26), 10.0, dark)
+	draw_circle(Vector2(10, 26), 10.0, dark)
+	_poly([Vector2(-20, -12), Vector2(-12, -24), Vector2(12, -24), Vector2(20, -12), Vector2(22, 14), Vector2(10, 28), Vector2(-10, 28), Vector2(-22, 14)], rock)
+	_poly([Vector2(-10, -24), Vector2(-6, -36), Vector2(6, -36), Vector2(10, -24)], dark)
+	var glow := 0.7 + 0.3 * sin(_walk * 2.0)
+	draw_line(Vector2(-12, -8), Vector2(-4, 4), Color(1.0, 0.5, 0.1, glow), 2.0)
+	draw_line(Vector2(-4, 4), Vector2(-9, 16), Color(1.0, 0.5, 0.1, glow), 2.0)
+	draw_line(Vector2(10, -6), Vector2(4, 8), Color(1.0, 0.5, 0.1, glow), 2.0)
+	draw_circle(Vector2(-3, -30), 2.2, Color(1.0, 0.6, 0.15))
+	draw_circle(Vector2(3, -30), 2.2, Color(1.0, 0.6, 0.15))
+
+# Hell: Demon
+func _draw_demon(s: float) -> void:
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2(s, s))
+	var flap := sin(_walk * 0.7) * 8.0
+	var red := _c(Color(0.7, 0.1, 0.1))
+	var dark := _c(Color(0.32, 0.04, 0.06))
+	draw_circle(Vector2(0, 0), 46.0, Color(1.0, 0.4, 0.1, 0.12))
+	draw_circle(Vector2(6, 36), 28.0, Color(0, 0, 0, 0.22))
+	_poly([Vector2(-8, -10), Vector2(-46, -30 + flap), Vector2(-40, -4), Vector2(-30, 8), Vector2(-14, 10)], dark)
+	_poly([Vector2(8, -10), Vector2(46, -30 + flap), Vector2(40, -4), Vector2(30, 8), Vector2(14, 10)], dark)
+	draw_line(Vector2(-30, 28), Vector2(-14, 6), dark, 6.0)
+	draw_line(Vector2(30, 28), Vector2(14, 6), dark, 6.0)
+	_poly([Vector2(-16, -14), Vector2(-10, -22), Vector2(10, -22), Vector2(16, -14), Vector2(18, 14), Vector2(8, 30), Vector2(-8, 30), Vector2(-18, 14)], red)
+	draw_circle(Vector2(0, -30), 13.0, red)
+	_poly([Vector2(-11, -36), Vector2(-20, -54), Vector2(-5, -40)], _c(Color(0.95, 0.9, 0.8)))
+	_poly([Vector2(11, -36), Vector2(20, -54), Vector2(5, -40)], _c(Color(0.95, 0.9, 0.8)))
+	draw_circle(Vector2(-5, -31), 2.6, Color(1.0, 0.9, 0.2))
+	draw_circle(Vector2(5, -31), 2.6, Color(1.0, 0.9, 0.2))
+	draw_line(Vector2(-5, -24), Vector2(5, -24), Color(0.15, 0.0, 0.0), 2.0)
+	var fl := 0.6 + 0.4 * sin(_walk * 1.3)
+	_poly([Vector2(-6, 30), Vector2(0, 44 + 6.0 * fl), Vector2(6, 30)], Color(1.0, 0.55, 0.1, 0.9))
+
+# Space: Hunter (members of a pack of 5)
+func _draw_hunter(s: float) -> void:
+	draw_set_transform(Vector2.ZERO, _heading, Vector2(s, s))
+	_engine_flame(Vector2(-16, -5), 5.0)
+	_engine_flame(Vector2(-16, 5), 5.0)
+	_poly_sym([Vector2(8, -6), Vector2(-14, -18), Vector2(-18, -14), Vector2(-8, -4)], _c(Color(0.35, 0.1, 0.25)))
+	_poly([Vector2(28, 0), Vector2(8, -8), Vector2(-16, -9), Vector2(-14, 0), Vector2(-16, 9), Vector2(8, 8)], _c(Color(0.62, 0.16, 0.38)))
+	_poly([Vector2(28, 0), Vector2(14, -4), Vector2(14, 4)], _c(Color(0.9, 0.9, 0.95)))
+	draw_line(Vector2(4, -17), Vector2(22, -17), _c(Color(0.12, 0.05, 0.1)), 2.5)
+	draw_line(Vector2(4, 17), Vector2(22, 17), _c(Color(0.12, 0.05, 0.1)), 2.5)
+	draw_circle(Vector2(6, 0), 3.0, _c(Color(1.0, 0.85, 0.3)))

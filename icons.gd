@@ -39,6 +39,8 @@ static func draw(ci: CanvasItem, kind: String, origin: Vector2, k: float, with_b
 			_walls(ci)
 		"sight":
 			_sight(ci)
+		"speed":
+			_speed(ci)
 		"coin":
 			ci.draw_texture_rect(CoinTex.get_texture(), Rect2(8, 8, 48, 48), false)
 		# helpers
@@ -62,6 +64,14 @@ static func draw(ci: CanvasItem, kind: String, origin: Vector2, k: float, with_b
 		"star":
 			_star(ci)
 	ci.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+static func _speed(ci: CanvasItem) -> void:
+	for y in [18.0, 32.0, 46.0]:
+		ci.draw_line(Vector2(6, y), Vector2(22, y), Color(0.6, 0.9, 1.0, 0.7), 3.0)
+	for i in 2:
+		var x := 26.0 + i * 16.0
+		var pts := PackedVector2Array([Vector2(x, 14), Vector2(x + 14, 32), Vector2(x, 50), Vector2(x + 7, 32)])
+		ci.draw_colored_polygon(pts, Color(0.35, 0.85, 1.0) if i == 0 else Color(0.7, 0.95, 1.0))
 
 # ---------- weapons ----------
 

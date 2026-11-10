@@ -98,9 +98,9 @@ func _process(delta: float) -> void:
 	_heading = vel.angle()
 	vel += _update_dodge(delta)      # bosses sidestep shots that fly straight at them
 	position += vel * delta
-	var limit := Settings.WORLD_SIZE
+	var view := Settings.view_rect()
 	var m := radius + 40.0
-	position = position.clamp(Vector2(m, m + 90.0), Vector2(limit.x - m, limit.y - 200.0 - radius * 0.3))
+	position = position.clamp(view.position + Vector2(m, m + 40.0), view.end - Vector2(m, 120.0 + radius * 0.3))
 
 	if regen_rate > 0.0 and hp < max_hp:
 		hp = minf(hp + max_hp * regen_rate * delta, max_hp)

@@ -47,6 +47,8 @@ func refresh() -> void:
 	_heading("Controls")
 	_key_row("Aim", "Mouse")
 	_key_row("Fire (hold)", "Left mouse button")
+	_key_row("Move the castle", "%s %s %s %s" % [Keybinds.key_text("move_up"), Keybinds.key_text("move_left"), Keybinds.key_text("move_down"), Keybinds.key_text("move_right")])
+	_key_row("Zoom in / out", "Mouse wheel")
 	_key_row("Pause game", Keybinds.key_text("pause_game"))
 	_key_row("Open shop", Keybinds.key_text("open_shop"))
 	_key_row("Skill slot 1 (Barrier)", Keybinds.key_text("skill_1"))
