@@ -5,9 +5,9 @@ extends Enemy
 #   Garden Warden   - "speed"  very high speed
 #   Mud Colossus    - "regen"  fast health regeneration + takes 25% less damage
 #   Stone Titan     - "titan"  3 phases, grows +50% (hp, speed, power, size) after each
-#   Void Overlord   - "void"   splits into two lesser copies every 10 s; if they live
-#                              for 5 s it fires an uncancellable energy beam
 #   Hell Lord       - "hell"   summons 15 soldiers every 4 s
+#   Void Overlord   - "void"   splits into two lesser copies every 10 s; if they live
+#                              for 5 s it fires an uncancellable energy beam (Space biome)
 # All other bosses summon 5 soldiers every 5 s and lob energy orbs at the base.
 
 signal summon(pos: Vector2, count: int)
@@ -16,7 +16,7 @@ signal bolt(origin: Vector2, dmg: float)
 signal beam(dmg: float)
 signal announce(text: String, icon: String)
 
-const ABILITIES := ["speed", "regen", "titan", "void", "hell"]
+const ABILITIES := ["speed", "regen", "titan", "hell", "void"]
 const BEAM_CHARGE_TIME := 1.6
 const BEAM_FLASH_TIME := 0.5
 

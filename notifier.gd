@@ -1,7 +1,7 @@
 class_name Notifier
 extends VBoxContainer
 
-# Small pop-up messages in the bottom-left corner ("Taken Damage!", "Ally hit!").
+# Small pop-up messages in the bottom-left corner ("Taken Damage!", "Refugee Hit!").
 # Repeats of the same message are merged into one toast with a counter.
 const MAX_TOASTS := 5
 const LIFE := 3.2

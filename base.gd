@@ -24,6 +24,9 @@ const RANGE_STEP := 40.0
 const MAX_RANGE := 1000.0
 const BARRIER_DURATION := 3.0
 const BARRIER_COOLDOWN := 10.0
+const BOOST_DURATION := 5.0        # Overcharge skill: +30% weapon damage for 5 s
+const BOOST_COOLDOWN := 15.0
+const BOOST_MULT := 1.3
 
 var tier: int = 0
 var max_hp: float = 20.0
@@ -49,10 +52,11 @@ var engineers: int = 0
 var mechanics: int = 0
 
 # Active skills: 4 slots, triggered with the skill keybinds (V, B, N, M by default).
-var skill_slots: Array[String] = ["barrier", "", "", ""]
+var skill_slots: Array[String] = ["barrier", "overcharge", "", ""]
 var skill_cd: Array[float] = [0.0, 0.0, 0.0, 0.0]
-var skill_cd_max: Array[float] = [BARRIER_COOLDOWN, 1.0, 1.0, 1.0]
+var skill_cd_max: Array[float] = [BARRIER_COOLDOWN, BOOST_COOLDOWN, 1.0, 1.0]
 var barrier_time: float = 0.0
+var boost_time: float = 0.0
 
 var aim_angle: float = 0.0
 var _fire_cd: float = 0.0
@@ -119,7 +123,16 @@ func use_skill(slot: int) -> bool:
 			skill_cd[slot] = BARRIER_COOLDOWN
 			skill_cd_max[slot] = BARRIER_COOLDOWN
 			return true
+		"overcharge":
+			boost_time = BOOST_DURATION
+			skill_cd[slot] = BOOST_COOLDOWN
+			skill_cd_max[slot] = BOOST_COOLDOWN
+			return true
 	return false
+
+# Total damage multiplier (upgrades, allies and the Overcharge skill).
+func dmg_factor() -> float:
+	return damage_mult * (BOOST_MULT if boost_time > 0.0 else 1.0)
 
 func to_dict() -> Dictionary:
 	return {
@@ -161,7 +174,8 @@ func from_dict(d: Dictionary) -> void:
 	mechanics = int(d.get("mechanics", d.get("medics", 0)))
 	var saved: Array = d.get("skills", [])
 	for i in skill_slots.size():
-		skill_slots[i] = str(saved[i]) if i < saved.size() else skill_slots[i]
+		if i < saved.size() and str(saved[i]) != "":
+			skill_slots[i] = str(saved[i])
 	queue_redraw()
 
 func _process(delta: float) -> void:
@@ -174,6 +188,8 @@ func _process(delta: float) -> void:
 
 	for i in skill_cd.size():
 		skill_cd[i] = maxf(skill_cd[i] - delta, 0.0)
+	if boost_time > 0.0:
+		boost_time = maxf(boost_time - delta, 0.0)
 	if barrier_time > 0.0:
 		barrier_time -= delta
 		if barrier_time <= 0.0:
@@ -189,7 +205,7 @@ func _process(delta: float) -> void:
 		var angle := aim_angle
 		if weapon_tier == 0:
 			angle += randf_range(-0.045, 0.045)   # machinegun spread
-		_fire(angle, dmg * damage_mult, false)
+		_fire(angle, dmg * dmg_factor(), false)
 		_muzzle = 0.07
 
 	# Auto-weapons: share one timer, so shots are evenly spread out.
@@ -200,7 +216,7 @@ func _process(delta: float) -> void:
 			var target := _nearest_enemy()
 			if target != null:
 				var adm: float = Weapons.AUTO_DAMAGE[weapon_tier]
-				_fire((target.global_position - global_position).angle(), adm * damage_mult, true)
+				_fire((target.global_position - global_position).angle(), adm * dmg_factor(), true)
 				_auto_timer = auto_interval / auto_cannons
 
 	# Mechanics: slow repairs
@@ -310,6 +326,10 @@ func _draw() -> void:
 	BaseArt.draw_all(self, tier, r, _anim, tint)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	draw_set_transform(Vector2(0.0, bob), 0.0, Vector2.ONE)
+	if boost_time > 0.0:
+		var flick := 0.5 + 0.5 * sin(_anim * 14.0)
+		draw_arc(Vector2.ZERO, r * 1.25, 0.0, TAU, 48, Color(1.0, 0.6, 0.15, 0.35 + 0.3 * flick), 4.0)
+		draw_arc(Vector2.ZERO, r * 1.4, _anim * 3.0, _anim * 3.0 + 4.0, 24, Color(1.0, 0.85, 0.3, 0.7), 3.0)
 	if auto_cannons > 0:
 		draw_arc(Vector2.ZERO, auto_range, 0.0, TAU, 96, Color(1, 1, 1, 0.12), 2.0)
 		var auto_col: Color = Weapons.COLORS[weapon_tier]

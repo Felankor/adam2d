@@ -307,23 +307,38 @@ static func _worldeater(ci: CanvasItem, k: float, t: float, tm: float) -> void:
 
 static func _death_star(ci: CanvasItem, k: float, t: float, tm: float) -> void:
 	var rad: float = 58.0
-	var base := _tn(Color(0.55, 0.57, 0.62), t)
-	_ball(ci, k, 0.0, 0.0, rad, base.darkened(0.45))
-	_ball(ci, k, -3.0, -3.0, rad * 0.94, base.darkened(0.25))
+	var base := _tn(Color(0.17, 0.17, 0.22), t)
+	var pulse: float = 0.5 + 0.5 * sin(tm * 2.6)
+	_ball(ci, k, 0.0, 0.0, rad + 16.0, Color(0.8, 0.08, 0.12, 0.05 + 0.05 * pulse))
+	_ball(ci, k, 0.0, 0.0, rad + 7.0, Color(0.8, 0.08, 0.12, 0.07 + 0.05 * pulse))
+	_ball(ci, k, 0.0, 0.0, rad, base.darkened(0.6))
+	_ball(ci, k, -3.0, -3.0, rad * 0.94, base.darkened(0.3))
 	_ball(ci, k, -8.0, -8.0, rad * 0.74, base)
-	_ball(ci, k, -14.0, -14.0, rad * 0.36, base.lightened(0.15))
-	_rect(ci, k, -rad * 0.98, -2.0, rad * 1.96, 4.0, base.darkened(0.6))
-	for i in range(9):
-		var x: float = -rad * 0.9 + float(i) * rad * 0.22
-		_rect(ci, k, x, -1.0, 2.0, 2.0, Color(1.0, 0.9, 0.5))
-	var pulse: float = 0.5 + 0.5 * sin(tm * 3.0)
-	_ball(ci, k, 20.0, -20.0, 17.0, base.darkened(0.55))
-	_ball(ci, k, 20.0, -20.0, 13.0, base.darkened(0.3))
-	_ball(ci, k, 20.0, -20.0, 7.0 + pulse * 2.0, Color(0.5, 1.0, 0.55, 0.9))
-	_ball(ci, k, 20.0, -20.0, 12.0 + pulse * 4.0, Color(0.4, 1.0, 0.5, 0.18))
+	_ball(ci, k, -14.0, -14.0, rad * 0.36, base.lightened(0.06))
+	# hull plating seams and greebles
+	var seam: Color = base.darkened(0.55)
+	_rect(ci, k, -34.0, 14.0, 22.0, 2.0, seam)
+	_rect(ci, k, -18.0, 24.0, 30.0, 2.0, seam)
+	_rect(ci, k, 14.0, 20.0, 20.0, 2.0, seam)
+	_rect(ci, k, -40.0, -22.0, 12.0, 2.0, seam)
+	_rect(ci, k, -2.0, 34.0, 2.0, 12.0, seam)
+	_rect(ci, k, -24.0, 28.0, 2.0, 10.0, seam)
+	_rect(ci, k, -30.0, -8.0, 8.0, 4.0, seam)
+	# equator trench with blinking red lights
+	_rect(ci, k, -rad * 0.98, -2.5, rad * 1.96, 5.0, Color(0.02, 0.02, 0.04))
+	for i in range(11):
+		var on: float = 0.35 + 0.65 * maxf(0.0, sin(tm * 3.0 - float(i) * 0.6))
+		_rect(ci, k, -rad * 0.9 + float(i) * rad * 0.18, -1.0, 2.0, 2.0, Color(1.0 * on, 0.12 * on, 0.1 * on))
+	# the superlaser dish: a baleful red eye
+	_ball(ci, k, 20.0, -20.0, 18.0, Color(0.03, 0.03, 0.05))
+	_ball(ci, k, 20.0, -20.0, 14.0, base.darkened(0.45))
+	_ball(ci, k, 20.0, -20.0, 11.0 + pulse * 3.0, Color(1.0, 0.1, 0.08, 0.28))
+	_ball(ci, k, 20.0, -20.0, 7.0 + pulse * 1.5, Color(1.0, 0.18, 0.12))
+	_ball(ci, k, 20.0, -20.0, 3.0, Color(1.0, 0.8, 0.7))
+	# orbiting red warning lights
 	for i in range(4):
 		var a: float = tm * 0.9 + TAU * float(i) / 4.0
-		_ball(ci, k, cos(a) * (rad + 14.0), sin(a) * (rad + 14.0) * 0.35 + 6.0, 2.2, Color(0.5, 0.9, 1.0, 0.9))
+		_ball(ci, k, cos(a) * (rad + 14.0), sin(a) * (rad + 14.0) * 0.35 + 6.0, 2.2, Color(1.0, 0.2, 0.15, 0.9))
 
 static func draw_all(ci: CanvasItem, tier: int, r: float, tm: float, hurt: float) -> void:
 	var k: float = r / 60.0

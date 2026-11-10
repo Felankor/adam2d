@@ -265,9 +265,9 @@ static func _ally(ci: CanvasItem) -> void:
 	for i in 13:
 		var a := PI + PI * i / 12.0
 		dome.append(Vector2(32, 30) + Vector2(cos(a) * 19.0, sin(a) * 18.0))
-	ci.draw_colored_polygon(dome, Color(0.95, 0.95, 0.95))
-	ci.draw_line(Vector2(32, 10), Vector2(32, 22), Color(0.25, 0.7, 0.3), 5.0)
-	ci.draw_line(Vector2(26, 16), Vector2(38, 16), Color(0.25, 0.7, 0.3), 5.0)
+	ci.draw_colored_polygon(dome, Color(0.78, 0.2, 0.22))
+	ci.draw_line(Vector2(46, 8), Vector2(46, 30), Color(0.5, 0.38, 0.25), 2.5)
+	ci.draw_colored_polygon(PackedVector2Array([Vector2(46, 8), Vector2(60, 12), Vector2(46, 20)]), Color.WHITE)
 	ci.draw_circle(Vector2(26, 34), 2.0, Color(0.15, 0.15, 0.15))
 	ci.draw_circle(Vector2(38, 34), 2.0, Color(0.15, 0.15, 0.15))
 	ci.draw_arc(Vector2(32, 40), 6.0, 0.2, PI - 0.2, 12, Color(0.4, 0.15, 0.1), 2.0)

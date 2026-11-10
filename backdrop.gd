@@ -1,7 +1,7 @@
 class_name Backdrop
 extends Node2D
 
-# Draws one themed battlefield. biome: 0 garden, 1 mud, 2 rocks, 3 space, 4 hell.
+# Draws one themed battlefield. biome: 0 garden, 1 mud, 2 rocks, 3 hell, 4 space.
 # Everything is drawn once and cached by Godot, so it costs almost nothing per frame.
 const SIZE := Vector2(1920, 1080)
 
@@ -18,9 +18,9 @@ func _draw() -> void:
 		2:
 			_rocks(rng)
 		3:
-			_space(rng)
-		_:
 			_hell(rng)
+		_:
+			_space(rng)
 
 # ---------- helpers ----------
 

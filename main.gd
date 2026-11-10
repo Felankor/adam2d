@@ -2,26 +2,27 @@ extends Node2D
 
 const BASE_POS := Vector2(960, 500)
 const ALLY_CHANCE := 0.10
-const LEVELS_PER_TIER := 7        # the base evolves every 7 levels (Death Star at level 43)
+const LEVELS_PER_TIER := 7        # the base evolves every 7 levels (Death Star at level 64)
+const SPACE_BIOME := 4            # the last biome: no refugees, 3x hostiles, space ships
 const LEVELS_PER_BIOME := 10      # a new biome every 10 levels; level 10, 20, 30... are boss levels
 const MAX_ALIVE := 140            # safety cap so huge summons never overload the game
 
-const BIOME_NAMES := ["Greenland Biome", "Mudland Biome", "Rocky Mountain Biome", "Space Biome", "Hell Biome"]
-const BOSS_NAMES := ["Garden Warden", "Mud Colossus", "Stone Titan", "Void Overlord", "Hell Lord"]
+const BIOME_NAMES := ["Greenland Biome", "Mudland Biome", "Rocky Mountain Biome", "Hell Biome", "Space Biome"]
+const BOSS_NAMES := ["Garden Warden", "Mud Colossus", "Stone Titan", "Hell Lord", "Void Overlord"]
 
 # Shop rows, in order (the number keys 1-6 buy them). Weapon upgrade and repair are special.
 const ITEMS := [
-	{"id": "damage", "name": "Weapon damage", "desc": "+5% damage for all weapons", "icon": "damage", "cost": 10, "growth": 1.2},
+	{"id": "damage", "name": "Weapon damage", "desc": "+5% damage for all weapons", "icon": "damage", "cost": 10, "growth": 1.16},
 	{"id": "weapon", "name": "Weapon upgrade", "desc": "", "icon": "cannon", "cost": 0, "growth": 1.0},
 	{"id": "regen", "name": "Energy regen", "desc": "+4 energy per second", "icon": "regen", "cost": 10, "growth": 1.5},
 	{"id": "autorate", "name": "Auto fire rate", "desc": "Auto-weapons fire 15% faster and reach further", "icon": "autorate", "cost": 20, "growth": 1.5},
 	{"id": "energy", "name": "Max energy", "desc": "+20 maximum energy", "icon": "energy", "cost": 10, "growth": 1.5},
 	{"id": "repair", "name": "Repair base", "desc": "Heal 50% of max health", "icon": "repair", "cost": 15, "growth": 1.0},
+	{"id": "armor", "name": "Armor plating", "desc": "+10 max health and heal 10", "icon": "walls", "cost": 25, "growth": 1.45},
 ]
 
 # Reward cards offered after each level (3 random ones). Auto-weapons only come from Gunner allies.
 const UPGRADES := [
-	{"id": "damage", "name": "Heavy ammo", "icon": "damage", "desc": "Weapon damage +20%"},
 	{"id": "regen", "name": "Fast loading", "icon": "regen", "desc": "Energy regen +4 per second"},
 	{"id": "energy", "name": "Bigger magazine", "icon": "energy", "desc": "Max energy +20"},
 	{"id": "autorate", "name": "Gun oil", "icon": "autorate", "desc": "Auto-weapons fire 15% faster\nand reach further"},
@@ -37,7 +38,7 @@ var to_spawn: int = 0
 var alive: int = 0
 var spawn_timer: float = 0.0
 var game_over: bool = false
-var levels: Array[int] = [0, 0, 0, 0, 0, 0]
+var levels: Array[int] = [0, 0, 0, 0, 0, 0, 0]
 var biome: int = 0
 var boss_pending: bool = false
 var boss_timer: float = 0.0
@@ -237,7 +238,10 @@ func _start_level() -> void:
 		_change_biome(new_biome)
 	var title := "Level %d  -  %s" % [level, BIOME_NAMES[biome]]
 	_boss_level = level % LEVELS_PER_BIOME == 0
+	Enemy.space_mode = biome == SPACE_BIOME
 	var count := int((3 + level * 2) * GameState.count_mult())
+	if biome == SPACE_BIOME:
+		count *= 3                      # the space biome throws 3x as many hostiles at you
 	boss_pending = _boss_level
 	if boss_pending:
 		count = int(count * 0.6)
@@ -414,9 +418,6 @@ func _on_upgrade_chosen(id: String) -> void:
 
 func _apply_upgrade(id: String) -> String:
 	match id:
-		"damage":
-			base.damage_mult += 0.2
-			return "Weapon damage +20%"
 		"regen":
 			base.energy_regen += 4.0
 			return "Energy regen +4 per second"
@@ -480,7 +481,7 @@ func _register_mob(e: Enemy, deferred: bool = false) -> void:
 
 func _spawn_mob() -> void:
 	var e: Enemy
-	if randf() < ALLY_CHANCE:
+	if biome != SPACE_BIOME and randf() < ALLY_CHANCE:   # no refugees in space
 		e = Enemy.make_ally()
 	else:
 		e = Enemy.make(_pick_kind(), level)
@@ -564,7 +565,7 @@ func _on_tank_shoot(origin: Vector2, dmg: float) -> void:
 
 func _on_enemy_died(e: Enemy) -> void:
 	if e.is_ally:
-		_notify("Ally hit!", "ally", Color(0.4, 0.9, 0.4), "allyhit")
+		_notify("Refugee Hit!", "ally", Color(1.0, 0.2, 0.2), "allyhit")
 		return
 	coins += e.reward
 	alive -= 1
@@ -643,9 +644,15 @@ func _input(event: InputEvent) -> void:
 	for i in 4:
 		if event.is_action_pressed("skill_%d" % (i + 1)):
 			get_viewport().set_input_as_handled()
-			if not get_tree().paused and not game_over and base.use_skill(i):
-				Sfx.play("barrier")
-				_notify("Barrier up!  Invincible for %d s" % int(Base.BARRIER_DURATION), "shield", Color(0.4, 0.85, 1.0), "barrier")
+			if not get_tree().paused and not game_over:
+				var used := base.skill_slots[i]
+				if base.use_skill(i):
+					if used == "overcharge":
+						Sfx.play("weapon_up")
+						_notify("Overcharge!  Weapon damage +30%% for %d s" % int(Base.BOOST_DURATION), "damage", Color(1.0, 0.6, 0.2), "boost")
+					else:
+						Sfx.play("barrier")
+						_notify("Barrier up!  Invincible for %d s" % int(Base.BARRIER_DURATION), "shield", Color(0.4, 0.85, 1.0), "barrier")
 			return
 	if shop_menu.visible:
 		var idx := int(key.keycode) - int(KEY_1)
@@ -751,6 +758,11 @@ func _buy(i: int) -> void:
 		"energy":
 			base.max_energy += 20.0
 			text = "Max energy +20"
+		"armor":
+			base.hp_bonus += 10
+			base.max_hp += 10.0
+			base.heal(10.0)
+			text = "Max health +10"
 		"repair":
 			if base.hp >= base.max_hp:
 				_notify("Base is already at full health", "repair", Color(1.0, 0.6, 0.3), "full")

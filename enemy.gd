@@ -5,6 +5,10 @@ signal died(enemy: Enemy)
 signal arrived(enemy: Enemy)
 signal shoot(origin: Vector2, dmg: float)    # tanks fire shells at the base
 
+# Space biome: the same units look like ships/drones, move faster and dodge.
+static var space_mode: bool = false
+var space: bool = false
+
 var kind: String = "soldier"      # "soldier", "tank", "mech", "void" (Boss uses "boss")
 var is_minion: bool = false       # summoned by a boss: no gold, vanishes when the boss dies
 var is_ally: bool = false
@@ -76,6 +80,24 @@ static func make(k: String, level: int) -> Enemy:
 			e.damage = 1.0 * dmg_mult
 			e.reward = 1 + int(level * 0.5)
 			e.radius = 15.0
+	if space_mode:
+		e.space = true
+		match e.kind:
+			"tank":      # starship
+				e.speed *= 1.4
+				e.dodge_chance = 0.5
+				e.dodge_cd_time = 1.5
+				e.dodge_dash = 380.0
+			"mech":      # space corvette
+				e.speed *= 1.25
+				e.dodge_chance = 0.8
+				e.dodge_cd_time = 0.8
+				e.dodge_dash = 520.0
+			_:           # kamikaze drone
+				e.speed *= 1.6
+				e.dodge_chance = 0.5
+				e.dodge_cd_time = 1.0
+				e.dodge_dash = 420.0
 	e.max_hp = e.hp
 	return e
 
@@ -151,6 +173,7 @@ func _process(delta: float) -> void:
 			_shoot_cd = 2.4
 			shoot.emit(position + Vector2.RIGHT.rotated(_heading) * 38.0, damage)
 			Sfx.play("tank_fire", -3.0)
+		position += _update_dodge(delta) * delta
 		queue_redraw()
 		return
 	if dist <= reach:
@@ -252,13 +275,22 @@ func _draw() -> void:
 	var s := 1.0 + _scale_pop * 2.0
 	match kind:
 		"tank":
-			_draw_tank(s)
+			if space:
+				_draw_starship(s)
+			else:
+				_draw_tank(s)
 		"mech":
-			_draw_mech(s)
+			if space:
+				_draw_corvette(s)
+			else:
+				_draw_mech(s)
 		"void":
 			_draw_void_lesser(s)
 		_:
-			_draw_soldier(sgn, s)
+			if space:
+				_draw_drone(s)
+			else:
+				_draw_soldier(sgn, s)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	_draw_bar()
 
@@ -281,20 +313,23 @@ func _draw_soldier(sgn: float, s: float) -> void:
 	var jacket := _c(Color(0.35, 0.47, 0.25))
 	var helmet := _c(Color(0.28, 0.36, 0.2))
 	if is_ally:
-		jacket = _c(Color(0.25, 0.7, 0.3))
-		helmet = _c(Color(0.95, 0.95, 0.95))
+		# Refugee: reddish clothes and headscarf, carrying a little white flag
+		jacket = _c(Color(0.78, 0.25, 0.25))
+		helmet = _c(Color(0.6, 0.15, 0.18))
 	draw_circle(Vector2(0, 17), 8.0, Color(0, 0, 0, 0.22))
 	draw_line(Vector2(-2, 6), Vector2(-2 + swing, 16), dark, 4.0)
 	draw_line(Vector2(2, 6), Vector2(2 - swing, 16), dark, 4.0)
 	draw_rect(Rect2(-6, -6, 12, 13), jacket)
-	draw_line(Vector2(0, 0), Vector2(17, -3), dark, 3.0)
+	if not is_ally:
+		draw_line(Vector2(0, 0), Vector2(17, -3), dark, 3.0)
 	draw_line(Vector2(2, -4), Vector2(8, 0), skin, 3.0)
 	draw_circle(Vector2(0, -11), 5.0, skin)
 	draw_circle(Vector2(0, -13), 5.5, helmet)
 	draw_circle(Vector2(2.5, -10), 1.0, dark)
 	if is_ally:
-		draw_line(Vector2(0, -4), Vector2(0, 4), Color.WHITE, 2.5)
-		draw_line(Vector2(-3, 0), Vector2(3, 0), Color.WHITE, 2.5)
+		var wave := sin(_walk * 1.5) * 1.5
+		draw_line(Vector2(8, 0), Vector2(8, -21), Color(0.5, 0.38, 0.25), 1.6)
+		_poly([Vector2(8, -21), Vector2(19, -19 + wave), Vector2(8, -13)], Color.WHITE)
 
 func _draw_tank(s: float) -> void:
 	draw_set_transform(Vector2.ZERO, _heading, Vector2(s, s))
@@ -338,3 +373,62 @@ func _draw_void_lesser(s: float) -> void:
 	draw_circle(Vector2(0, bob) + f * radius * 0.25, radius * 0.38, Color(0.95, 0.92, 1.0))
 	draw_circle(Vector2(0, bob) + f * radius * 0.4, radius * 0.2, Color(0.6, 0.2, 0.95))
 	draw_circle(Vector2(0, bob) + f * radius * 0.45, radius * 0.08, Color.BLACK)
+
+# ---------- Space biome looks ----------
+
+func _poly(pts: Array, col: Color) -> void:
+	draw_colored_polygon(PackedVector2Array(pts), col)
+
+# Draws a polygon and its mirror image (top/bottom) so ships are symmetric.
+func _poly_sym(pts: Array, col: Color) -> void:
+	_poly(pts, col)
+	var m: Array = []
+	for p: Vector2 in pts:
+		m.append(Vector2(p.x, -p.y))
+	_poly(m, col)
+
+func _engine_flame(pos: Vector2, size: float) -> void:
+	var f := 0.75 + 0.25 * sin(_walk * 9.0 + pos.y)
+	draw_circle(pos + Vector2(-size * 0.5, 0), size * 0.9, Color(1.0, 0.45, 0.15, 0.18))
+	_poly([pos + Vector2(0, -size * 0.45), pos + Vector2(0, size * 0.45), pos + Vector2(-size * 1.8 * f, 0)], Color(1.0, 0.5, 0.15))
+	_poly([pos + Vector2(0, -size * 0.2), pos + Vector2(0, size * 0.2), pos + Vector2(-size * 1.0 * f, 0)], Color(1.0, 0.92, 0.55))
+
+# Kamikaze drone (replaces the soldier).
+func _draw_drone(s: float) -> void:
+	draw_set_transform(Vector2.ZERO, _heading, Vector2(s, s))
+	var hull := _c(Color(0.24, 0.22, 0.3))
+	var blink := 0.5 + 0.5 * sin(_walk * 5.0)
+	_engine_flame(Vector2(-9, 0), 6.0)
+	_poly_sym([Vector2(-1, -7), Vector2(-12, -17), Vector2(-10, -5)], _c(Color(0.32, 0.3, 0.4)))
+	_poly([Vector2(17, 0), Vector2(-3, -9), Vector2(-10, 0), Vector2(-3, 9)], hull)
+	_poly([Vector2(17, 0), Vector2(2, -4), Vector2(2, 4)], _c(Color(0.95, 0.25, 0.2)))
+	draw_circle(Vector2(-3, 0), 2.4, Color(1.0, 0.3 + 0.4 * blink, 0.25))
+	draw_circle(Vector2(5, 0), 2.0, _c(Color(1.0, 0.8, 0.3)))
+
+# Starship (replaces the tank).
+func _draw_starship(s: float) -> void:
+	draw_set_transform(Vector2.ZERO, _heading, Vector2(s, s))
+	var hull := _c(Color(0.3, 0.33, 0.45))
+	_engine_flame(Vector2(-29, -6), 7.0)
+	_engine_flame(Vector2(-29, 6), 7.0)
+	_poly_sym([Vector2(8, -8), Vector2(-20, -27), Vector2(-31, -27), Vector2(-22, -9)], _c(Color(0.2, 0.22, 0.32)))
+	_poly([Vector2(38, 0), Vector2(14, -9), Vector2(-26, -11), Vector2(-31, 0), Vector2(-26, 11), Vector2(14, 9)], hull)
+	_poly([Vector2(38, 0), Vector2(14, -9), Vector2(14, 9)], _c(Color(0.4, 0.43, 0.56)))
+	draw_line(Vector2(-6, -18), Vector2(16, -18), _c(Color(0.12, 0.13, 0.17)), 3.0)
+	draw_line(Vector2(-6, 18), Vector2(16, 18), _c(Color(0.12, 0.13, 0.17)), 3.0)
+	draw_rect(Rect2(-24, -2, 34, 4), _c(Color(0.85, 0.25, 0.25)))
+	_poly([Vector2(20, -3), Vector2(28, 0), Vector2(20, 3)], _c(Color(0.5, 0.9, 1.0)))
+
+# Space corvette (replaces the mechanized unit).
+func _draw_corvette(s: float) -> void:
+	draw_set_transform(Vector2.ZERO, _heading, Vector2(s, s))
+	for i in 3:
+		draw_line(Vector2(-26 - i * 8, -6 + i * 6), Vector2(-44 - i * 8, -6 + i * 6), Color(1, 1, 1, 0.22), 2.0)
+	_engine_flame(Vector2(-24, -5), 5.0)
+	_engine_flame(Vector2(-24, 5), 5.0)
+	_poly_sym([Vector2(-8, -10), Vector2(-24, -21), Vector2(-20, -8)], _c(Color(0.28, 0.3, 0.4)))
+	_poly([Vector2(30, 0), Vector2(16, -9), Vector2(-14, -12), Vector2(-24, -7), Vector2(-24, 7), Vector2(-14, 12), Vector2(16, 9)], _c(Color(0.42, 0.48, 0.62)))
+	draw_line(Vector2(-12, -6), Vector2(18, -4), _c(Color(0.28, 0.3, 0.4)), 2.0)
+	draw_line(Vector2(-12, 6), Vector2(18, 4), _c(Color(0.28, 0.3, 0.4)), 2.0)
+	draw_circle(Vector2(10, 0), 5.0, _c(Color(0.5, 0.92, 1.0)))
+	draw_circle(Vector2(-17, 0), 2.5, _c(Color(1.0, 0.2, 0.2)))
