@@ -54,6 +54,8 @@ var upgrade_menu: UpgradeMenu
 var shop_menu: ShopMenu
 var pause_menu: PauseMenu
 var notifier: Notifier
+var gameover_menu: GameOverMenu
+var _level_snapshot: Dictionary = {}
 var boss_label: Label
 
 var _manual_paused: bool = false
@@ -164,6 +166,11 @@ func _ready() -> void:
 	pause_menu.quit_requested.connect(_quit_to_menu)
 	layer.add_child(pause_menu)
 
+	gameover_menu = GameOverMenu.new()
+	gameover_menu.retry_requested.connect(_retry_level)
+	gameover_menu.quit_requested.connect(_quit_to_menu)
+	layer.add_child(gameover_menu)
+
 	_start_level()
 
 func _exit_tree() -> void:
@@ -181,8 +188,8 @@ func _apply_save(d: Dictionary) -> void:
 	base.from_dict(d.get("base", {}) as Dictionary)
 	biome = _biome_for(level)
 
-func _save_game() -> void:
-	var data := {
+func _make_save_data() -> Dictionary:
+	return {
 		"version": 2,
 		"difficulty": GameState.difficulty,
 		"level": level,
@@ -190,6 +197,9 @@ func _save_game() -> void:
 		"shop_levels": levels.duplicate(),
 		"base": base.to_dict(),
 	}
+
+func _save_game() -> void:
+	var data := _make_save_data()
 	if GameState.write_save(data):
 		Sfx.play("powerup")
 		pause_menu.set_status("Game saved. You will resume at the start of Level %d." % level)
@@ -200,6 +210,12 @@ func _save_game() -> void:
 func _close_pause_menu() -> void:
 	pause_menu.close()
 	_update_pause()
+
+# Retry restarts the level you died on, with the base fully repaired.
+func _retry_level() -> void:
+	GameState.pending_load = _level_snapshot
+	get_tree().paused = false
+	get_tree().reload_current_scene()
 
 func _quit_to_menu() -> void:
 	get_tree().paused = false
@@ -234,6 +250,9 @@ func _start_level() -> void:
 	_clear_timer = -1.0
 	_show_banner(title, _boss_level)
 	_update_label()
+	# Remember the state at the start of this level so Retry can restart it.
+	_level_snapshot = _make_save_data()
+	(_level_snapshot["base"] as Dictionary)["hp"] = base.max_hp
 
 func _change_biome(new_biome: int) -> void:
 	biome = new_biome
@@ -286,8 +305,6 @@ func _process(delta: float) -> void:
 			_msg = ""
 			_update_label()
 	if game_over:
-		if Input.is_action_just_pressed("ui_accept"):
-			get_tree().reload_current_scene()
 		return
 	if boss_pending:
 		boss_timer -= delta
@@ -760,7 +777,8 @@ func _on_base_destroyed() -> void:
 		for node in get_tree().get_nodes_in_group(group):
 			node.set_process(false)
 	boss_label.visible = false
-	_say("Your %s fell on level %d.  Enter: restart   Esc: main menu" % [Base.TIER_NAMES[base.tier], level], 9999.0)
+	var info := "Your %s fell on Level %d  (%s)" % [Base.TIER_NAMES[base.tier], level, BIOME_NAMES[biome]]
+	get_tree().create_timer(1.3).timeout.connect(gameover_menu.open.bind(info, "Retry Level %d" % level))
 
 # Game-over text stays on the info label; everything else is a pop-up notification.
 func _say(text: String, seconds: float) -> void:
@@ -776,10 +794,6 @@ func _update_label() -> void:
 	hud.coins = coins
 	var diff_name: String = GameState.DIFFICULTY_NAMES[GameState.difficulty]
 	var t := "%s   |   Level %d   |   %s   |   %s   |   Enemy damage x%.2f" % [Base.TIER_NAMES[base.tier], level, BIOME_NAMES[biome], diff_name, 1.0 + 0.25 * (level - 1)]
-	t += "\nLeft mouse: fire   %s: shop   %s: pause   %s / %s / %s / %s: skills   Esc: menu" % [
-		Keybinds.key_text("open_shop"), Keybinds.key_text("pause_game"),
-		Keybinds.key_text("skill_1"), Keybinds.key_text("skill_2"), Keybinds.key_text("skill_3"), Keybinds.key_text("skill_4"),
-	]
 	if _msg != "":
 		t += "\n" + _msg
 	info_label.text = t

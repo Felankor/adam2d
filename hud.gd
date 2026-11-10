@@ -103,7 +103,7 @@ func _draw_helpers() -> void:
 	var kinds := ["gunner", "scientist", "engineer", "mechanic"]
 	var counts := [base.gunners, base.scientists, base.engineers, base.mechanics]
 	var x := 28.0
-	var y := 118.0
+	var y := 62.0
 	for i in 4:
 		var kind: String = kinds[i]
 		var n: int = counts[i]

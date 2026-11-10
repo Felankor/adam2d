@@ -1,7 +1,7 @@
 class_name PauseMenu
 extends Control
 
-# Opened with Esc while playing: Resume, Save, Settings, Quit to Main Menu.
+# Opened with Esc while playing: Resume, Save, Settings, Help, Quit to Main Menu.
 signal resume_requested
 signal save_requested
 signal quit_requested
@@ -10,6 +10,7 @@ var _main_box: VBoxContainer
 var _status: Label
 var _quit_btn: Button
 var _settings: SettingsPanel
+var _help: HelpPanel
 var _quit_armed: bool = false
 
 func _ready() -> void:
@@ -52,6 +53,7 @@ func _ready() -> void:
 	_main_box.add_child(_button("Resume", _on_resume))
 	_main_box.add_child(_button("Save", _on_save))
 	_main_box.add_child(_button("Settings", _on_settings))
+	_main_box.add_child(_button("Help", _on_help))
 	_quit_btn = _button("Quit to Main Menu", _on_quit)
 	_main_box.add_child(_quit_btn)
 
@@ -67,6 +69,11 @@ func _ready() -> void:
 	_settings.visible = false
 	_settings.back_pressed.connect(_show_main)
 	holder.add_child(_settings)
+
+	_help = HelpPanel.new()
+	_help.visible = false
+	_help.back_pressed.connect(_show_main)
+	holder.add_child(_help)
 
 func _button(text: String, handler: Callable) -> Button:
 	var b := Button.new()
@@ -88,7 +95,7 @@ func close() -> void:
 
 # Returns true if it handled "back" itself (closing the settings page).
 func go_back() -> bool:
-	if _settings.visible:
+	if _settings.visible or _help.visible:
 		_show_main()
 		return true
 	return false
@@ -98,6 +105,7 @@ func set_status(text: String) -> void:
 
 func _show_main() -> void:
 	_settings.visible = false
+	_help.visible = false
 	_main_box.visible = true
 	_reset_quit()
 
@@ -118,6 +126,13 @@ func _on_settings() -> void:
 	_reset_quit()
 	_main_box.visible = false
 	_settings.visible = true
+
+func _on_help() -> void:
+	Sfx.play("click")
+	_reset_quit()
+	_main_box.visible = false
+	_help.refresh()
+	_help.visible = true
 
 func _on_quit() -> void:
 	Sfx.play("click")

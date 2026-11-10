@@ -5,15 +5,18 @@ signal destroyed
 signal damaged(amount: float)
 signal blocked
 
-const TIER_NAMES := ["Village", "Town", "City", "Fortress", "Capital", "Empire", "Death Star"]
-const TIER_HP := [20, 40, 70, 110, 160, 230, 350]
+const TIER_NAMES := ["Hoverin Village", "High Town", "Flyin City", "Fortress of the Wind", "Capital", "Battlestation", "Juggernaut", "Dreadnaught", "Galactus", "Death Star"]
+const TIER_HP := [20, 40, 70, 110, 160, 230, 310, 400, 520, 650]
 const TIER_COLORS := [
 	Color(0.55, 0.40, 0.25),
 	Color(0.65, 0.50, 0.30),
 	Color(0.60, 0.60, 0.65),
 	Color(0.45, 0.50, 0.60),
 	Color(0.85, 0.70, 0.25),
-	Color(0.60, 0.30, 0.70),
+	Color(0.45, 0.50, 0.60),
+	Color(0.50, 0.35, 0.35),
+	Color(0.35, 0.48, 0.50),
+	Color(0.45, 0.20, 0.60),
 	Color(0.55, 0.58, 0.62),
 ]
 const MAX_AUTO := 12
@@ -63,7 +66,7 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_PAUSABLE
 
 func body_radius() -> float:
-	return 32.0 + tier * 8.0
+	return 42.0 + tier * 5.0
 
 func set_tier(new_tier: int) -> void:
 	tier = new_tier
@@ -294,21 +297,19 @@ func _laser_length() -> float:
 
 func _draw() -> void:
 	var r := body_radius()
-	var col: Color = TIER_COLORS[tier]
 	var tint := clampf(_hurt / 0.25, 0.0, 1.0)
-	col = col.lerp(Color(1.0, 0.2, 0.2), tint * 0.7)
-	draw_circle(Vector2(6, 8), r * 1.15, Color(0, 0, 0, 0.25))
-	if tier == TIER_NAMES.size() - 1:
-		draw_circle(Vector2.ZERO, r, col)
-		draw_circle(Vector2(-r * 0.35, -r * 0.35), r * 0.22, col.darkened(0.45))
-		draw_line(Vector2(-r, 0), Vector2(r, 0), col.darkened(0.45), 4.0)
-	else:
-		draw_rect(Rect2(-r * 0.5, -r * 0.5, r, r), col)
-		var count := 2 + tier * 2
-		var s := 12.0 + tier * 3.0
-		for i in count:
-			var pos := Vector2.RIGHT.rotated(TAU * i / count) * r * 0.85
-			draw_rect(Rect2(pos - Vector2(s, s) * 0.5, Vector2(s, s)), col.darkened(0.25))
+	# gentle PlayStation-style hover: slow bob plus a tiny sway
+	var bob := sin(_anim * 1.5) * (3.0 + r * 0.05)
+	var tilt := sin(_anim * 1.1 + 1.0) * 0.015
+	var drop := r * 3.0 if tier <= 4 else r * 1.7
+	# the shadow stays on the ground and shrinks as the castle rises
+	draw_set_transform(Vector2(6.0, drop), 0.0, Vector2(1.0, 0.28))
+	draw_circle(Vector2.ZERO, r * 1.2 * (1.0 - bob / (r * 6.0)), Color(0, 0, 0, 0.22))
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	draw_set_transform(Vector2(0.0, bob), tilt, Vector2.ONE)
+	BaseArt.draw_all(self, tier, r, _anim, tint)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	draw_set_transform(Vector2(0.0, bob), 0.0, Vector2.ONE)
 	if auto_cannons > 0:
 		draw_arc(Vector2.ZERO, auto_range, 0.0, TAU, 96, Color(1, 1, 1, 0.12), 2.0)
 		var auto_col: Color = Weapons.COLORS[weapon_tier]
@@ -330,11 +331,14 @@ func _draw() -> void:
 		var pulse := 0.5 + 0.5 * sin(_anim * 8.0)
 		draw_circle(Vector2.ZERO, r * 1.75, Color(0.3, 0.8, 1.0, (0.16 + 0.08 * pulse) * blink))
 		draw_arc(Vector2.ZERO, r * 1.75, 0.0, TAU, 64, Color(0.5, 0.95, 1.0, 0.9 * blink), 4.0)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 # The manual weapon changes its look with the weapon tier.
 func _draw_barrel(dir: Vector2, r: float) -> void:
 	var tip := dir * (r + 22.0)
 	var col: Color = Weapons.COLORS[weapon_tier]
+	draw_line(Vector2.ZERO, tip, Color(0.05, 0.05, 0.08, 0.8), 13.0)
+	draw_circle(Vector2.ZERO, 10.0, Color(0.05, 0.05, 0.08, 0.8))
 	match weapon_tier:
 		0:
 			var side := dir.orthogonal() * 3.5
