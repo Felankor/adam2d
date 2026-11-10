@@ -8,6 +8,8 @@ const WORLD_SIZE := Vector2(1920, 1080)
 
 static var fullscreen: bool = false
 static var volume: float = 1.0
+static var sfx_volume: float = 1.0
+static var muted: bool = false
 static var _window_sized: bool = false
 
 static func load_and_apply() -> void:
@@ -15,6 +17,9 @@ static func load_and_apply() -> void:
 	if cfg.load(PATH) == OK:
 		fullscreen = cfg.get_value("display", "fullscreen", false)
 		volume = cfg.get_value("audio", "volume", 1.0)
+		sfx_volume = cfg.get_value("audio", "sfx_volume", 1.0)
+		muted = cfg.get_value("audio", "muted", false)
+	Keybinds.load_from(cfg)
 	apply_scaling()
 	apply()
 
@@ -22,6 +27,10 @@ static func save() -> void:
 	var cfg := ConfigFile.new()
 	cfg.set_value("display", "fullscreen", fullscreen)
 	cfg.set_value("audio", "volume", volume)
+	cfg.set_value("audio", "sfx_volume", sfx_volume)
+	cfg.set_value("audio", "muted", muted)
+	for a in Keybinds.ORDER:
+		cfg.set_value("keys", a, Keybinds.get_key(a))
 	cfg.save(PATH)
 
 static func apply_scaling() -> void:
@@ -46,3 +55,4 @@ static func apply() -> void:
 			DisplayServer.window_set_size(Vector2i(w, h))
 			DisplayServer.window_set_position(DisplayServer.screen_get_position() + (screen - Vector2i(w, h)) / 2)
 	AudioServer.set_bus_volume_db(0, linear_to_db(maxf(volume, 0.0001)))
+	AudioServer.set_bus_mute(0, muted)

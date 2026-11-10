@@ -4,6 +4,7 @@ extends Control
 signal buy_requested(index: int)
 
 var _coins_label: Label
+var _hint: Label
 var _buttons: Array[Button] = []
 var _level_labels: Array[Label] = []
 var _leveled: Array[bool] = []
@@ -45,6 +46,12 @@ func setup(items: Array) -> void:
 	title.add_theme_font_size_override("font_size", 38)
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	head.add_child(title)
+	var coin_icon := TextureRect.new()
+	coin_icon.texture = CoinTex.get_texture()
+	coin_icon.custom_minimum_size = Vector2(36, 36)
+	coin_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	coin_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	head.add_child(coin_icon)
 	_coins_label = Label.new()
 	_coins_label.add_theme_font_size_override("font_size", 30)
 	_coins_label.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3))
@@ -86,23 +93,25 @@ func setup(items: Array) -> void:
 
 		var b := Button.new()
 		b.focus_mode = Control.FOCUS_NONE
-		b.custom_minimum_size = Vector2(170, 56)
-		b.add_theme_font_size_override("font_size", 20)
+		b.custom_minimum_size = Vector2(150, 56)
+		b.add_theme_font_size_override("font_size", 22)
+		b.icon = CoinTex.get_texture()
+		b.add_theme_constant_override("icon_max_width", 28)
 		b.pressed.connect(_on_buy.bind(i))
 		row.add_child(b)
 		_buttons.append(b)
 
 	box.add_child(HSeparator.new())
-	var hint := Label.new()
-	hint.text = "Click Buy or press 1-6   |   Tab or Esc to close"
-	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	hint.add_theme_font_size_override("font_size", 16)
-	box.add_child(hint)
+	_hint = Label.new()
+	_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_hint.add_theme_font_size_override("font_size", 16)
+	box.add_child(_hint)
 
 func refresh(coins: int, costs: Array, levels: Array) -> void:
-	_coins_label.text = "Coins: %d" % coins
+	_coins_label.text = "x %d" % coins
+	_hint.text = "Click Buy or press 1-6   |   %s or Esc to close" % Keybinds.key_text("open_shop")
 	for i in _buttons.size():
-		_buttons[i].text = "Buy  -  %d" % costs[i]
+		_buttons[i].text = " %d" % costs[i]
 		_buttons[i].disabled = coins < costs[i]
 		_level_labels[i].text = ("Lv %d" % levels[i]) if _leveled[i] else ""
 
