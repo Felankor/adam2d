@@ -22,7 +22,7 @@ func _ready() -> void:
 	var title := Label.new()
 	title.text = "ADAM 2D"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 64)
+	title.add_theme_font_size_override("font_size", 96)
 	stack.add_child(title)
 
 	var subtitle := Label.new()
@@ -57,7 +57,7 @@ func _ready() -> void:
 	vol.max_value = 1.0
 	vol.step = 0.05
 	vol.value = Settings.volume
-	vol.custom_minimum_size = Vector2(260, 24)
+	vol.custom_minimum_size = Vector2(380, 28)
 	vol.value_changed.connect(_on_volume)
 	_settings_box.add_child(vol)
 
@@ -66,7 +66,8 @@ func _ready() -> void:
 func _button(text: String, handler: Callable) -> Button:
 	var b := Button.new()
 	b.text = text
-	b.custom_minimum_size = Vector2(260, 48)
+	b.add_theme_font_size_override("font_size", 24)
+	b.custom_minimum_size = Vector2(380, 64)
 	b.pressed.connect(handler)
 	return b
 

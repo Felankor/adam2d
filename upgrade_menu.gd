@@ -22,21 +22,22 @@ func _ready() -> void:
 	add_child(center)
 
 	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 24)
+	box.add_theme_constant_override("separation", 28)
 	center.add_child(box)
 
 	_title = Label.new()
 	_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_title.add_theme_font_size_override("font_size", 28)
+	_title.add_theme_font_size_override("font_size", 40)
 	box.add_child(_title)
 
 	_row = HBoxContainer.new()
-	_row.add_theme_constant_override("separation", 16)
+	_row.add_theme_constant_override("separation", 20)
 	box.add_child(_row)
 
 	var hint := Label.new()
 	hint.text = "Click a card or press 1, 2 or 3"
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hint.add_theme_font_size_override("font_size", 20)
 	box.add_child(hint)
 
 func open(title: String, options: Array) -> void:
@@ -49,7 +50,9 @@ func open(title: String, options: Array) -> void:
 	for opt in options:
 		var b := Button.new()
 		b.text = "[%d]\n%s\n\n%s" % [n, opt["name"], opt["desc"]]
-		b.custom_minimum_size = Vector2(230, 150)
+		b.focus_mode = Control.FOCUS_NONE
+		b.add_theme_font_size_override("font_size", 22)
+		b.custom_minimum_size = Vector2(320, 200)
 		b.pressed.connect(_on_pick.bind(opt["id"]))
 		_row.add_child(b)
 		_ids.append(opt["id"])

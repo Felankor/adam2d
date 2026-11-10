@@ -15,6 +15,8 @@ const TIER_COLORS := [
 	Color(0.55, 0.58, 0.62),
 ]
 const MAX_AUTO := 12
+const RANGE_STEP := 40.0
+const MAX_RANGE := 1000.0
 
 var tier: int = 0
 var max_hp: int = 20
@@ -33,7 +35,7 @@ var damage_mult: float = 1.0
 
 var auto_cannons: int = 0
 var auto_interval: float = 2.0
-var auto_range: float = 350.0
+var auto_range: float = 450.0
 
 var gunners: int = 0
 var smiths: int = 0
@@ -45,8 +47,11 @@ var _fire_cd: float = 0.0
 var _auto_timer: float = 0.0
 var _heal_acc: float = 0.0
 
+func _ready() -> void:
+	process_mode = Node.PROCESS_MODE_PAUSABLE
+
 func body_radius() -> float:
-	return 22.0 + tier * 6.0
+	return 32.0 + tier * 8.0
 
 func set_tier(new_tier: int) -> void:
 	tier = new_tier
@@ -62,6 +67,18 @@ func take_damage(amount: int) -> void:
 	if hp == 0:
 		set_process(false)
 		destroyed.emit()
+
+# Each auto-cannon upgrade also extends the range of all auto-cannons.
+func add_auto_cannon() -> bool:
+	if auto_cannons >= MAX_AUTO:
+		return false
+	auto_cannons += 1
+	auto_range = minf(auto_range + RANGE_STEP, MAX_RANGE)
+	return true
+
+func upgrade_auto_rate() -> void:
+	auto_interval = maxf(auto_interval * 0.85, 0.3)
+	auto_range = minf(auto_range + RANGE_STEP, MAX_RANGE)
 
 func _process(delta: float) -> void:
 	energy = minf(energy + energy_regen * delta, max_energy)
@@ -95,8 +112,8 @@ func _process(delta: float) -> void:
 func _shoot(angle: float, dmg: float) -> void:
 	var p := Projectile.new()
 	var dir := Vector2.RIGHT.rotated(angle)
-	p.position = position + dir * (body_radius() + 10.0)
-	p.velocity = dir * 600.0
+	p.position = position + dir * (body_radius() + 14.0)
+	p.velocity = dir * 800.0
 	p.damage = dmg
 	get_parent().add_child(p)
 
@@ -116,20 +133,21 @@ func _nearest_enemy() -> Enemy:
 func _draw() -> void:
 	var r := body_radius()
 	var col: Color = TIER_COLORS[tier]
+	draw_circle(Vector2(6, 8), r * 1.15, Color(0, 0, 0, 0.25))
 	if tier == TIER_NAMES.size() - 1:
 		draw_circle(Vector2.ZERO, r, col)
 		draw_circle(Vector2(-r * 0.35, -r * 0.35), r * 0.22, col.darkened(0.45))
-		draw_line(Vector2(-r, 0), Vector2(r, 0), col.darkened(0.45), 3.0)
+		draw_line(Vector2(-r, 0), Vector2(r, 0), col.darkened(0.45), 4.0)
 	else:
 		draw_rect(Rect2(-r * 0.5, -r * 0.5, r, r), col)
 		var count := 2 + tier * 2
-		var s := 8.0 + tier * 2.0
+		var s := 12.0 + tier * 3.0
 		for i in count:
 			var pos := Vector2.RIGHT.rotated(TAU * i / count) * r * 0.85
 			draw_rect(Rect2(pos - Vector2(s, s) * 0.5, Vector2(s, s)), col.darkened(0.25))
 	if auto_cannons > 0:
-		draw_arc(Vector2.ZERO, auto_range, 0.0, TAU, 64, Color(1, 1, 1, 0.08), 1.0)
+		draw_arc(Vector2.ZERO, auto_range, 0.0, TAU, 96, Color(1, 1, 1, 0.12), 2.0)
 		for i in auto_cannons:
 			var a := TAU * i / auto_cannons
-			draw_circle(Vector2.RIGHT.rotated(a) * (r + 6.0), 5.0, Color.ORANGE)
-	draw_line(Vector2.ZERO, Vector2.RIGHT.rotated(aim_angle) * (r + 14.0), Color.DIM_GRAY, 6.0)
+			draw_circle(Vector2.RIGHT.rotated(a) * (r + 8.0), 7.0, Color.ORANGE)
+	draw_line(Vector2.ZERO, Vector2.RIGHT.rotated(aim_angle) * (r + 20.0), Color.DIM_GRAY, 9.0)
