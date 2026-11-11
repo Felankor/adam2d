@@ -111,7 +111,7 @@ func add_xp(amount: int) -> int:
 
 # Max health including the Max health stat points (+1% per point).
 func hp_total() -> float:
-	return float(TIER_HP[tier] + hp_bonus) * (1.0 + 0.01 * float(int(stat_pts.get("health", 0))))
+	return float(TIER_HP[tier] + hp_bonus) * pow(1.01, float(int(stat_pts.get("health", 0))))
 
 # Spends one stat point (each point = +1% over the default value).
 func spend_point(id: String) -> bool:
@@ -119,13 +119,13 @@ func spend_point(id: String) -> bool:
 		return false
 	match id:
 		"damage":
-			damage_mult += 0.01
+			damage_mult *= 1.01          # every point is +1% of the CURRENT value (compounding)
 		"attack":
-			attack_speed += 0.01
+			attack_speed *= 1.01
 		"regen":
-			energy_regen += 0.2          # default 20 per second
+			energy_regen *= 1.01         # default 20 per second
 		"energy":
-			max_energy += 1.0            # default 100
+			max_energy *= 1.01           # default 100
 		"health":
 			var old := max_hp
 			stat_pts["health"] = int(stat_pts.get("health", 0)) + 1
@@ -134,7 +134,7 @@ func spend_point(id: String) -> bool:
 			free_points -= 1
 			return true
 		"speed":
-			move_mult += 0.01
+			move_mult *= 1.01
 		"autorate", "armor":
 			pass
 		_:
@@ -144,7 +144,7 @@ func spend_point(id: String) -> bool:
 	return true
 
 func auto_rate_factor() -> float:
-	return 1.0 + 0.01 * float(int(stat_pts.get("autorate", 0)))
+	return pow(1.01, float(int(stat_pts.get("autorate", 0))))
 
 func set_tier(new_tier: int) -> void:
 	tier = new_tier

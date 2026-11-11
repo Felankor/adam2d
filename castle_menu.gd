@@ -25,6 +25,7 @@ var _title: Label
 var _points: Label
 var _info: GridContainer
 var _stat_values: Array[Label] = []
+var _stat_defaults: Array[Label] = []
 var _stat_pts: Array[Label] = []
 var _stat_buttons: Array[Button] = []
 var _weapon_label: Label
@@ -115,10 +116,17 @@ func _ready() -> void:
 		name_label.add_theme_font_size_override("font_size", 22)
 		name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		row.add_child(name_label)
+		var dl := Label.new()          # the default value, in grey
+		dl.add_theme_font_size_override("font_size", 22)
+		dl.add_theme_color_override("font_color", Color(0.55, 0.57, 0.62))
+		dl.custom_minimum_size = Vector2(90, 0)
+		dl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		row.add_child(dl)
+		_stat_defaults.append(dl)
 		var val := Label.new()
 		val.add_theme_font_size_override("font_size", 22)
 		val.add_theme_color_override("font_color", Color(1.0, 0.9, 0.5))
-		val.custom_minimum_size = Vector2(190, 0)
+		val.custom_minimum_size = Vector2(110, 0)
 		val.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		row.add_child(val)
 		_stat_values.append(val)
@@ -241,7 +249,9 @@ func refresh(coins: int, ctx: Dictionary) -> void:
 				bv = "%.1f -> %.1f" % [3.0 * float(b.tier), b.armor_points()]
 			"autorate":
 				bv = "100%% -> %d%%" % roundi(b.auto_rate_factor() * 100.0)
-		_stat_values[i].text = bv
+		var parts := bv.split(" -> ")
+		_stat_defaults[i].text = parts[0]
+		_stat_values[i].text = "-> " + parts[1]
 		_stat_pts[i].text = "%d %s" % [pts, Loc.t("pts")]
 		_stat_buttons[i].disabled = b.free_points <= 0
 

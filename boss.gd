@@ -58,7 +58,7 @@ static func make_boss(lvl: int, biome: int) -> Boss:
 	b.biome_idx = biome
 	var ab: String = ABILITIES[biome]
 	b.ability = ab
-	var base_hp := (250.0 + 90.0 * lvl) * 2.0 * GameState.hp_mult()      # bosses have 2x health
+	var base_hp := (250.0 + 90.0 * lvl) * 2.0 * 10.0 * GameState.hp_mult()      # bosses have 20x the original health
 	b.hp = base_hp
 	b.speed = (80.0 + biome * 8.0) * GameState.speed_mult()
 	b.damage = 2.5 * (1.0 + 0.25 * float(lvl - 1))
@@ -92,7 +92,7 @@ static func make_boss(lvl: int, biome: int) -> Boss:
 			b.speed *= 0.9
 		"titan":
 			# starts tougher than the Mud Colossus (the boss 10 levels earlier)
-			var mud_hp := (250.0 + 90.0 * float(maxi(lvl - BIOME_STEP, 1))) * 2.0 * GameState.hp_mult()
+			var mud_hp := (250.0 + 90.0 * float(maxi(lvl - BIOME_STEP, 1))) * 2.0 * 10.0 * GameState.hp_mult()
 			b._phase_hp = maxf(base_hp * 0.4, mud_hp * 1.1)
 			b.hp = b._phase_hp
 		"void":

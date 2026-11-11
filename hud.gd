@@ -221,15 +221,6 @@ func _draw() -> void:
 		_frame_sb.bg_color = Color(0.2, 0.85, 0.35, 0.12 + 0.30 * blink)
 		draw_style_box(_frame_sb, Rect2(x - 12.0, s.y - 222.0 + sin(_t * 6.0) * 2.0, 330.0, 38.0))
 		_text(Vector2(x, s.y - 195.0 + sin(_t * 6.0) * 2.0), tag, 24, Color(0.55, 1.0, 0.65).lerp(Color.WHITE, blink))
-		# while enemies are around, remind the player at the top middle of the screen
-		if _combat and not get_tree().paused:
-			var msg := Loc.t("Unspent stat points: %d  -  press [%s]") % [base.free_points, Keybinds.key_text("open_shop")]
-			var font_r := ThemeDB.fallback_font
-			_frame_sb.set_corner_radius_all(12)
-			_frame_sb.bg_color = Color(0.95, 0.6, 0.1, 0.18 + 0.32 * blink)
-			draw_style_box(_frame_sb, Rect2(s.x * 0.5 - 300.0, 22.0, 600.0, 44.0))
-			draw_string_outline(font_r, Vector2(s.x * 0.5 - 300.0, 52.0), msg, HORIZONTAL_ALIGNMENT_CENTER, 600.0, 24, 5, Color.BLACK)
-			draw_string(font_r, Vector2(s.x * 0.5 - 300.0, 52.0), msg, HORIZONTAL_ALIGNMENT_CENTER, 600.0, 24, Color(1.0, 0.9, 0.5).lerp(Color.WHITE, blink))
 	_draw_levelup(s)
 	_draw_minimap(s)
 	_draw_weapon(Vector2(x - 82.0, s.y - 160.0))
