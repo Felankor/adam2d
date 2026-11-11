@@ -67,6 +67,12 @@ func _draw_minimap(s: Vector2) -> void:
 	draw_line(c + Vector2(0.0, -MAP_RADIUS), c + Vector2(0.0, MAP_RADIUS), Color(1, 1, 1, 0.06), 1.5)
 	var tree := get_tree()
 	if tree != null:
+		for node in tree.get_nodes_in_group("allies"):
+			var a := node as Enemy
+			if a != null and not a.dead:
+				var arel := (a.global_position - base.global_position) * k
+				if arel.length() <= MAP_RADIUS - 5.0:
+					draw_circle(c + arel, 2.6, Color(0.3, 1.0, 0.4))      # refugees: green
 		for node in tree.get_nodes_in_group("enemies"):
 			var e := node as Enemy
 			if e == null or e.dead:

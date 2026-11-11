@@ -49,8 +49,9 @@ var base: Base
 var backdrop: BackdropGrid
 var weather: Weather
 var _mini_pending: bool = false
-var _mini_left: int = 0
-const MINIS_PER_LEVEL := 3
+const MINI_CAPS := [2, 4, 10, 20, 50]     # most Rogue Castles alive at once, per biome
+const MINI_INTERVAL := 8.0         # one Rogue Castle every 8 seconds while normal mobs are still around
+const COIN_MULT := 10              # every gold reward is multiplied by this
 var _mini_timer: float = 0.0
 var _power_timer: float = 0.0
 var _cam_prev: Vector2 = Vector2.ZERO
@@ -289,9 +290,8 @@ func _start_level() -> void:
 		title = Loc.t("Level %d  -  %s Boss Level") % [level, Loc.t(BIOME_NAMES[biome])]
 		boss_label.text = Loc.t("!!  %s BOSS LEVEL  !!") % Loc.t(BIOME_NAMES[biome]).to_upper()
 	boss_label.visible = _boss_level
-	_mini_left = MINIS_PER_LEVEL        # three Rogue Castles arrive during every level
 	_mini_pending = true
-	_mini_timer = 6.0
+	_mini_timer = MINI_INTERVAL
 	to_spawn = count
 	spawn_timer = 1.5
 	_clear_timer = -1.0
@@ -367,12 +367,12 @@ func _process(delta: float) -> void:
 	if _mini_pending:
 		_mini_timer -= delta
 		if _mini_timer <= 0.0:
-			_spawn_mini_boss()
-			_mini_left -= 1
-			if _mini_left <= 0:
-				_mini_pending = false
+			if _normal_mobs_left():
+				if _minis_alive() < int(MINI_CAPS[clampi(biome, 0, MINI_CAPS.size() - 1)]):
+					_spawn_mini_boss()
+				_mini_timer = MINI_INTERVAL
 			else:
-				_mini_timer = 10.0
+				_mini_pending = false      # no normal mobs standing: no more Rogue Castles this level
 	_power_timer -= delta
 	if _power_timer <= 0.0:
 		_power_timer = 0.5
@@ -383,7 +383,7 @@ func _process(delta: float) -> void:
 			_spawn_mob()
 			to_spawn -= 1
 			spawn_timer = maxf(0.08, maxf(0.35, 2.0 - level * 0.1) / _spawn_rate()) * GameState.interval_mult()
-	elif alive == 0 and not boss_pending and not _mini_pending:
+	elif alive == 0 and not boss_pending:
 		if _clear_timer < 0.0:
 			_clear_timer = 0.8
 		_clear_timer -= delta
@@ -510,7 +510,7 @@ func _apply_upgrade(id: String) -> String:
 			base.heal(base.max_hp * 0.5)
 			return "Base repaired"
 		"coins":
-			var gain := 5 + level * 3
+			var gain := (5 + level * 3) * COIN_MULT
 			coins += gain
 			return Loc.t("Collected %d gold") % gain
 		"speed":
@@ -710,6 +710,24 @@ func _on_tank_shoot(origin: Vector2, dmg: float) -> void:
 
 # ---------- Mini boss (a rival castle) ----------
 
+func _minis_alive() -> int:
+	var n := 0
+	for node in get_tree().get_nodes_in_group("enemies"):
+		var e := node as Enemy
+		if e != null and not e.dead and e.kind == "minicastle":
+			n += 1
+	return n
+
+# True while ordinary mobs (or the boss) are still alive or still to come.
+func _normal_mobs_left() -> bool:
+	if to_spawn > 0 or boss_pending:
+		return true
+	for node in get_tree().get_nodes_in_group("enemies"):
+		var e := node as Enemy
+		if e != null and not e.dead and e.kind != "minicastle":
+			return true
+	return false
+
 func _spawn_mini_boss() -> void:
 	var m := MiniBoss.make_from(base)
 	m.reward = 25 + level * 5
@@ -748,7 +766,7 @@ func _on_enemy_died(e: Enemy) -> void:
 	if e.is_ally:
 		_notify(Loc.t("Refugee Hit!"), "ally", Color(1.0, 0.2, 0.2), "allyhit")
 		return
-	coins += e.reward
+	coins += e.reward * COIN_MULT
 	alive -= 1
 	if e.kind == "mech":
 		# The vehicle explodes and leaves 3 soldiers spread to its sides.
@@ -767,10 +785,10 @@ func _on_enemy_died(e: Enemy) -> void:
 		_register_mob(sg, true)
 	elif e.kind == "minicastle":
 		_add_shake(14.0)
-		_notify(Loc.t("Rogue Castle defeated!  +%d") % e.reward, "coin", Color(1.0, 0.85, 0.3))
+		_notify(Loc.t("Rogue Castle defeated!  +%d") % (e.reward * COIN_MULT), "coin", Color(1.0, 0.85, 0.3))
 	elif e.kind == "boss":
 		_add_shake(22.0)
-		_notify(Loc.t("%s defeated!  +%d") % [Loc.t(BOSS_NAMES[biome]), e.reward], "coin", Color(1.0, 0.85, 0.3))
+		_notify(Loc.t("%s defeated!  +%d") % [Loc.t(BOSS_NAMES[biome]), e.reward * COIN_MULT], "coin", Color(1.0, 0.85, 0.3))
 		# Everything the boss summoned disappears with it.
 		for node in get_tree().get_nodes_in_group("minions"):
 			var m := node as Enemy
