@@ -13,12 +13,14 @@ extends Enemy
 signal summon(pos: Vector2, count: int)
 signal summon_lesser(pos: Vector2, hp: float, dmg: float, spd: float)
 signal bolt(origin: Vector2, dmg: float)
-signal beam(dmg: float)
+signal beam(dmg: float, origin: Vector2, aim: Vector2)
+signal void_fire(origin: Vector2, aim: Vector2, dmg: float)
 signal announce(text: String, icon: String)
 
 const ABILITIES := ["speed", "regen", "titan", "hell", "void"]
 const BEAM_CHARGE_TIME := 1.6
 const BEAM_FLASH_TIME := 0.5
+const BIOME_STEP := 10               # levels per biome (Mud Colossus is 10 levels before the Stone Titan)
 
 var ability: String = "speed"
 var biome_idx: int = 0
@@ -39,6 +41,12 @@ var _lesser_timer: float = 5.0
 var _check_timer: float = -1.0
 var _beam_charge: float = 0.0
 var _beam_flash: float = 0.0
+var _beam_aim: Vector2 = Vector2.ZERO     # locked when the beam starts charging
+var _bolt_interval: float = 4.0
+var _attack_timer: float = 6.0
+var _next_attack: String = "fire"
+var _burst_left: int = 0
+var _burst_cd: float = 0.0
 var _t: float = 0.0
 
 static func make_boss(lvl: int, biome: int) -> Boss:
@@ -47,11 +55,11 @@ static func make_boss(lvl: int, biome: int) -> Boss:
 	b.biome_idx = biome
 	var ab: String = ABILITIES[biome]
 	b.ability = ab
-	var base_hp := (250.0 + 90.0 * lvl) * GameState.hp_mult()
+	var base_hp := (250.0 + 90.0 * lvl) * 2.0 * GameState.hp_mult()      # bosses have 2x health
 	b.hp = base_hp
 	b.speed = (80.0 + biome * 8.0) * GameState.speed_mult()
 	b.damage = 2.5 * (1.0 + 0.25 * float(lvl - 1))
-	b.reward = 40 + lvl * 6
+	b.reward = (40 + lvl * 6) * 10          # 10x gold
 	b.radius = 56.0
 	b.dodge_chance = 0.65
 	b.dodge_cd_time = 1.4
@@ -59,7 +67,8 @@ static func make_boss(lvl: int, biome: int) -> Boss:
 	b._summon_interval = 5.0
 	b._summon_count = 5
 	b._summon_timer = 4.0
-	b._bolt_timer = 4.0 / GameState.speed_mult()
+	b._bolt_interval = 4.0 / GameState.speed_mult()
+	b._bolt_timer = b._bolt_interval
 	match ab:
 		"speed":
 			b.hp = base_hp * 0.9
@@ -70,16 +79,28 @@ static func make_boss(lvl: int, biome: int) -> Boss:
 			b.dmg_taken_mult = 0.75
 			b.speed *= 0.9
 		"titan":
-			b._phase_hp = base_hp * 0.4
+			# starts tougher than the Mud Colossus (the boss 10 levels earlier)
+			var mud_hp := (250.0 + 90.0 * float(maxi(lvl - BIOME_STEP, 1))) * 2.0 * GameState.hp_mult()
+			b._phase_hp = maxf(base_hp * 0.4, mud_hp * 1.1)
 			b.hp = b._phase_hp
 		"void":
 			b._lesser_hp = base_hp * 0.06
 			b._lesser_timer = 5.0
 		"hell":
 			b.hp = base_hp * 1.1
-			b._summon_interval = 4.0
+			b.speed = 300.0 * GameState.speed_mult()      # very fast
+			b._summon_interval = 0.8                      # attacks 5x as often
 			b._summon_count = 15
-			b._summon_timer = 3.0
+			b._summon_timer = 0.8
+			b._bolt_interval = 0.8 / GameState.speed_mult()
+			b._bolt_timer = b._bolt_interval
+	match ab:
+		"speed":
+			b.power_mult = 2.0
+		"regen", "titan":
+			b.power_mult = 1.5
+		_:
+			b.power_mult = 3.0
 	b.max_hp = b.hp
 	return b
 
@@ -98,9 +119,6 @@ func _process(delta: float) -> void:
 	_heading = vel.angle()
 	vel += _update_dodge(delta)      # bosses sidestep shots that fly straight at them
 	position += vel * delta
-	var view := Settings.view_rect()
-	var m := radius + 40.0
-	position = position.clamp(view.position + Vector2(m, m + 40.0), view.end - Vector2(m, 120.0 + radius * 0.3))
 
 	if regen_rate > 0.0 and hp < max_hp:
 		hp = minf(hp + max_hp * regen_rate * delta, max_hp)
@@ -115,7 +133,7 @@ func _process(delta: float) -> void:
 			Sfx.play("boss_spawn", -6.0)
 		_bolt_timer -= delta
 		if _bolt_timer <= 0.0:
-			_bolt_timer = 4.0 / GameState.speed_mult()
+			_bolt_timer = _bolt_interval
 			bolt.emit(position, damage)
 			Sfx.play("bolt")
 	queue_redraw()
@@ -132,19 +150,45 @@ func _process_void(delta: float) -> void:
 		Sfx.play("boss_spawn", -4.0)
 	if _check_timer > 0.0:
 		_check_timer -= delta
-		if _check_timer <= 0.0 and _lessers_alive():
-			_beam_charge = BEAM_CHARGE_TIME
-			announce.emit(Loc.t("Void beam charging!  Use your Barrier!"), "shield")
-			Sfx.play("beam_charge")
+		if _check_timer <= 0.0 and _lessers_alive() and _beam_charge <= 0.0:
+			_start_beam()
 	if _beam_charge > 0.0:
 		_beam_charge -= delta
 		if _beam_charge <= 0.0:
 			_beam_charge = 0.0
 			_beam_flash = BEAM_FLASH_TIME
-			beam.emit(damage * 3.0)       # cannot be shot down; only the Barrier stops it
+			beam.emit(damage * 3.0, position, _beam_aim)   # fires at the LOCKED spot; only the Barrier or moving away stops it
 			Sfx.play("beam")
 	if _beam_flash > 0.0:
 		_beam_flash = maxf(_beam_flash - delta, 0.0)
+	# Attack cycle: Void Fire (a burst of fast void bullets) -> Void Beam -> ...
+	_attack_timer -= delta
+	if _attack_timer <= 0.0 and _beam_charge <= 0.0 and _burst_left <= 0:
+		if _next_attack == "fire":
+			_burst_left = 24
+			_burst_cd = 0.0
+			_attack_timer = 7.0
+			_next_attack = "beam"
+			announce.emit(Loc.t("Void Fire!"), "skull")
+		else:
+			_start_beam()
+			_attack_timer = 10.0
+			_next_attack = "fire"
+	if _burst_left > 0:
+		_burst_cd -= delta
+		if _burst_cd <= 0.0:
+			_burst_cd = 0.07
+			_burst_left -= 1
+			var aim := target + Vector2(randf_range(-60.0, 60.0), randf_range(-60.0, 60.0))
+			void_fire.emit(position, aim, damage * 0.25)
+			Sfx.play("mg", -10.0)
+
+# Locks the beam onto where the castle is right now, then charges.
+func _start_beam() -> void:
+	_beam_charge = BEAM_CHARGE_TIME
+	_beam_aim = target
+	announce.emit(Loc.t("Void beam charging!  Move or use your Barrier!"), "shield")
+	Sfx.play("beam_charge")
 
 func _lessers_alive() -> bool:
 	for node in get_tree().get_nodes_in_group("void_lessers"):
@@ -334,7 +378,7 @@ func _draw_hell(r: float) -> void:
 		draw_circle(fl * r * 1.05, 5.0 + 3.0 * sin(_t * 8.0 + i), Color(1.0, 0.6, 0.1, 0.7))
 
 func _draw_beam() -> void:
-	var to_base := target - position
+	var to_base := (_beam_aim - position).normalized() * 1900.0
 	if _beam_charge > 0.0:
 		var k := 1.0 - _beam_charge / BEAM_CHARGE_TIME
 		draw_line(Vector2.ZERO, to_base, Color(1.0, 0.2, 0.3, 0.2 + 0.5 * k), 2.0 + 6.0 * k)

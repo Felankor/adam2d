@@ -47,7 +47,14 @@ var boss_pending: bool = false
 var boss_timer: float = 0.0
 
 var base: Base
-var backdrop: Backdrop
+var backdrop: BackdropGrid
+var weather: Weather
+var _mini_pending: bool = false
+var _mini_timer: float = 0.0
+var _power_timer: float = 0.0
+var _cam_prev: Vector2 = Vector2.ZERO
+const SPAWN_DIST_MIN := 1300.0     # enemies appear this far (min..max) from the castle
+const SPAWN_DIST_MAX := 1550.0
 var camera: Camera2D
 var hud: Hud
 var vignette: DamageVignette
@@ -78,15 +85,14 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	Settings.load_and_apply()
 
-	backdrop = Backdrop.new()
+	backdrop = BackdropGrid.new()
 	base = Base.new()
 	base.position = BASE_POS
 	var data := GameState.pending_load
 	GameState.pending_load = {}
 	if not data.is_empty():
 		_apply_save(data)
-	backdrop.biome = biome
-	_fit_backdrop(backdrop)
+	backdrop.setup(biome)
 	add_child(backdrop)
 	add_child(base)
 	base.destroyed.connect(_on_base_destroyed)
@@ -94,12 +100,21 @@ func _ready() -> void:
 	base.blocked.connect(_on_base_blocked)
 
 	camera = Camera2D.new()
-	camera.position = Settings.WORLD_SIZE * 0.5
+	camera.position = base.position
+	_cam_prev = camera.position
 	add_child(camera)
 	camera.zoom = Vector2(Settings.VIEW_ZOOM, Settings.VIEW_ZOOM)
 	camera.make_current()
 
+	var weather_layer := CanvasLayer.new()
+	weather_layer.layer = 1
+	add_child(weather_layer)
+	weather = Weather.new()
+	weather.set_biome(biome)
+	weather_layer.add_child(weather)
+
 	var layer := CanvasLayer.new()
+	layer.layer = 2
 	add_child(layer)
 
 	hud = Hud.new()
@@ -258,6 +273,10 @@ func _start_level() -> void:
 		title = Loc.t("Level %d  -  %s Boss Level") % [level, Loc.t(BIOME_NAMES[biome])]
 		boss_label.text = Loc.t("!!  %s BOSS LEVEL  !!") % Loc.t(BIOME_NAMES[biome]).to_upper()
 	boss_label.visible = _boss_level
+	_mini_pending = level % LEVELS_PER_BIOME == 5      # a rival castle shows up mid-biome
+	if _mini_pending:
+		count = int(count * 0.7)
+		_mini_timer = 6.0
 	to_spawn = count
 	spawn_timer = 1.5
 	_clear_timer = -1.0
@@ -270,9 +289,10 @@ func _start_level() -> void:
 func _change_biome(new_biome: int) -> void:
 	biome = new_biome
 	var old := backdrop
-	var fresh := Backdrop.new()
-	fresh.biome = new_biome
-	_fit_backdrop(fresh)
+	var fresh := BackdropGrid.new()
+	fresh.setup(new_biome)
+	fresh.follow(camera.position)
+	weather.set_biome(new_biome)
 	fresh.modulate.a = 0.0
 	add_child(fresh)
 	move_child(fresh, old.get_index() + 1)
@@ -280,12 +300,6 @@ func _change_biome(new_biome: int) -> void:
 	var tw := create_tween()
 	tw.tween_property(fresh, "modulate:a", 1.0, 3.0)
 	tw.tween_callback(old.queue_free)
-
-# The backdrop is drawn for 1920x1080; stretch it to cover the whole visible map.
-func _fit_backdrop(b: Backdrop) -> void:
-	var k := 1.0 / Settings.ZOOM_MIN
-	b.scale = Vector2(k, k)
-	b.position = Settings.WORLD_SIZE * 0.5 * (1.0 - k)
 
 func _show_banner(text: String, important: bool = false) -> void:
 	banner.text = text
@@ -320,7 +334,7 @@ func _process(delta: float) -> void:
 	if get_tree().paused:
 		return
 	_update_shake(delta)
-	for group in ["enemies", "allies", "bolts"]:
+	for group in ["enemies", "allies"]:
 		for node in get_tree().get_nodes_in_group(group):
 			node.set("target", base.position)
 	if _msg_time > 0.0:
@@ -335,13 +349,22 @@ func _process(delta: float) -> void:
 		if boss_timer <= 0.0:
 			boss_pending = false
 			_spawn_boss()
+	if _mini_pending:
+		_mini_timer -= delta
+		if _mini_timer <= 0.0:
+			_mini_pending = false
+			_spawn_mini_boss()
+	_power_timer -= delta
+	if _power_timer <= 0.0:
+		_power_timer = 0.5
+		_update_label()
 	if to_spawn > 0:
 		spawn_timer -= delta
 		if spawn_timer <= 0.0 and alive < MAX_ALIVE:
 			_spawn_mob()
 			to_spawn -= 1
 			spawn_timer = maxf(0.08, maxf(0.35, 2.0 - level * 0.1) / _spawn_rate()) * GameState.interval_mult()
-	elif alive == 0 and not boss_pending:
+	elif alive == 0 and not boss_pending and not _mini_pending:
 		if _clear_timer < 0.0:
 			_clear_timer = 0.8
 		_clear_timer -= delta
@@ -371,21 +394,17 @@ func _update_cursor() -> void:
 			break
 	Cursors.set_mode(Cursors.Mode.AGGRESSIVE if over else Cursors.Mode.CROSSHAIR)
 
-# Smooth mouse-wheel zoom. When zoomed in, the camera follows the castle but never
-# leaves the play area.
+# The castle stays in the centre of the screen; the world (backdrop, enemies, weather)
+# scrolls past it. Mouse-wheel zoom is smooth.
 func _update_camera(delta: float) -> void:
 	_zoom = lerpf(_zoom, _zoom_target, 1.0 - exp(-10.0 * delta))
 	camera.zoom = Vector2(_zoom, _zoom)
-	var view := Settings.WORLD_SIZE / _zoom
-	var arena := Settings.view_rect().size
-	var c := Settings.WORLD_SIZE * 0.5
-	var half := (arena - view) * 0.5
-	var want := c
-	if half.x > 0.0:
-		want.x = clampf(base.position.x, c.x - half.x, c.x + half.x)
-	if half.y > 0.0:
-		want.y = clampf(base.position.y, c.y - half.y, c.y + half.y)
-	camera.position = camera.position.lerp(want, 1.0 - exp(-6.0 * delta))
+	camera.position = base.position
+	var moved := camera.position - _cam_prev
+	_cam_prev = camera.position
+	weather.feed(moved, _zoom)
+	for node in get_tree().get_nodes_in_group("backdrops"):
+		(node as BackdropGrid).follow(camera.position)
 
 func _add_shake(amount: float) -> void:
 	_shake = maxf(_shake, amount)
@@ -485,23 +504,9 @@ func _apply_upgrade(id: String) -> String:
 
 # ---------- Mobs ----------
 
-# A point just outside the screen, in a random direction from the base.
+# A point at a fixed distance (min..max) from the castle, in a random direction.
 func _edge_spawn_pos() -> Vector2:
-	var rect := Settings.view_rect().grow(60.0)
-	var c := rect.get_center()
-	var pos := c
-	for attempt in 8:
-		var d := Vector2.RIGHT.rotated(randf() * TAU)
-		var tx := INF
-		var ty := INF
-		if absf(d.x) > 0.0001:
-			tx = ((rect.end.x if d.x > 0.0 else rect.position.x) - c.x) / d.x
-		if absf(d.y) > 0.0001:
-			ty = ((rect.end.y if d.y > 0.0 else rect.position.y) - c.y) / d.y
-		pos = c + d * minf(tx, ty)
-		if pos.distance_to(base.position) > 550.0:   # never spawn on top of the castle
-			break
-	return pos
+	return base.position + Vector2.RIGHT.rotated(randf() * TAU) * randf_range(SPAWN_DIST_MIN, SPAWN_DIST_MAX)
 
 const BIOME_ENEMY_NOTES := [
 	"",
@@ -612,6 +617,7 @@ func _spawn_boss() -> void:
 	b.summon_lesser.connect(_on_boss_lesser)
 	b.bolt.connect(_on_boss_bolt)
 	b.beam.connect(_on_boss_beam)
+	b.void_fire.connect(_on_void_fire)
 	b.announce.connect(_on_boss_announce)
 	add_child(b)
 	alive += 1
@@ -629,29 +635,74 @@ func _on_boss_lesser(pos: Vector2, hp: float, dmg: float, spd: float) -> void:
 func _on_boss_announce(text: String, icon: String) -> void:
 	_notify(text, icon, Color(0.85, 0.5, 1.0))
 
-func _on_boss_beam(dmg: float) -> void:
+# A straight, unguided shot: it flies toward where the target WAS when fired.
+func _spawn_bolt(origin: Vector2, aim: Vector2, dmg: float, style: String, spd: float) -> void:
+	var b := EnemyBolt.new()
+	b.style = style
+	b.speed = spd
+	b.position = origin
+	b.direction = (aim - origin).normalized()
+	b.base_ref = base
+	b.damage = dmg
+	b.reach = base.body_radius()
+	b.hit_base.connect(base.take_damage)
+	add_child(b)
+
+# Beam weapons hit everything on the line from origin toward the locked aim point.
+func _beam_hit_check(origin: Vector2, aim: Vector2, dmg: float, width: float) -> void:
+	var dir := (aim - origin).normalized()
+	var rel := base.position - origin
+	if rel.dot(dir) > -base.body_radius() and absf(rel.cross(dir)) <= base.body_radius() + width:
+		base.take_damage(dmg)
+
+func _on_boss_beam(dmg: float, origin: Vector2, aim: Vector2) -> void:
 	_add_shake(16.0)
-	base.take_damage(dmg)     # cannot be shot down - only the Barrier stops it
+	_beam_hit_check(origin, aim, dmg, 30.0)    # cannot be shot down - only the Barrier or moving away stops it
+
+func _on_void_fire(origin: Vector2, aim: Vector2, dmg: float) -> void:
+	_spawn_bolt(origin, aim, dmg, "void", 560.0)
 
 func _on_boss_bolt(from_pos: Vector2, dmg: float) -> void:
-	var b := EnemyBolt.new()
-	b.position = from_pos
-	b.target = base.position
-	b.damage = dmg
-	b.reach = base.body_radius()
-	b.hit_base.connect(base.take_damage)
-	add_child(b)
+	_spawn_bolt(from_pos, base.position, dmg, "orb", 260.0)
 
 func _on_tank_shoot(origin: Vector2, dmg: float) -> void:
-	var b := EnemyBolt.new()
-	b.style = "shell"
-	b.speed = 340.0
-	b.position = origin
-	b.target = base.position
-	b.damage = dmg
-	b.reach = base.body_radius()
-	b.hit_base.connect(base.take_damage)
-	add_child(b)
+	_spawn_bolt(origin, base.position, dmg, "shell", 340.0)
+
+# ---------- Mini boss (a rival castle) ----------
+
+func _spawn_mini_boss() -> void:
+	var m := MiniBoss.make_from(base)
+	m.reward = 25 + level * 5
+	m.position = _edge_spawn_pos()
+	m.target = base.position
+	m.died.connect(_on_enemy_died)
+	m.fire.connect(_on_mini_fire)
+	m.beam_fire.connect(_on_mini_beam)
+	m.announce.connect(_on_boss_announce)
+	add_child(m)
+	alive += 1
+	Sfx.play("boss_spawn", -4.0)
+	_notify(Loc.t("A Rogue Castle approaches!"), "skull", Color(1.0, 0.5, 0.35))
+
+func _on_mini_fire(origin: Vector2, aim: Vector2, dmg: float, style: String) -> void:
+	var spd := 560.0
+	match style:
+		"bullet":
+			spd = 700.0
+		"shell":
+			spd = 340.0
+		"rocket":
+			spd = 380.0
+	_spawn_bolt(origin, aim, dmg, style, spd)
+
+func _on_mini_beam(origin: Vector2, aim: Vector2, dmg: float) -> void:
+	var fx := BeamFx.new()
+	fx.start = origin
+	fx.finish = origin + (aim - origin).normalized() * 1700.0
+	fx.thick = 1.4
+	add_child(fx)
+	_add_shake(6.0)
+	_beam_hit_check(origin, aim, dmg, 6.0)
 
 func _on_enemy_died(e: Enemy) -> void:
 	if e.is_ally:
@@ -674,6 +725,9 @@ func _on_enemy_died(e: Enemy) -> void:
 		sg.reach = base.body_radius()
 		alive += 1
 		_register_mob(sg, true)
+	elif e.kind == "minicastle":
+		_add_shake(14.0)
+		_notify(Loc.t("Rogue Castle defeated!  +%d") % e.reward, "coin", Color(1.0, 0.85, 0.3))
 	elif e.kind == "boss":
 		_add_shake(22.0)
 		_notify(Loc.t("%s defeated!  +%d") % [Loc.t(BOSS_NAMES[biome]), e.reward], "coin", Color(1.0, 0.85, 0.3))
@@ -911,6 +965,7 @@ func _update_label() -> void:
 	hud.coins = coins
 	var diff_name: String = GameState.DIFFICULTY_NAMES[GameState.difficulty]
 	var t := "%s   |   %s %d   |   %s   |   %s   |   %s x%.2f   |   %s x%.1f" % [Loc.t(Base.TIER_NAMES[base.tier]), Loc.t("Level"), level, Loc.t(BIOME_NAMES[biome]), Loc.t(diff_name), Loc.t("Enemy damage"), 1.0 + 0.25 * (level - 1), Loc.t("Spawn rate"), _spawn_rate()]
+	t += "\n%s: %s %d   |   %s %d" % [Loc.t("Power"), Loc.t("you"), int(Power.of_base(base)), Loc.t("enemies"), int(Power.field_power(get_tree()))]
 	if _msg != "":
 		t += "\n" + _msg
 	info_label.text = t

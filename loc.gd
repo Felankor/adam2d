@@ -9,6 +9,15 @@ const LANGS := ["en", "tr"]
 const LANG_NAMES := ["English", "Türkçe"]
 
 const TR := {
+	"Rogue Castle": "Haydut Kale",
+	"A Rogue Castle approaches!": "Bir Haydut Kale yaklaşıyor!",
+	"Rogue Castle defeated!  +%d": "Haydut Kale yenildi!  +%d",
+	"The Rogue Castle overcharges its weapon!": "Haydut Kale silahını aşırı yükledi!",
+	"Void Fire!": "Boşluk Ateşi!",
+	"Void beam charging!  Move or use your Barrier!": "Boşluk ışını doluyor!  Hareket et ya da Bariyeri kullan!",
+	"Power": "Güç",
+	"you": "sen",
+	"enemies": "düşmanlar",
 	# --- main menu ---
 	"CASTLE\nIN THE SKY": "GÖKTEKİ\nKALE",
 	"Grow your village into a Death Star": "Köyünü bir Ölüm Yıldızı'na dönüştür",

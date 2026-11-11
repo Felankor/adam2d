@@ -245,10 +245,7 @@ func _move(delta: float) -> void:
 	if _vel.length() < 1.0 and dir == Vector2.ZERO:
 		_vel = Vector2.ZERO
 		return
-	var view := Settings.view_rect()
-	var lo := view.position + Vector2(170.0, 210.0)
-	var hi := view.end - Vector2(170.0, 340.0)
-	position = (position + _vel * delta).clamp(lo, hi)
+	position += _vel * delta      # the camera follows, so the castle stays centered and the world scrolls
 
 func _fire(angle: float, dmg: float, is_auto: bool) -> void:
 	var dir := Vector2.RIGHT.rotated(angle)

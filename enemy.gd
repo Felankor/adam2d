@@ -7,12 +7,13 @@ signal shoot(origin: Vector2, dmg: float)    # tanks fire shells at the base
 
 # Space biome: the same units look like ships/drones, move faster and dodge.
 static var space_mode: bool = false
-const SPEED_SCALE := 2.0    # all hostile mobs move this much faster than their base values
+const SPEED_SCALE := 1.4    # all hostile mobs move this much faster than their base values (bosses excluded)
 var space: bool = false
 
 var kind: String = "soldier"      # "soldier", "tank", "mech", "worm", "golem", "demon", "hunter", "void" (Boss uses "boss")
 var is_small: bool = false        # a small golem (spawned when a golem dies) does not split again
 var shoot_interval: float = 2.4
+var power_mult: float = 1.0       # manual tweak for the PowerScore (see power.gd)
 var is_minion: bool = false       # summoned by a boss: no gold, vanishes when the boss dies
 var is_ally: bool = false
 var hp: float = 10.0
