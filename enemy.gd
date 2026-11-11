@@ -23,7 +23,8 @@ var max_hp: float = 10.0
 var speed: float = 70.0
 var reward: int = 1
 var damage: float = 1.0
-var armor: float = 0.0            # fraction of each hit that is absorbed
+var armor: float = 0.0            # armor points (see Weapons.armor_mult): 50 points halve every hit
+var armor_pen: float = 0.0        # armor penetration of this enemy's attacks against the castle
 var target: Vector2 = Vector2.ZERO
 var reach: float = 40.0
 var radius: float = 15.0
@@ -68,7 +69,8 @@ static func make(k: String, level: int) -> Enemy:
 			e.shoot_interval = 1.2        # tanks fire twice as often
 			e.shoot_range = randf_range(400.0, 470.0)
 			e._shoot_cd = randf_range(0.5, 1.4)
-			e.armor = 0.35
+			e.armor = 40.0
+			e.armor_pen = 10.0
 			e.reward = 4 + int(level * 0.5)
 			e.radius = 27.0
 		"mech":
@@ -78,6 +80,7 @@ static func make(k: String, level: int) -> Enemy:
 			e.dodge_dash = 460.0
 			e.speed = minf(170.0 + lvl * 6.0, 320.0) * GameState.speed_mult()
 			e.damage = 2.0 * dmg_mult
+			e.armor = 8.0
 			e.reward = 3 + int(level * 0.4)
 			e.radius = 22.0
 		"worm":       # Mudland: Bloodworm - tiny, very fast, fragile
@@ -90,14 +93,16 @@ static func make(k: String, level: int) -> Enemy:
 			e.hp = (90.0 + lvl * 25.0) * GameState.hp_mult()
 			e.speed = minf(32.0 + lvl * 1.5, 70.0) * GameState.speed_mult()
 			e.damage = 5.0 * dmg_mult
-			e.armor = 0.25
+			e.armor = 30.0
+			e.armor_pen = 15.0
 			e.reward = 8 + int(level * 0.7)
 			e.radius = 38.0
 		"demon":      # Hell: faster and stronger than a golem, 3x its health
 			e.hp = (90.0 + lvl * 25.0) * 3.0 * GameState.hp_mult()
 			e.speed = minf(32.0 + lvl * 1.5, 70.0) * 1.6 * GameState.speed_mult()
 			e.damage = 8.0 * dmg_mult
-			e.armor = 0.1
+			e.armor = 20.0
+			e.armor_pen = 20.0
 			e.reward = 25 + int(level * 1.2)
 			e.radius = 42.0
 		"hunter":     # Space: spawn in packs of 5, dodge again and again, shoot from far away
@@ -108,6 +113,7 @@ static func make(k: String, level: int) -> Enemy:
 			e.shoot_range = randf_range(800.0, 940.0)    # twice a tank's range
 			e.shoot_interval = 3.0
 			e._shoot_cd = randf_range(0.5, 2.5)
+			e.armor = 5.0
 			e.dodge_chance = 0.9
 			e.dodge_cd_time = 0.3
 			e.dodge_dash = 420.0
@@ -296,7 +302,7 @@ func _update_dodge(delta: float) -> Vector2:
 				_dodge_cd = 0.35   # failed the roll: try again shortly
 	return Vector2.ZERO
 
-func take_damage(amount: float) -> void:
+func take_damage(amount: float, pen: float = 0.0) -> void:
 	if dead:
 		return
 	var par := get_parent()
@@ -308,7 +314,8 @@ func take_damage(amount: float) -> void:
 		died.emit(self)
 		queue_free()
 		return
-	var dealt := amount * (1.0 - armor) * dmg_taken_mult
+	var armor_factor := Weapons.armor_mult(armor, pen)
+	var dealt := amount * armor_factor * dmg_taken_mult
 	hp -= dealt
 	_flash = 0.12
 	_bar_time = 2.5
@@ -323,7 +330,7 @@ func take_damage(amount: float) -> void:
 			_hit_reaction(back, 260.0)   # light: gets thrown back
 		_:
 			_hit_reaction(back, 170.0)
-	if armor > 0.0:
+	if armor_factor < 0.85:      # armor soaks a noticeable part of the hit: metallic ping
 		Fx.spawn(par, "spark", position, Color(0.8, 0.85, 0.95), "", 0.9, 0.3)
 		_hit_sfx("block")
 	else:
@@ -340,6 +347,15 @@ func take_damage(amount: float) -> void:
 			Sfx.play("kill")
 		died.emit(self)
 		queue_free()
+
+# Killed by touching the player's active Barrier: counts as a normal kill (gold and XP).
+func barrier_kill() -> void:
+	if dead:
+		return
+	dead = true
+	Fx.spawn(get_parent(), "spark", position, Color(0.5, 0.95, 1.0), "", 1.5, 0.45)
+	died.emit(self)
+	queue_free()
 
 # Colour helper: flashes white for a moment after being hit.
 func _c(col: Color) -> Color:

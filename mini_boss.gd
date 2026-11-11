@@ -10,11 +10,14 @@ signal fire(origin: Vector2, aim: Vector2, dmg: float, style: String)
 signal beam_fire(origin: Vector2, aim: Vector2, dmg: float)
 signal announce(text: String, icon: String)
 
-const POWER_RATIO := 0.7
+const HP_RATIO := 0.7               # health: 70% of the player's (then x HP_MULT)
+const SPEED_RATIO := 0.75           # move speed: 25% slower than the player
+const ATTACK_RATIO := 0.8           # attack speed: 20% slower than the player
+const DAMAGE_RATIO := 0.8           # damage: 20% lower than the player
 const HP_MULT := 10.0                # Rogue Castles are 10x tougher than the plain 70% copy
 const BEAM_CHARGE := 0.7
-const STYLES := ["bullet", "shell", "rocket", "bullet"]
-const SPEEDS := [700.0, 340.0, 380.0, 700.0]
+const STYLES := ["bullet", "shell", "rocket", "bullet", "void"]
+const SPEEDS := [700.0, 340.0, 380.0, 700.0, 520.0]
 
 var tier: int = 0
 var weapon_tier: int = 0
@@ -50,16 +53,18 @@ static func make_from(b: Base) -> MiniBoss:
 	m.kind = "minicastle"
 	m.tier = b.tier
 	m.weapon_tier = b.weapon_tier
-	m.max_hp = b.max_hp * POWER_RATIO * HP_MULT
+	m.armor = b.armor_points()
+	m.armor_pen = float(Weapons.PEN[b.weapon_tier])
+	m.max_hp = b.max_hp * HP_RATIO * HP_MULT
 	m.hp = m.max_hp
 	m.max_energy = b.max_energy
 	m.energy = b.max_energy
 	m.energy_regen = b.energy_regen
-	m.attack_speed = b.attack_speed
-	m.weapon_scale = b.damage_mult * POWER_RATIO
-	m.speed = b.move_speed * b.move_mult
+	m.attack_speed = b.attack_speed * ATTACK_RATIO
+	m.weapon_scale = b.damage_mult * DAMAGE_RATIO
+	m.speed = b.move_speed * b.move_mult * SPEED_RATIO
 	m.radius = b.body_radius()
-	m.damage = 3.0 * POWER_RATIO
+	m.damage = 3.0 * DAMAGE_RATIO
 	m.shoots = true
 	m.power_mult = 1.0
 	return m
@@ -138,7 +143,7 @@ func _shoot(delta: float) -> void:
 	Sfx.play(str(Weapons.SOUNDS[weapon_tier]), -9.0)
 	fire.emit(origin, aim, dmg, str(STYLES[weapon_tier]))
 
-func take_damage(amount: float) -> void:
+func take_damage(amount: float, pen: float = 0.0) -> void:
 	if dead:
 		return
 	var par := get_parent()
@@ -146,7 +151,7 @@ func take_damage(amount: float) -> void:
 		Fx.spawn(par, "spark", position + Vector2(randf_range(-40.0, 40.0), randf_range(-40.0, 40.0)), Color(0.4, 0.85, 1.0), "", 1.2, 0.3)
 		Sfx.play("block", -4.0)
 		return
-	var dealt := amount * dmg_taken_mult
+	var dealt := amount * Weapons.armor_mult(armor, pen) * dmg_taken_mult
 	hp -= dealt
 	_flash = 0.12
 	_bar_time = 4.0

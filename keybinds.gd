@@ -1,7 +1,7 @@
 class_name Keybinds
 extends RefCounted
 
-# Rebindable actions. Esc (menu), the number keys in the shop and the
+# Rebindable actions. Esc (menu), the number keys in the Castle window and the
 # mouse button are fixed.
 const ORDER := ["move_up", "move_left", "move_down", "move_right", "pause_game", "open_shop", "toggle_info", "skill_1", "skill_2", "skill_3", "skill_4"]
 const LABELS := {
@@ -10,7 +10,7 @@ const LABELS := {
 	"move_down": "Move down",
 	"move_right": "Move right",
 	"pause_game": "Pause game",
-	"open_shop": "Open shop",
+	"open_shop": "Castle window",
 	"toggle_info": "Show details",
 	"skill_1": "Skill slot 1",
 	"skill_2": "Skill slot 2",

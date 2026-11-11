@@ -64,6 +64,8 @@ static func make_boss(lvl: int, biome: int) -> Boss:
 	b.damage = 2.5 * (1.0 + 0.25 * float(lvl - 1))
 	b.reward = (40 + lvl * 6) * 10          # 10x gold
 	b.radius = 56.0
+	b.armor = 15.0 + 10.0 * float(biome)      # 15 / 25 / 35 / 45 / 55 armor
+	b.armor_pen = 20.0
 	b.dodge_chance = 0.65
 	b.dodge_cd_time = 1.4
 	b.dodge_dash = 520.0
@@ -219,11 +221,11 @@ func _lessers_alive() -> bool:
 			return true
 	return false
 
-func take_damage(amount: float) -> void:
+func take_damage(amount: float, pen: float = 0.0) -> void:
 	if dead:
 		return
 	var par := get_parent()
-	var dealt := amount * dmg_taken_mult
+	var dealt := amount * Weapons.armor_mult(armor, pen) * dmg_taken_mult
 	hp -= dealt
 	_flash = 0.1
 	_scale_pop = 0.05

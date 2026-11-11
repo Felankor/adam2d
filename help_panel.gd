@@ -42,7 +42,7 @@ func refresh() -> void:
 		child.queue_free()
 
 	_heading("Goal")
-	_text("Defend your castle. Enemies walk in one by one - shoot them to earn gold. Clear every level to grow from a Village into a Death Star. Every 10th level is a boss level.")
+	_text("Defend your castle. Enemies walk in one by one - shoot them to earn gold and XP. Clear every wave to grow from a Village into a Death Star. Every 10th wave is a boss wave.")
 
 	_heading("Controls")
 	_key_row("Aim", "Mouse")
@@ -50,24 +50,27 @@ func refresh() -> void:
 	_key_row("Move the castle", "%s %s %s %s" % [Keybinds.key_text("move_up"), Keybinds.key_text("move_left"), Keybinds.key_text("move_down"), Keybinds.key_text("move_right")])
 	_key_row("Zoom in / out", "Mouse wheel")
 	_key_row("Pause game", Keybinds.key_text("pause_game"))
-	_key_row("Open shop", Keybinds.key_text("open_shop"))
+	_key_row("Castle window", Keybinds.key_text("open_shop"))
 	_key_row("Show details", Keybinds.key_text("toggle_info"))
 	_key_row("Skill slot 1 (Barrier)", Keybinds.key_text("skill_1"))
 	_key_row("Skill slot 2 (Overcharge)", Keybinds.key_text("skill_2"))
 	_key_row("Skill slot 3 (Repair: costs gold)", Keybinds.key_text("skill_3"))
 	_key_row("Skill slot 4", Keybinds.key_text("skill_4"))
 	_key_row("Pause menu / go back", "Esc")
-	_key_row("Buy in shop / pick a reward card", "Number keys or click")
+	_key_row("Spend a stat point", "Number keys 1-7 or click")
 	_text("You can change these keys in Settings > Controls.")
 
-	_heading("Energy and weapons")
-	_text("Every shot costs energy, and energy refills over time. Upgrade your weapon in the shop: Machinegun, Cannon, Rocket Launcher, Laser Gun. Auto-weapons use the same weapon.")
+	_heading("Mana and weapons")
+	_text("Every shot costs mana, and mana refills over time. Upgrade your weapon in the Castle window: Machinegun, Cannon, Rocket Launcher, Laser Gun, Void Gun. Auto-weapons use the same weapon.")
+
+	_heading("Leveling")
+	_text("Every kill gives XP (bosses and Rogue Castles give a lot). Each new Level gives you 5 stat points. Press the Castle window key to spend them: every point adds +1% to a stat.")
 
 	_heading("Refugees")
 	_text("Refugees (red clothes, white flag) are innocent - don't shoot them! Let one reach your castle and it becomes a helper. They stop coming in the Space biome:")
 	_ally_row("gunner", "Builds an extra auto-weapon")
 	_ally_row("scientist", "Weapon damage +15%")
-	_ally_row("engineer", "Energy regen +5 per second")
+	_ally_row("engineer", "Mana regen +5 per second")
 	_ally_row("mechanic", "Slowly repairs the castle")
 
 	_heading("Enemies")

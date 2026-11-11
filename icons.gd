@@ -23,6 +23,8 @@ static func draw(ci: CanvasItem, kind: String, origin: Vector2, k: float, with_b
 			_rocket_launcher(ci)
 		"laser":
 			_laser_gun(ci)
+		"void":
+			_void_gun(ci)
 		# shop / reward icons
 		"damage":
 			_impact(ci)
@@ -122,6 +124,18 @@ static func _laser_gun(ci: CanvasItem) -> void:
 	ci.draw_line(Vector2(50, 33), Vector2(63, 33), Color(0.7, 1.0, 1.0), 3.0)
 	ci.draw_line(Vector2(55, 14), Vector2(58, 21), Color(0.5, 1.0, 1.0, 0.8), 2.0)
 	ci.draw_line(Vector2(55, 52), Vector2(58, 45), Color(0.5, 1.0, 1.0, 0.8), 2.0)
+
+static func _void_gun(ci: CanvasItem) -> void:
+	# dark emitter with a swirling midnight-purple orb
+	ci.draw_rect(Rect2(8, 26, 30, 14), Color(0.22, 0.16, 0.34))
+	ci.draw_rect(Rect2(8, 26, 30, 4), Color(0.45, 0.32, 0.65))
+	ci.draw_rect(Rect2(36, 29, 12, 8), Color(0.12, 0.08, 0.2))
+	ci.draw_rect(Rect2(14, 40, 9, 14), Color(0.2, 0.14, 0.3))
+	ci.draw_circle(Vector2(20, 33), 3.0, Color(0.7, 0.35, 1.0))
+	ci.draw_circle(Vector2(53, 33), 11.0, Color(0.45, 0.1, 0.8, 0.35))
+	ci.draw_circle(Vector2(53, 33), 8.0, Color(0.65, 0.25, 1.0))
+	ci.draw_circle(Vector2(53, 33), 5.5, Color(0.03, 0.0, 0.08))
+	ci.draw_arc(Vector2(53, 33), 10.0, 0.5, 4.2, 12, Color(0.85, 0.6, 1.0, 0.9), 1.5)
 
 # ---------- shop and reward icons ----------
 

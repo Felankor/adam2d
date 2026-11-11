@@ -35,6 +35,10 @@ var tier: int = 0
 var max_hp: float = 20.0
 var hp: float = 20.0
 var hp_bonus: int = 0
+var xp_level: int = 1               # castle level (XP): every new level gives 5 stat points
+var xp: int = 0                     # XP towards the next level
+var free_points: int = 0            # unspent stat points (5 per level)
+var stat_pts: Dictionary = {}       # points spent per stat id; each point = +1% over the default
 
 var max_energy: float = 100.0
 var energy: float = 100.0
@@ -76,6 +80,9 @@ var _anim: float = 0.0
 var _hurt: float = 0.0
 var _muzzle: float = 0.0
 var _pix: PixelCastle = null
+var _zap_cd: float = 0.0
+var _lvlfx: float = 0.0             # level-up effect timer
+const LEVELUP_FX := 1.4
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_PAUSABLE
@@ -87,22 +94,101 @@ func _ready() -> void:
 func body_radius() -> float:
 	return 42.0 + tier * 5.0
 
+# XP needed to go from this level to the next one.
+static func xp_needed(lv: int) -> int:
+	return 30 + 15 * lv + 2 * lv * lv
+
+# Adds XP; returns how many levels were gained.
+func add_xp(amount: int) -> int:
+	xp += amount
+	var gained := 0
+	while xp >= xp_needed(xp_level):
+		xp -= xp_needed(xp_level)
+		xp_level += 1
+		free_points += 5
+		gained += 1
+	return gained
+
+# Max health including the Max health stat points (+1% per point).
+func hp_total() -> float:
+	return float(TIER_HP[tier] + hp_bonus) * (1.0 + 0.01 * float(int(stat_pts.get("health", 0))))
+
+# Spends one stat point (each point = +1% over the default value).
+func spend_point(id: String) -> bool:
+	if free_points <= 0:
+		return false
+	match id:
+		"damage":
+			damage_mult += 0.01
+		"attack":
+			attack_speed += 0.01
+		"regen":
+			energy_regen += 0.2          # default 20 per second
+		"energy":
+			max_energy += 1.0            # default 100
+		"health":
+			var old := max_hp
+			stat_pts["health"] = int(stat_pts.get("health", 0)) + 1
+			max_hp = hp_total()
+			hp += max_hp - old
+			free_points -= 1
+			return true
+		"speed":
+			move_mult += 0.01
+		"autorate", "armor":
+			pass
+		_:
+			return false
+	stat_pts[id] = int(stat_pts.get(id, 0)) + 1
+	free_points -= 1
+	return true
+
+func auto_rate_factor() -> float:
+	return 1.0 + 0.01 * float(int(stat_pts.get("autorate", 0)))
+
 func set_tier(new_tier: int) -> void:
 	tier = new_tier
-	max_hp = float(TIER_HP[tier] + hp_bonus)
+	max_hp = hp_total()
 	hp = max_hp
 	queue_redraw()
+
+# Golden rings, sparkles and a glow around the castle when the player gains a level.
+func play_level_up() -> void:
+	_lvlfx = LEVELUP_FX
+
+# While the Barrier is up, any ordinary mob that touches it is destroyed (bosses and Rogue
+# Castles are too big and are only blocked). It counts as a kill, so it gives gold and XP.
+func _barrier_zap(delta: float) -> void:
+	_zap_cd = maxf(_zap_cd - delta, 0.0)
+	var reach_r := body_radius() * 1.75
+	var killed := 0
+	for node in get_tree().get_nodes_in_group("enemies"):
+		var e := node as Enemy
+		if e == null or e.dead or e.kind == "boss" or e.kind == "minicastle":
+			continue
+		if position.distance_to(e.position) <= reach_r + e.radius * 0.4:
+			e.barrier_kill()
+			killed += 1
+	if killed > 0 and _zap_cd <= 0.0:
+		_zap_cd = 0.08
+		Sfx.play("kill", -6.0)
 
 func heal(amount: float) -> void:
 	hp = minf(hp + amount, max_hp)
 
-func take_damage(amount: float) -> void:
+# Castle armor: 3 per castle stage plus 0.5 per Armor stat point.
+func armor_points() -> float:
+	return 3.0 * float(tier) + 0.5 * float(int(stat_pts.get("armor", 0)))
+
+# pen = armor penetration of the attacker. Poison ignores armor.
+func take_damage(amount: float, pen: float = 0.0) -> void:
 	if barrier_time > 0.0:
 		blocked.emit()
 		return
-	hp = maxf(hp - amount, 0.0)
+	var dealt := amount * Weapons.armor_mult(armor_points(), pen)
+	hp = maxf(hp - dealt, 0.0)
 	_hurt = 0.25
-	damaged.emit(amount)
+	damaged.emit(dealt)
 	if hp <= 0.0:
 		set_process(false)
 		destroyed.emit()
@@ -167,6 +253,10 @@ func to_dict() -> Dictionary:
 		"tier": tier,
 		"hp": hp,
 		"hp_bonus": hp_bonus,
+		"free_points": free_points,
+		"xp_level": xp_level,
+		"xp": xp,
+		"stat_pts": stat_pts.duplicate(),
 		"max_energy": max_energy,
 		"energy_regen": energy_regen,
 		"damage_mult": damage_mult,
@@ -187,7 +277,11 @@ func to_dict() -> Dictionary:
 func from_dict(d: Dictionary) -> void:
 	tier = clampi(int(d.get("tier", 0)), 0, TIER_NAMES.size() - 1)
 	hp_bonus = int(d.get("hp_bonus", 0))
-	max_hp = float(TIER_HP[tier] + hp_bonus)
+	free_points = int(d.get("free_points", 0))
+	xp_level = maxi(int(d.get("xp_level", 1)), 1)
+	xp = int(d.get("xp", 0))
+	stat_pts = (d.get("stat_pts", {}) as Dictionary).duplicate()
+	max_hp = hp_total()
 	hp = minf(float(d.get("hp", max_hp)), max_hp)
 	max_energy = float(d.get("max_energy", 100.0))
 	energy = max_energy
@@ -214,6 +308,7 @@ func _process(delta: float) -> void:
 	_anim += delta
 	_hurt = maxf(_hurt - delta, 0.0)
 	_muzzle = maxf(_muzzle - delta, 0.0)
+	_lvlfx = maxf(_lvlfx - delta, 0.0)
 	energy = minf(energy + energy_regen * delta, max_energy)
 	_fire_cd -= delta
 	if poison_time > 0.0:
@@ -240,6 +335,7 @@ func _process(delta: float) -> void:
 	if boost_time > 0.0:
 		boost_time = maxf(boost_time - delta, 0.0)
 	if barrier_time > 0.0:
+		_barrier_zap(delta)
 		barrier_time -= delta
 		if barrier_time <= 0.0:
 			barrier_time = 0.0
@@ -266,7 +362,7 @@ func _process(delta: float) -> void:
 			if target != null:
 				var adm: float = Weapons.AUTO_DAMAGE[weapon_tier]
 				_fire((target.global_position - global_position).angle(), adm * dmg_factor(), true)
-				_auto_timer = auto_interval / auto_cannons / attack_speed
+				_auto_timer = auto_interval / auto_cannons / attack_speed / auto_rate_factor()
 
 	# Mechanics: slow repairs
 	if mechanics > 0 and hp < max_hp:
@@ -313,11 +409,17 @@ func _fire(angle: float, dmg: float, is_auto: bool) -> void:
 			p.velocity = dir * 640.0
 			p.life = 2.5
 			p.splash = 110.0
+		4:
+			p.kind = "void"
+			p.velocity = dir * 760.0
+			p.life = 2.4
+			p.splash = Weapons.VOID_SPLASH
 		_:
 			p.kind = "shell"
 			p.velocity = dir * 850.0
 			p.life = 2.0
 	p.damage = dmg
+	p.pen = float(Weapons.PEN[weapon_tier])
 	get_parent().add_child(p)
 
 # Laser Gun: an instant beam that pierces everything on its line.
@@ -333,7 +435,7 @@ func _fire_beam(origin: Vector2, dir: Vector2, dmg: float) -> void:
 		if along < -e.radius or along > length:
 			continue
 		if absf(rel.cross(dir)) <= e.radius + 4.0:
-			e.take_damage(dmg)
+			e.take_damage(dmg, float(Weapons.PEN[weapon_tier]))
 	Enemy.hit_sound = "hit"
 	for node in get_tree().get_nodes_in_group("bolts"):
 		var b := node as Node2D
@@ -419,6 +521,16 @@ func _draw() -> void:
 		var pulse := 0.5 + 0.5 * sin(_anim * 8.0)
 		draw_circle(Vector2.ZERO, r * 1.75, Color(0.3, 0.8, 1.0, (0.16 + 0.08 * pulse) * blink))
 		draw_arc(Vector2.ZERO, r * 1.75, 0.0, TAU, 64, Color(0.5, 0.95, 1.0, 0.9 * blink), 4.0)
+	if _lvlfx > 0.0:
+		var k := 1.0 - _lvlfx / LEVELUP_FX
+		draw_circle(Vector2.ZERO, r * 1.3, Color(1.0, 0.9, 0.4, 0.2 * (1.0 - k)))
+		for ring in 2:
+			var kk := clampf(k - 0.18 * float(ring), 0.0, 1.0)
+			draw_arc(Vector2.ZERO, r * (1.1 + 2.6 * kk), 0.0, TAU, 64, Color(1.0, 0.85, 0.3, 0.85 * (1.0 - kk)), 6.0 * (1.0 - kk) + 1.0)
+		for i in 14:
+			var a := TAU * float(i) / 14.0 + k * 1.6
+			var d := r * (1.0 + 1.7 * k)
+			draw_circle(Vector2.RIGHT.rotated(a) * d - Vector2(0.0, k * 60.0), 4.0 * (1.0 - k) + 1.0, Color(1.0, 0.95, 0.55, 0.95 * (1.0 - k)))
 	if poison_time > 0.0:
 		# green poison bubbles rising off the castle
 		draw_circle(Vector2.ZERO, r * 1.1, Color(0.4, 0.9, 0.2, 0.12))
@@ -445,6 +557,12 @@ func _draw_barrel(dir: Vector2, r: float) -> void:
 		2:
 			draw_line(Vector2.ZERO, dir * (r + 28.0), Color(0.35, 0.42, 0.3), 15.0)
 			draw_line(dir * (r + 22.0), dir * (r + 29.0), Color(0.75, 0.3, 0.2), 16.0)
+		4:
+			draw_line(Vector2.ZERO, tip, Color(0.16, 0.1, 0.26), 10.0)
+			draw_line(Vector2.ZERO, tip, Color(0.4, 0.2, 0.65), 3.0)
+			draw_circle(tip, 7.0, Color(0.04, 0.0, 0.1))
+			draw_circle(tip, 12.0, Color(0.5, 0.15, 0.9, 0.3))
+			draw_arc(tip, 9.0, _anim * 6.0, _anim * 6.0 + 4.0, 12, Color(0.8, 0.55, 1.0, 0.9), 2.0)
 		3:
 			draw_line(Vector2.ZERO, tip, Color(0.32, 0.36, 0.5), 8.0)
 			draw_circle(tip, 6.0, Color(0.5, 0.95, 1.0, 0.9))

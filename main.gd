@@ -12,35 +12,12 @@ const MAX_ALIVE := 180            # safety cap so huge summons never overload th
 const BIOME_NAMES := ["Greenland Biome", "Mudland Biome", "Rocky Mountain Biome", "Hell Biome", "Space Biome"]
 const BOSS_NAMES := ["Garden Warden", "Mud Colossus", "Stone Titan", "Hell Lord", "Void Overlord"]
 
-# Shop rows, in order (the number keys 1-6 buy them). The weapon upgrade is special. Repair is now a skill (slot 3).
-const ITEMS := [
-	{"id": "damage", "name": "Weapon damage", "desc": "+5% damage for all weapons", "icon": "damage", "cost": 10, "growth": 1.16},
-	{"id": "weapon", "name": "Weapon upgrade", "desc": "", "icon": "cannon", "cost": 0, "growth": 1.0},
-	{"id": "regen", "name": "Energy regen", "desc": "+4 energy per second", "icon": "regen", "cost": 10, "growth": 1.5},
-	{"id": "autorate", "name": "Auto fire rate", "desc": "Auto-weapons fire 15% faster and reach further", "icon": "autorate", "cost": 20, "growth": 1.5},
-	{"id": "atkspeed", "name": "Attack speed", "desc": "+5% weapon attack speed", "icon": "atkspeed", "cost": 15, "growth": 1.4},
-	{"id": "armor", "name": "Armor plating", "desc": "+10 max health and heal 10", "icon": "walls", "cost": 25, "growth": 1.45},
-]
-
-# Reward cards offered after each level (3 random ones). Auto-weapons only come from Gunner allies.
-const UPGRADES := [
-	{"id": "regen", "name": "Fast loading", "icon": "regen", "desc": "Energy regen +4 per second"},
-	{"id": "atkspeed", "name": "Quick hands", "icon": "atkspeed", "desc": "Weapon attack speed +5%"},
-	{"id": "autorate", "name": "Gun oil", "icon": "autorate", "desc": "Auto-weapons fire 15% faster\nand reach further"},
-	{"id": "walls", "name": "Thicker walls", "icon": "walls", "desc": "Max health +10 and heal 10"},
-	{"id": "repair", "name": "Field repairs", "icon": "repair", "desc": "Heal 50% of max health"},
-	{"id": "coins", "name": "Tax collection", "icon": "coin", "desc": "Gain bonus gold\n(more in later levels)"},
-	{"id": "speed", "name": "Thrusters", "icon": "speed", "desc": "Castle move speed +5%"},
-	{"id": "laser", "name": "Laser sight", "icon": "sight", "desc": "A red laser shows exactly\nwhere your weapon will hit"},
-]
-
 var level: int = 1
 var coins: int = 0
 var to_spawn: int = 0
 var alive: int = 0
 var spawn_timer: float = 0.0
 var game_over: bool = false
-var levels: Array[int] = [0, 0, 0, 0, 0, 0, 0]
 var biome: int = 0
 var boss_pending: bool = false
 var boss_timer: float = 0.0
@@ -50,6 +27,8 @@ var backdrop: BackdropGrid
 var weather: Weather
 var _mini_pending: bool = false
 const MINI_CAPS := [2, 4, 10, 20, 50]     # most Rogue Castles alive at once, per biome
+var _mini_single: bool = false
+const MINI_AFTER_LEVEL := 8          # Rogue Castles start spawning on level 9
 const MINI_INTERVAL := 8.0         # one Rogue Castle every 8 seconds while normal mobs are still around
 const COIN_MULT := 10              # every gold reward is multiplied by this
 var _mini_timer: float = 0.0
@@ -65,8 +44,7 @@ var detail_label: Label
 var _show_details: bool = false
 var banner: Label
 var pause_panel: PanelContainer
-var upgrade_menu: UpgradeMenu
-var shop_menu: ShopMenu
+var castle_menu: CastleMenu
 var pause_menu: PauseMenu
 var notifier: Notifier
 var gameover_menu: GameOverMenu
@@ -189,14 +167,13 @@ func _ready() -> void:
 	pause_panel.visible = false
 	layer.add_child(pause_panel)
 
-	upgrade_menu = UpgradeMenu.new()
-	upgrade_menu.chosen.connect(_on_upgrade_chosen)
-	layer.add_child(upgrade_menu)
-
-	shop_menu = ShopMenu.new()
-	shop_menu.buy_requested.connect(_buy)
-	layer.add_child(shop_menu)
-	shop_menu.setup(ITEMS.size())
+	castle_menu = CastleMenu.new()
+	castle_menu.base = base
+	castle_menu.spend.connect(_on_castle_spend)
+	castle_menu.weapon_upgrade.connect(_on_castle_weapon)
+	castle_menu.laser_toggled.connect(_on_castle_laser)
+	castle_menu.continue_pressed.connect(_close_castle)
+	layer.add_child(castle_menu)
 
 	pause_menu = PauseMenu.new()
 	pause_menu.resume_requested.connect(_close_pause_menu)
@@ -219,22 +196,15 @@ func _exit_tree() -> void:
 func _apply_save(d: Dictionary) -> void:
 	level = maxi(int(d.get("level", 1)), 1)
 	coins = int(d.get("coins", 0))
-	if int(d.get("version", 1)) >= 2:   # older saves used a different shop order
-		var saved_levels: Array = (d.get("shop_levels", []) as Array).duplicate()
-		if int(d.get("version", 1)) == 2 and saved_levels.size() > 5:
-			saved_levels.remove_at(5)       # the old "Repair base" row no longer exists
-		for i in mini(saved_levels.size(), levels.size()):
-			levels[i] = int(saved_levels[i])
 	base.from_dict(d.get("base", {}) as Dictionary)
 	biome = _biome_for(level)
 
 func _make_save_data() -> Dictionary:
 	return {
-		"version": 3,
+		"version": 4,
 		"difficulty": GameState.difficulty,
 		"level": level,
 		"coins": coins,
-		"shop_levels": levels.duplicate(),
 		"base": base.to_dict(),
 	}
 
@@ -242,7 +212,7 @@ func _save_game() -> void:
 	var data := _make_save_data()
 	if GameState.write_save(data):
 		Sfx.play("powerup")
-		pause_menu.set_status(Loc.t("Game saved. You will resume at the start of Level %d.") % level)
+		pause_menu.set_status(Loc.t("Game saved. You will resume at the start of Wave %d.") % level)
 		_notify(Loc.t("Game saved"), "star", Color(1.0, 0.85, 0.3), "save")
 	else:
 		pause_menu.set_status(Loc.t("Could not save the game."))
@@ -277,7 +247,7 @@ func _start_level() -> void:
 		_change_biome(new_biome)
 		if new_biome < BIOME_ENEMY_NOTES.size() and BIOME_ENEMY_NOTES[new_biome] != "":
 			_notify(Loc.t(str(BIOME_ENEMY_NOTES[new_biome])), "skull", Color(1.0, 0.6, 0.3))
-	var title := Loc.t("Level %d  -  %s") % [level, Loc.t(BIOME_NAMES[biome])]
+	var title := Loc.t("Wave %d  -  %s") % [level, Loc.t(BIOME_NAMES[biome])]
 	_boss_level = level % LEVELS_PER_BIOME == 0
 	Enemy.space_mode = biome == SPACE_BIOME
 	var count := int((3 + level * 2) * GameState.count_mult() * 3.0)
@@ -287,10 +257,16 @@ func _start_level() -> void:
 	if boss_pending:
 		count = int(count * 0.6)
 		boss_timer = 2.5
-		title = Loc.t("Level %d  -  %s Boss Level") % [level, Loc.t(BIOME_NAMES[biome])]
-		boss_label.text = Loc.t("!!  %s BOSS LEVEL  !!") % Loc.t(BIOME_NAMES[biome]).to_upper()
+		title = Loc.t("Wave %d  -  %s Boss Wave") % [level, Loc.t(BIOME_NAMES[biome])]
+		boss_label.text = Loc.t("!!  %s BOSS WAVE  !!") % Loc.t(BIOME_NAMES[biome]).to_upper()
 	boss_label.visible = _boss_level
-	_mini_pending = true
+	_mini_single = GameState.difficulty == 0
+	if _mini_single:
+		# Beginner: just a chance of ONE Rogue Castle per level (0% before level 5, 20% on level 5, +10% per level)
+		_mini_pending = randf() < _mini_chance(level)
+	else:
+		# Seasoned: the full rules (one every 8 s with biome caps) after level 8
+		_mini_pending = level > MINI_AFTER_LEVEL
 	_mini_timer = MINI_INTERVAL
 	to_spawn = count
 	spawn_timer = 1.5
@@ -370,6 +346,8 @@ func _process(delta: float) -> void:
 			if _normal_mobs_left():
 				if _minis_alive() < int(MINI_CAPS[clampi(biome, 0, MINI_CAPS.size() - 1)]):
 					_spawn_mini_boss()
+					if _mini_single:
+						_mini_pending = false          # Beginner: only the one castle
 				_mini_timer = MINI_INTERVAL
 			else:
 				_mini_pending = false      # no normal mobs standing: no more Rogue Castles this level
@@ -394,7 +372,7 @@ func _process(delta: float) -> void:
 		_clear_timer = -1.0
 
 func _update_pause() -> void:
-	get_tree().paused = _manual_paused or shop_menu.visible or upgrade_menu.visible or pause_menu.visible
+	get_tree().paused = _manual_paused or castle_menu.visible or pause_menu.visible
 	if not _manual_paused:
 		pause_panel.visible = false
 
@@ -447,79 +425,32 @@ func _on_base_blocked() -> void:
 	Sfx.play("block")
 	_notify(Loc.t("Blocked by the Barrier!"), "shield", Color(0.4, 0.85, 1.0), "block")
 
-# ---------- Level reward menu ----------
+# ---------- Wave cleared / XP ----------
 
 func _level_cleared() -> void:
 	var cleared := level
 	var biome_done := cleared % LEVELS_PER_BIOME == 0
 	level += 1
 	Sfx.play("biome_win" if biome_done else "win")
-	var title := Loc.t("Level %d cleared!  Choose a reward") % cleared
 	_boss_level = false
 	boss_label.visible = false
-	_notify(Loc.t("Level %d cleared!") % cleared, "star", Color(1.0, 0.85, 0.3))
+	_notify(Loc.t("Wave %d cleared!") % cleared, "star", Color(1.0, 0.85, 0.3))
 	if biome_done:
-		title = Loc.t("%s conquered!  Choose a reward") % Loc.t(BIOME_NAMES[_biome_for(cleared)])
-	_open_upgrade_menu(title)
-
-func _is_available(u: Dictionary) -> bool:
-	match u["id"]:
-		"repair":
-			return base.hp < base.max_hp
-		"laser":
-			return not base.laser
-		"autorate":
-			return base.auto_cannons > 0
-	return true
-
-func _open_upgrade_menu(title: String) -> void:
-	var pool := UPGRADES.filter(_is_available)
-	pool.shuffle()
-	var picks := pool.slice(0, 3)
-	upgrade_menu.open(title, picks)
-	_update_pause()
-
-func _on_upgrade_chosen(id: String) -> void:
-	var text := _apply_upgrade(id)
-	Sfx.play("powerup")
-	_update_pause()
+		_notify(Loc.t("%s conquered!") % Loc.t(BIOME_NAMES[_biome_for(cleared)]), "star", Color(1.0, 0.85, 0.3))
 	_start_level()
-	var picked: Dictionary = {}
-	for u in UPGRADES:
-		if str(u["id"]) == id:
-			picked = u
-	_notify(Loc.t(text), str(picked.get("icon", "star")), Color(0.5, 1.0, 0.6))
+	spawn_timer = 3.5            # a short breather before the next wave
 
-func _apply_upgrade(id: String) -> String:
-	match id:
-		"regen":
-			base.energy_regen += 4.0
-			return "Energy regen +4 per second"
-		"atkspeed":
-			base.attack_speed += 0.05
-			return "Weapon attack speed +5%"
-		"autorate":
-			base.upgrade_auto_rate()
-			return "Auto-weapons fire faster and reach further"
-		"walls":
-			base.hp_bonus += 10
-			base.max_hp += 10.0
-			base.heal(10.0)
-			return "Max health +10"
-		"repair":
-			base.heal(base.max_hp * 0.5)
-			return "Base repaired"
-		"coins":
-			var gain := (5 + level * 3) * COIN_MULT
-			coins += gain
-			return Loc.t("Collected %d gold") % gain
-		"speed":
-			base.move_mult += 0.05
-			return "Move speed +5%"
-		"laser":
-			base.laser = true
-			return "Laser sight installed"
-	return ""
+# Kills give XP equal to their reward (summoned fodder gives none). Every new level = 5 stat points.
+func _gain_xp(amount: int) -> void:
+	if amount <= 0:
+		return
+	var gained := base.add_xp(amount)
+	if gained > 0:
+		base.play_level_up()
+		Sfx.play("weapon_up", -2.0)
+		_notify(Loc.t("Level up!  Level %d  (+%d stat points)") % [base.xp_level, gained * 5], "star", Color(0.5, 1.0, 0.6), "levelup")
+		if castle_menu.visible:
+			_refresh_castle()
 
 # ---------- Mobs ----------
 
@@ -676,7 +607,10 @@ func _on_boss_announce(text: String, icon: String) -> void:
 	_notify(text, icon, Color(0.85, 0.5, 1.0))
 
 # A straight, unguided shot: it flies toward where the target WAS when fired.
+const BOLT_PEN := {"bullet": 0.0, "shell": 10.0, "rocket": 12.0, "orb": 20.0, "void": 30.0}   # armor penetration of enemy shots by style
+
 func _spawn_bolt(origin: Vector2, aim: Vector2, dmg: float, style: String, spd: float) -> void:
+	var pen := float(BOLT_PEN.get(style, 0.0))
 	var b := EnemyBolt.new()
 	b.style = style
 	b.speed = spd
@@ -685,15 +619,15 @@ func _spawn_bolt(origin: Vector2, aim: Vector2, dmg: float, style: String, spd: 
 	b.base_ref = base
 	b.damage = dmg
 	b.reach = base.body_radius()
-	b.hit_base.connect(base.take_damage)
+	b.hit_base.connect(func(d: float) -> void: base.take_damage(d, pen))
 	add_child(b)
 
 # Beam weapons hit everything on the line from origin toward the locked aim point.
-func _beam_hit_check(origin: Vector2, aim: Vector2, dmg: float, width: float) -> void:
+func _beam_hit_check(origin: Vector2, aim: Vector2, dmg: float, width: float, pen: float = 30.0) -> void:
 	var dir := (aim - origin).normalized()
 	var rel := base.position - origin
 	if rel.dot(dir) > -base.body_radius() and absf(rel.cross(dir)) <= base.body_radius() + width:
-		base.take_damage(dmg)
+		base.take_damage(dmg, pen)
 
 func _on_boss_beam(dmg: float, origin: Vector2, aim: Vector2) -> void:
 	_add_shake(16.0)
@@ -709,6 +643,12 @@ func _on_tank_shoot(origin: Vector2, dmg: float) -> void:
 	_spawn_bolt(origin, base.position, dmg, "shell", 340.0)
 
 # ---------- Mini boss (a rival castle) ----------
+
+# Beginner difficulty: chance that one Rogue Castle shows up on this level.
+func _mini_chance(lv: int) -> float:
+	if lv < 5:
+		return 0.0
+	return clampf(0.2 + 0.1 * float(lv - 5), 0.0, 1.0)
 
 func _minis_alive() -> int:
 	var n := 0
@@ -751,6 +691,8 @@ func _on_mini_fire(origin: Vector2, aim: Vector2, dmg: float, style: String) -> 
 			spd = 340.0
 		"rocket":
 			spd = 380.0
+		"void":
+			spd = 520.0
 	_spawn_bolt(origin, aim, dmg, style, spd)
 
 func _on_mini_beam(origin: Vector2, aim: Vector2, dmg: float) -> void:
@@ -760,13 +702,14 @@ func _on_mini_beam(origin: Vector2, aim: Vector2, dmg: float) -> void:
 	fx.thick = 1.4
 	add_child(fx)
 	_add_shake(6.0)
-	_beam_hit_check(origin, aim, dmg, 6.0)
+	_beam_hit_check(origin, aim, dmg, 6.0, float(Weapons.PEN[3]))
 
 func _on_enemy_died(e: Enemy) -> void:
 	if e.is_ally:
 		_notify(Loc.t("Refugee Hit!"), "ally", Color(1.0, 0.2, 0.2), "allyhit")
 		return
 	coins += e.reward * COIN_MULT
+	_gain_xp(e.reward)
 	alive -= 1
 	if e.kind == "mech":
 		# The vehicle explodes and leaves 3 soldiers spread to its sides.
@@ -805,7 +748,7 @@ func _on_mob_arrived(e: Enemy) -> void:
 		_recruit()
 	else:
 		alive -= 1
-		base.take_damage(e.damage)
+		base.take_damage(e.damage, e.armor_pen)
 		if e.kind == "bee":
 			base.apply_poison(2.0, 4.0)        # the sting poisons (blocked by the Barrier)
 		_update_label()
@@ -826,7 +769,7 @@ func _recruit() -> void:
 		2:
 			base.engineers += 1
 			base.energy_regen += 5.0
-			_notify(Loc.t("Energy regen +5 per second"), "engineer", Color(1.0, 0.85, 0.25))
+			_notify(Loc.t("Mana regen +5 per second"), "engineer", Color(1.0, 0.85, 0.25))
 		3:
 			base.mechanics += 1
 			_notify(Loc.t("Base repairs itself slowly"), "mechanic", Color(1.0, 0.55, 0.35))
@@ -836,7 +779,7 @@ func _recruit() -> void:
 func _input(event: InputEvent) -> void:
 	var mb := event as InputEventMouseButton
 	if mb != null and mb.pressed and (mb.button_index == MOUSE_BUTTON_WHEEL_UP or mb.button_index == MOUSE_BUTTON_WHEEL_DOWN):
-		if not (shop_menu.visible or upgrade_menu.visible or pause_menu.visible):
+		if not (castle_menu.visible or pause_menu.visible):
 			var step := 1.1 if mb.button_index == MOUSE_BUTTON_WHEEL_UP else 1.0 / 1.1
 			_zoom_target = clampf(_zoom_target * step, Settings.ZOOM_MIN, Settings.ZOOM_MAX)
 		return
@@ -849,7 +792,7 @@ func _input(event: InputEvent) -> void:
 		return
 	if event.is_action_pressed("pause_game"):
 		get_viewport().set_input_as_handled()
-		if game_over or shop_menu.visible or upgrade_menu.visible or pause_menu.visible:
+		if game_over or castle_menu.visible or pause_menu.visible:
 			return
 		_manual_paused = not _manual_paused
 		_update_pause()
@@ -861,9 +804,9 @@ func _input(event: InputEvent) -> void:
 		return
 	if event.is_action_pressed("open_shop"):
 		get_viewport().set_input_as_handled()
-		if game_over or _manual_paused or upgrade_menu.visible or pause_menu.visible:
+		if game_over or _manual_paused or pause_menu.visible:
 			return
-		_toggle_shop()
+		_toggle_castle()
 		return
 	for i in 4:
 		if event.is_action_pressed("skill_%d" % (i + 1)):
@@ -880,10 +823,10 @@ func _input(event: InputEvent) -> void:
 						Sfx.play("barrier")
 						_notify(Loc.t("Barrier up!  Invincible for %d s") % int(Base.BARRIER_DURATION), "shield", Color(0.4, 0.85, 1.0), "barrier")
 			return
-	if shop_menu.visible:
+	if castle_menu.visible:
 		var idx := int(key.keycode) - int(KEY_1)
-		if idx >= 0 and idx < ITEMS.size():
-			_buy(idx)
+		if idx >= 0 and idx < CastleMenu.STATS.size():
+			_on_castle_spend(str(CastleMenu.STATS[idx]["id"]))
 
 # Repair skill: pay gold, heal 50% of max health, 1 second cooldown.
 func _use_repair(slot: int) -> void:
@@ -905,10 +848,8 @@ func _use_repair(slot: int) -> void:
 	_update_label()
 
 func _on_escape() -> void:
-	if upgrade_menu.visible:
-		return
-	if shop_menu.visible:
-		_toggle_shop()
+	if castle_menu.visible:
+		_close_castle()
 		return
 	if pause_menu.visible:
 		if pause_menu.go_back():
@@ -923,93 +864,53 @@ func _on_escape() -> void:
 	pause_menu.open()
 	_update_pause()
 
-func _toggle_shop() -> void:
-	shop_menu.visible = not shop_menu.visible
-	if shop_menu.visible:
-		_refresh_shop()
+# ---------- Castle window (Tab) ----------
+
+func _toggle_castle() -> void:
+	if castle_menu.visible:
+		_close_castle()
+	else:
+		_open_castle("")
+
+func _open_castle(title: String) -> void:
+	castle_menu.open(title, false)
+	_refresh_castle()
 	_update_pause()
 
-func _refresh_shop() -> void:
-	var rows: Array = []
-	for i in ITEMS.size():
-		rows.append(_shop_row(i))
-	shop_menu.refresh(coins, rows)
+func _close_castle() -> void:
+	castle_menu.visible = false
+	_update_pause()
 
-func _shop_row(i: int) -> Dictionary:
-	var item: Dictionary = ITEMS[i]
-	var id := str(item["id"])
-	var row := {
-		"name": Loc.t(str(item["name"])),
-		"desc": Loc.t(str(item["desc"])),
-		"icon": str(item["icon"]),
-		"cost": _cost(i),
-		"level": "%s %d" % [Loc.t("Lv"), levels[i]],
-		"maxed": false,
-	}
-	if id == "weapon":
-		var tier := base.weapon_tier
-		row["level"] = "%d / %d" % [tier + 1, Weapons.MAX_TIER + 1]
-		if tier >= Weapons.MAX_TIER:
-			row["desc"] = Loc.t("%s - maximum weapon reached") % Loc.t(Weapons.name_of(tier))
-			row["icon"] = Weapons.id_of(tier)
-			row["maxed"] = true
-		else:
-			row["desc"] = Loc.t("%s -> %s\nAuto-weapons are upgraded too") % [Loc.t(Weapons.name_of(tier)), Loc.t(Weapons.name_of(tier + 1))]
-			row["icon"] = Weapons.id_of(tier + 1)
-	return row
+func _refresh_castle() -> void:
+	var diff_name: String = GameState.DIFFICULTY_NAMES[GameState.difficulty]
+	castle_menu.refresh(coins, {
+		"wave": level,
+		"region": Loc.t(BIOME_NAMES[biome]),
+		"difficulty": Loc.t(diff_name),
+		"power": Power.of_base(base),
+	})
 
-func _cost(i: int) -> int:
-	var item: Dictionary = ITEMS[i]
-	var id := str(item["id"])
-	if id == "weapon":
-		if base.weapon_tier >= Weapons.MAX_TIER:
-			return 0
-		return int(Weapons.UPGRADE_PRICE[base.weapon_tier])
-	return int(float(item["cost"]) * pow(float(item["growth"]), levels[i]))
-
-func _buy(i: int) -> void:
-	if game_over or i < 0 or i >= ITEMS.size():
+func _on_castle_spend(id: String) -> void:
+	if game_over or not base.spend_point(id):
 		return
-	var item: Dictionary = ITEMS[i]
-	var id := str(item["id"])
-	var cost := _cost(i)
-	if coins < cost:
-		return
-	var text := ""
-	var icon := str(item["icon"])
-	match id:
-		"damage":
-			base.damage_mult += 0.05
-			text = "Weapon damage +5%"
-		"weapon":
-			if not base.upgrade_weapon():
-				return
-			Sfx.play("weapon_up")
-			text = Loc.t("Weapon upgraded: %s") % Loc.t(Weapons.name_of(base.weapon_tier))
-			icon = Weapons.id_of(base.weapon_tier)
-		"regen":
-			base.energy_regen += 4.0
-			text = "Energy regen +4 per second"
-		"autorate":
-			if base.auto_cannons == 0:
-				_notify(Loc.t("No auto-weapons yet - a Gunner ally builds one"), "gunner", Color(1.0, 0.6, 0.3), "noauto")
-				return
-			base.upgrade_auto_rate()
-			text = "Auto-weapons fire faster"
-		"atkspeed":
-			base.attack_speed += 0.05
-			text = "Weapon attack speed +5%"
-		"armor":
-			base.hp_bonus += 10
-			base.max_hp += 10.0
-			base.heal(10.0)
-			text = "Max health +10"
-	coins -= cost
-	levels[i] += 1
-	Sfx.play("coin")
-	_notify(Loc.t(text), icon, Color(0.5, 1.0, 0.6))
+	Sfx.play("powerup", -4.0)
 	_update_label()
-	_refresh_shop()
+	_refresh_castle()
+
+func _on_castle_weapon() -> void:
+	if game_over or base.weapon_tier >= Weapons.MAX_TIER:
+		return
+	var price := int(Weapons.UPGRADE_PRICE[base.weapon_tier])
+	if coins < price or not base.upgrade_weapon():
+		return
+	coins -= price
+	Sfx.play("weapon_up")
+	_notify(Loc.t("Weapon upgraded: %s") % Loc.t(Weapons.name_of(base.weapon_tier)), Weapons.id_of(base.weapon_tier), Color(0.5, 1.0, 0.6))
+	_update_label()
+	_refresh_castle()
+
+func _on_castle_laser(on: bool) -> void:
+	base.laser = on
 
 # ---------- Game over and HUD text ----------
 
@@ -1026,8 +927,8 @@ func _on_base_destroyed() -> void:
 		for node in get_tree().get_nodes_in_group(group):
 			node.set_process(false)
 	boss_label.visible = false
-	var info := Loc.t("Your %s fell on Level %d  (%s)") % [Loc.t(Base.TIER_NAMES[base.tier]), level, Loc.t(BIOME_NAMES[biome])]
-	get_tree().create_timer(1.3).timeout.connect(gameover_menu.open.bind(info, Loc.t("Retry Level %d") % level))
+	var info := Loc.t("Your %s fell on Wave %d  (%s)") % [Loc.t(Base.TIER_NAMES[base.tier]), level, Loc.t(BIOME_NAMES[biome])]
+	get_tree().create_timer(1.3).timeout.connect(gameover_menu.open.bind(info, Loc.t("Retry Wave %d") % level))
 
 # Game-over text stays on the info label; everything else is a pop-up notification.
 func _say(text: String, seconds: float) -> void:
@@ -1042,7 +943,7 @@ func _notify(text: String, icon: String = "", color: Color = Color.WHITE, key: S
 func _update_label() -> void:
 	hud.coins = coins
 	# always visible: just the level, the region and the castle stage
-	var t := "%s %d   -   %s\n%s" % [Loc.t("Level"), level, Loc.t(BIOME_NAMES[biome]), Loc.t(Base.TIER_NAMES[base.tier])]
+	var t := "%s %d   -   %s\n%s" % [Loc.t("Wave"), level, Loc.t(BIOME_NAMES[biome]), Loc.t(Base.TIER_NAMES[base.tier])]
 	if _msg != "":
 		t += "\n" + _msg
 	info_label.text = t

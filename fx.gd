@@ -26,7 +26,7 @@ static func spawn(parent: Node, k: String, pos: Vector2, col: Color = Color.WHIT
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_PAUSABLE
 	z_index = 5
-	if kind == "spark" or kind == "explosion":
+	if kind == "spark" or kind == "explosion" or kind == "void_blast":
 		var count := 9 if kind == "spark" else 28
 		for i in count:
 			var a := randf() * TAU
@@ -58,6 +58,14 @@ func _draw() -> void:
 			draw_arc(Vector2.ZERO, ring, 0.0, TAU, 48, Color(1.0, 0.9, 0.5, a), 5.0 * a + 1.0)
 			for p in _parts:
 				draw_circle(p[0], p[2] * 1.6 * a, Color(1.0, 0.45 + 0.4 * t, 0.1, a))
+		"void_blast":
+			var vr := 30.0 + 150.0 * power * t
+			draw_circle(Vector2.ZERO, vr * 0.8, Color(0.08, 0.0, 0.16, 0.55 * a))
+			draw_circle(Vector2.ZERO, vr * 0.45, Color(0.02, 0.0, 0.05, 0.7 * a))
+			draw_arc(Vector2.ZERO, vr, 0.0, TAU, 64, Color(0.75, 0.4, 1.0, a), 6.0 * a + 1.0)
+			draw_arc(Vector2.ZERO, vr * 0.7, 0.0, TAU, 48, Color(0.5, 0.15, 0.9, 0.8 * a), 3.0)
+			for p in _parts:
+				draw_circle(p[0], p[2] * 1.5 * a, Color(0.6 + 0.3 * t, 0.2, 1.0, a))
 		"number":
 			var font := ThemeDB.fallback_font
 			var pos := Vector2(-40, 0)
