@@ -49,6 +49,8 @@ var base: Base
 var backdrop: BackdropGrid
 var weather: Weather
 var _mini_pending: bool = false
+var _mini_left: int = 0
+const MINIS_PER_LEVEL := 3
 var _mini_timer: float = 0.0
 var _power_timer: float = 0.0
 var _cam_prev: Vector2 = Vector2.ZERO
@@ -58,6 +60,8 @@ var camera: Camera2D
 var hud: Hud
 var vignette: DamageVignette
 var info_label: Label
+var detail_label: Label
+var _show_details: bool = false
 var banner: Label
 var pause_panel: PanelContainer
 var upgrade_menu: UpgradeMenu
@@ -130,6 +134,16 @@ func _ready() -> void:
 	info_label.add_theme_constant_override("outline_size", 6)
 	info_label.add_theme_color_override("font_outline_color", Color.BLACK)
 	layer.add_child(info_label)
+
+	# difficulty, enemy damage, spawn rate and PowerScore: hidden until the player presses the details key
+	detail_label = Label.new()
+	detail_label.position = Vector2(28, 168)
+	detail_label.add_theme_font_size_override("font_size", 17)
+	detail_label.add_theme_constant_override("outline_size", 5)
+	detail_label.add_theme_color_override("font_outline_color", Color.BLACK)
+	detail_label.add_theme_color_override("font_color", Color(0.85, 0.9, 1.0))
+	detail_label.visible = false
+	layer.add_child(detail_label)
 
 	notifier = Notifier.new()
 	layer.add_child(notifier)
@@ -275,10 +289,9 @@ func _start_level() -> void:
 		title = Loc.t("Level %d  -  %s Boss Level") % [level, Loc.t(BIOME_NAMES[biome])]
 		boss_label.text = Loc.t("!!  %s BOSS LEVEL  !!") % Loc.t(BIOME_NAMES[biome]).to_upper()
 	boss_label.visible = _boss_level
-	_mini_pending = level % LEVELS_PER_BIOME == 5      # a rival castle shows up mid-biome
-	if _mini_pending:
-		count = int(count * 0.7)
-		_mini_timer = 6.0
+	_mini_left = MINIS_PER_LEVEL        # three Rogue Castles arrive during every level
+	_mini_pending = true
+	_mini_timer = 6.0
 	to_spawn = count
 	spawn_timer = 1.5
 	_clear_timer = -1.0
@@ -354,8 +367,12 @@ func _process(delta: float) -> void:
 	if _mini_pending:
 		_mini_timer -= delta
 		if _mini_timer <= 0.0:
-			_mini_pending = false
 			_spawn_mini_boss()
+			_mini_left -= 1
+			if _mini_left <= 0:
+				_mini_pending = false
+			else:
+				_mini_timer = 10.0
 	_power_timer -= delta
 	if _power_timer <= 0.0:
 		_power_timer = 0.5
@@ -819,6 +836,11 @@ func _input(event: InputEvent) -> void:
 		_manual_paused = not _manual_paused
 		_update_pause()
 		return
+	if event.is_action_pressed("toggle_info"):
+		get_viewport().set_input_as_handled()
+		_show_details = not _show_details
+		_update_label()
+		return
 	if event.is_action_pressed("open_shop"):
 		get_viewport().set_input_as_handled()
 		if game_over or _manual_paused or upgrade_menu.visible or pause_menu.visible:
@@ -1001,9 +1023,15 @@ func _notify(text: String, icon: String = "", color: Color = Color.WHITE, key: S
 
 func _update_label() -> void:
 	hud.coins = coins
-	var diff_name: String = GameState.DIFFICULTY_NAMES[GameState.difficulty]
-	var t := "%s   |   %s %d   |   %s   |   %s   |   %s x%.2f   |   %s x%.1f" % [Loc.t(Base.TIER_NAMES[base.tier]), Loc.t("Level"), level, Loc.t(BIOME_NAMES[biome]), Loc.t(diff_name), Loc.t("Enemy damage"), 1.0 + 0.25 * (level - 1), Loc.t("Spawn rate"), _spawn_rate()]
-	t += "\n%s: %s %d   |   %s %d" % [Loc.t("Power"), Loc.t("you"), int(Power.of_base(base)), Loc.t("enemies"), int(Power.field_power(get_tree()))]
+	# always visible: just the level, the region and the castle stage
+	var t := "%s %d   -   %s\n%s" % [Loc.t("Level"), level, Loc.t(BIOME_NAMES[biome]), Loc.t(Base.TIER_NAMES[base.tier])]
 	if _msg != "":
 		t += "\n" + _msg
 	info_label.text = t
+	# on demand (details key): the numbers behind the level
+	detail_label.visible = _show_details
+	if _show_details:
+		var diff_name: String = GameState.DIFFICULTY_NAMES[GameState.difficulty]
+		var d := "%s   |   %s x%.2f   |   %s x%.1f" % [Loc.t(diff_name), Loc.t("Enemy damage"), 1.0 + 0.25 * (level - 1), Loc.t("Spawn rate"), _spawn_rate()]
+		d += "\n%s: %s %d   |   %s %d" % [Loc.t("Power"), Loc.t("you"), int(Power.of_base(base)), Loc.t("enemies"), int(Power.field_power(get_tree()))]
+		detail_label.text = d

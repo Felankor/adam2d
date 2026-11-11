@@ -323,6 +323,7 @@ func _fire(angle: float, dmg: float, is_auto: bool) -> void:
 # Laser Gun: an instant beam that pierces everything on its line.
 func _fire_beam(origin: Vector2, dir: Vector2, dmg: float) -> void:
 	var length := 1700.0
+	Enemy.hit_sound = "laser_hit"       # softer hit sound while the beam damages mobs
 	for node in get_tree().get_nodes_in_group("mobs"):
 		var e := node as Enemy
 		if e == null or e.dead:
@@ -333,6 +334,7 @@ func _fire_beam(origin: Vector2, dir: Vector2, dmg: float) -> void:
 			continue
 		if absf(rel.cross(dir)) <= e.radius + 4.0:
 			e.take_damage(dmg)
+	Enemy.hit_sound = "hit"
 	for node in get_tree().get_nodes_in_group("bolts"):
 		var b := node as Node2D
 		if b == null:

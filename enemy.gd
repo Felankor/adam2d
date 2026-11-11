@@ -7,6 +7,8 @@ signal shoot(origin: Vector2, dmg: float)    # tanks fire shells at the base
 
 # Space biome: the same units look like ships/drones, move faster and dodge.
 static var space_mode: bool = false
+static var hit_sound: String = "hit"        # Base switches this to "laser_hit" while a beam is applying damage (see _hit_sfx)
+static var _last_laser_hit_ms: int = 0
 const SPEED_SCALE := 1.4    # all hostile mobs move this much faster than their base values (bosses excluded)
 var space: bool = false
 
@@ -63,6 +65,7 @@ static func make(k: String, level: int) -> Enemy:
 			e.speed = minf(32.0 + lvl * 1.5, 70.0) * GameState.speed_mult()
 			e.damage = 3.0 * dmg_mult
 			e.shoots = true
+			e.shoot_interval = 1.2        # tanks fire twice as often
 			e.shoot_range = randf_range(400.0, 470.0)
 			e._shoot_cd = randf_range(0.5, 1.4)
 			e.armor = 0.35
@@ -322,10 +325,10 @@ func take_damage(amount: float) -> void:
 			_hit_reaction(back, 170.0)
 	if armor > 0.0:
 		Fx.spawn(par, "spark", position, Color(0.8, 0.85, 0.95), "", 0.9, 0.3)
-		Sfx.play("block")
+		_hit_sfx("block")
 	else:
 		Fx.spawn(par, "spark", position, Color(1.0, 0.85, 0.3), "", 1.0, 0.35)
-		Sfx.play("hit")
+		_hit_sfx("hit")
 	Fx.spawn(par, "number", position + Vector2(0, -radius - 12.0), Color.WHITE, str(int(ceil(dealt))), 1.0, 0.7)
 	if hp <= 0.0:
 		dead = true
@@ -342,7 +345,26 @@ func take_damage(amount: float) -> void:
 func _c(col: Color) -> Color:
 	return col.lerp(Color.WHITE, clampf(_flash / 0.12, 0.0, 1.0) * 0.8)
 
+# A dark disc and a coloured ring under every mob so it stands out on busy maps:
+# red = hostile, green = refugee (do not shoot).
+# Beams cross many mobs at once: they get one soft tick at most every 80 ms instead of the harsh hit sound.
+func _hit_sfx(normal: String) -> void:
+	if hit_sound == "laser_hit":
+		var now := Time.get_ticks_msec()
+		if now - _last_laser_hit_ms > 80:
+			_last_laser_hit_ms = now
+			Sfx.play("laser_hit", -6.0)
+	else:
+		Sfx.play(normal)
+
+func _draw_marker() -> void:
+	var mr := maxf(radius, 12.0) + 5.0
+	var ring := Color(0.4, 1.0, 0.5, 0.9) if is_ally else Color(1.0, 0.25, 0.2, 0.9)
+	draw_circle(Vector2(0, 2), mr, Color(0, 0, 0, 0.42))
+	draw_arc(Vector2(0, 2), mr, 0.0, TAU, 28, ring, 2.5)
+
 func _draw() -> void:
+	_draw_marker()
 	var sgn := -1.0 if cos(_heading) < 0.0 else 1.0
 	var s := 1.0 + _scale_pop * 2.0
 	match kind:

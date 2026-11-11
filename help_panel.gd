@@ -51,6 +51,7 @@ func refresh() -> void:
 	_key_row("Zoom in / out", "Mouse wheel")
 	_key_row("Pause game", Keybinds.key_text("pause_game"))
 	_key_row("Open shop", Keybinds.key_text("open_shop"))
+	_key_row("Show details", Keybinds.key_text("toggle_info"))
 	_key_row("Skill slot 1 (Barrier)", Keybinds.key_text("skill_1"))
 	_key_row("Skill slot 2 (Overcharge)", Keybinds.key_text("skill_2"))
 	_key_row("Skill slot 3 (Repair: costs gold)", Keybinds.key_text("skill_3"))

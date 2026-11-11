@@ -77,6 +77,9 @@ func open(title: String, options: Array) -> void:
 		card_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		card_title.add_theme_font_size_override("font_size", 26)
 		card_title.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		card_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		card_title.custom_minimum_size = Vector2(280, 0)
+		card_title.size_flags_horizontal = Control.SIZE_FILL
 		col.add_child(card_title)
 		var desc := Label.new()
 		desc.text = str(opt["desc"])
@@ -84,6 +87,9 @@ func open(title: String, options: Array) -> void:
 		desc.add_theme_font_size_override("font_size", 18)
 		desc.add_theme_color_override("font_color", Color(0.78, 0.8, 0.88))
 		desc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART      # long (e.g. Turkish) text wraps inside the card
+		desc.custom_minimum_size = Vector2(280, 0)
+		desc.size_flags_horizontal = Control.SIZE_FILL
 		col.add_child(desc)
 		_row.add_child(b)
 		_ids.append(opt["id"])

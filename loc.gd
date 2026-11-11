@@ -9,6 +9,7 @@ const LANGS := ["en", "tr"]
 const LANG_NAMES := ["English", "Türkçe"]
 
 const TR := {
+	"Show details": "Ayrıntıları göster",
 	"Not enough gold to repair": "Onarım için yeterli altın yok",
 	"Base repaired  -%d gold": "Kale onarıldı  -%d altın",
 	"Skill slot 3 (Repair: costs gold)": "Yetenek yuvası 3 (Onarım: altın harcar)",

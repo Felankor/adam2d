@@ -57,9 +57,9 @@ func _draw() -> void:
 	_draw_weapon(Vector2(x - 82.0, s.y - 160.0))
 	_draw_helpers()
 
-# Round radar at the bottom left: you (orange) in the middle, enemies red, bosses purple.
+# Round radar at the bottom right: you (orange) in the middle, enemies red, bosses purple.
 func _draw_minimap(s: Vector2) -> void:
-	var c := Vector2(30.0 + MAP_RADIUS, s.y - 30.0 - MAP_RADIUS)
+	var c := Vector2(s.x - 30.0 - MAP_RADIUS, s.y - 30.0 - MAP_RADIUS)
 	var k := MAP_RADIUS / MAP_RANGE
 	draw_circle(c, MAP_RADIUS, Color(0.04, 0.06, 0.09, 0.62))
 	draw_arc(c, MAP_RADIUS * 0.5, 0.0, TAU, 48, Color(1, 1, 1, 0.08), 1.5)
@@ -225,7 +225,7 @@ func _draw_helpers() -> void:
 	var kinds := ["gunner", "scientist", "engineer", "mechanic"]
 	var counts := [base.gunners, base.scientists, base.engineers, base.mechanics]
 	var x := 28.0
-	var y := 62.0
+	var y := 108.0
 	for i in 4:
 		var kind: String = kinds[i]
 		var n: int = counts[i]

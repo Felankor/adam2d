@@ -20,6 +20,7 @@ var _rng := RandomNumberGenerator.new()
 
 func _init() -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	modulate = Color(0.86, 0.86, 0.86)      # slightly dimmed so units stand out
 
 func _draw() -> void:
 	draw_texture_rect(_texture(), Rect2(Vector2.ZERO, SIZE), false)
@@ -308,30 +309,30 @@ const SKULL := [".WWWWW.", "WWWWWWW", "WKWWWKW", "WKWWWKW", ".WWKWW.", ".WWWWW."
 
 func _hell() -> void:
 	var rock := [_col("1c1216"), _col("2a171b"), _col("3a1d1f"), _col("4d2623")]
-	var glowrock := [_col("5a2a1c"), _col("8a3a1a")]
-	var lava := [_col("d8451a"), _col("f27a1f"), _col("ffd23a")]
+	var glowrock := [_col("3a1d1a"), _col("5a2a1c")]
+	var lava := [_col("b83a16"), _col("d8581c"), _col("f09a2a")]
 	var n1 := _noise(0.012, 3, 1)
 	var n2 := _noise(0.08, 2, 2)
-	var nr := _noise(0.011, 3, 3)
+	var nr := _noise(0.008, 3, 3)
 	for y in H:
 		for x in W:
 			var v := _n01(n1, x, y) * 0.7 + _n01(n2, x, y) * 0.3
 			var r := absf(nr.get_noise_2d(float(x), float(y)))
-			if r < 0.035:
+			if r < 0.02:
 				_px(x, y, _tone(_n01(n2, x, y) * 0.6 + 0.4, lava, x, y))
 				_mark(x, y)
-			elif r < 0.07:
+			elif r < 0.042:
 				_px(x, y, _tone(_n01(n2, x, y), [lava[0], lava[1]], x, y))
 				_mark(x, y)
-			elif r < 0.11:
+			elif r < 0.065:
 				_px(x, y, _tone(_n01(n2, x, y), glowrock, x, y))
 			else:
 				_px(x, y, _tone(v, rock, x, y))
 	# glowing cracks
-	for i in 16:
-		_walk(_ri(5, W - 5), _ri(5, H - 5), _ri(16, 40), _col("e8571c"))
+	for i in 7:
+		_walk(_ri(5, W - 5), _ri(5, H - 5), _ri(14, 30), _col("a8401a"))
 	# ember specks and ash
-	for i in 260:
+	for i in 140:
 		var x := _ri(1, W - 2)
 		var y := _ri(1, H - 2)
 		if _free(x, y):

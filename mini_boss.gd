@@ -11,6 +11,7 @@ signal beam_fire(origin: Vector2, aim: Vector2, dmg: float)
 signal announce(text: String, icon: String)
 
 const POWER_RATIO := 0.7
+const HP_MULT := 10.0                # Rogue Castles are 10x tougher than the plain 70% copy
 const BEAM_CHARGE := 0.7
 const STYLES := ["bullet", "shell", "rocket", "bullet"]
 const SPEEDS := [700.0, 340.0, 380.0, 700.0]
@@ -49,7 +50,7 @@ static func make_from(b: Base) -> MiniBoss:
 	m.kind = "minicastle"
 	m.tier = b.tier
 	m.weapon_tier = b.weapon_tier
-	m.max_hp = b.max_hp * POWER_RATIO
+	m.max_hp = b.max_hp * POWER_RATIO * HP_MULT
 	m.hp = m.max_hp
 	m.max_energy = b.max_energy
 	m.energy = b.max_energy

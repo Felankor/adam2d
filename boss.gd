@@ -263,6 +263,7 @@ func _draw() -> void:
 	var s := 1.0 + _scale_pop * 2.0
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2(s, s))
 	draw_circle(Vector2(6, 8), radius + 3.0, Color(0, 0, 0, 0.35))
+	draw_arc(Vector2.ZERO, radius + 10.0, 0.0, TAU, 48, Color(0.75, 0.35, 1.0, 0.9), 4.0)      # purple boss ring
 	match ability:
 		"speed":
 			_draw_garden(radius)
