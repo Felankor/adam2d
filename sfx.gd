@@ -158,7 +158,7 @@ static func _build(sound: String) -> AudioStreamWAV:
 		"void":
 			d = _mix(_tone(260.0, 70.0, 0.25, 0.4, 0), _tone(130.0, 55.0, 0.3, 0.3, 1))
 		"void_boom":
-			d = _mix(_noise(0.55, 0.55, 0.85), _tone(85.0, 24.0, 0.6, 0.65, 0), _tone(340.0, 60.0, 0.4, 0.2, 0))
+			d = _mix(_noise(0.55, 0.55, 0.85), _tone(85.0, 24.0, 0.6, 0.65, 0))
 		"laser_hit":
 			d = _tone(420.0, 260.0, 0.05, 0.1, 0)      # a soft, low tick (the old hit sound was harsh)
 		"tank_fire":
