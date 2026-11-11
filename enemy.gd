@@ -164,6 +164,23 @@ static func make_minion(level: int, hp_scale: float = 0.35) -> Enemy:
 	e.is_minion = true
 	return e
 
+# A bee summoned by the Garden Warden: twice as fast as a soldier, weak, but its sting
+# poisons the castle (see Base.apply_poison). No gold; vanishes when the boss dies.
+static func make_bee(level: int) -> Enemy:
+	var s := Enemy.make("soldier", level)
+	var e := Enemy.new()
+	e.kind = "bee"
+	e.speed = s.speed * 2.0
+	e.hp = 3.0 * GameState.hp_mult()
+	e.max_hp = e.hp
+	e.damage = 0.5 * (1.0 + 0.25 * float(level - 1))
+	e.reward = 0
+	e.radius = 11.0
+	e.is_minion = true
+	e.dodge_chance = 0.0
+	s.free()
+	return e
+
 # A "lesser Void Overlord": half the speed and damage of its master.
 static func make_void_lesser(hp: float, dmg: float, spd: float) -> Enemy:
 	var e := Enemy.new()
@@ -349,6 +366,8 @@ func _draw() -> void:
 			_draw_hunter(s)
 		"void":
 			_draw_void_lesser(s)
+		"bee":
+			_draw_bee(s)
 		_:
 			if space:
 				_draw_drone(s)
@@ -393,6 +412,22 @@ func _draw_soldier(sgn: float, s: float) -> void:
 		var wave := sin(_walk * 1.5) * 1.5
 		draw_line(Vector2(8, 0), Vector2(8, -21), Color(0.5, 0.38, 0.25), 1.6)
 		_poly([Vector2(8, -21), Vector2(19, -19 + wave), Vector2(8, -13)], Color.WHITE)
+
+func _draw_bee(s: float) -> void:
+	var sgn := -1.0 if cos(_heading) < 0.0 else 1.0
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2(sgn * s, s))
+	var buzz := sin(_walk * 9.0 + position.x * 0.05)
+	draw_circle(Vector2(0, 14), 6.0, Color(0, 0, 0, 0.2))
+	# wings
+	draw_circle(Vector2(-3, -7 + buzz), 6.0, _c(Color(0.85, 0.95, 1.0, 0.65)))
+	draw_circle(Vector2(3, -7 - buzz), 6.0, _c(Color(0.85, 0.95, 1.0, 0.65)))
+	# striped body
+	draw_circle(Vector2(0, 0), 8.5, _c(Color(1.0, 0.8, 0.1)))
+	draw_rect(Rect2(-8.0, -3.0, 16.0, 3.0), _c(Color(0.15, 0.1, 0.05)))
+	draw_rect(Rect2(-7.0, 3.0, 14.0, 3.0), _c(Color(0.15, 0.1, 0.05)))
+	draw_circle(Vector2(8, -1), 5.0, _c(Color(0.2, 0.14, 0.06)))
+	draw_circle(Vector2(10, -2), 1.3, Color.WHITE)
+	draw_line(Vector2(-8, 1), Vector2(-14, 3), _c(Color(0.2, 0.14, 0.06)), 2.0)
 
 func _draw_tank(s: float) -> void:
 	draw_set_transform(Vector2.ZERO, _heading, Vector2(s, s))

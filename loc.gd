@@ -9,6 +9,15 @@ const LANGS := ["en", "tr"]
 const LANG_NAMES := ["English", "Türkçe"]
 
 const TR := {
+	"Not enough gold to repair": "Onarım için yeterli altın yok",
+	"Base repaired  -%d gold": "Kale onarıldı  -%d altın",
+	"Skill slot 3 (Repair: costs gold)": "Yetenek yuvası 3 (Onarım: altın harcar)",
+	"Attack speed": "Saldırı hızı",
+	"+5% weapon attack speed": "+%5 silah saldırı hızı",
+	"Quick hands": "Çevik eller",
+	"Weapon attack speed +5%": "Silah saldırı hızı +%5",
+	"Petek Bombs incoming!  Fly out of the ring!": "Petek Bombaları geliyor!  Halkanın dışına uç!",
+	"Poisoned!  -2 HP per second": "Zehirlendin!  Saniyede -2 Can",
 	"Rogue Castle": "Haydut Kale",
 	"A Rogue Castle approaches!": "Bir Haydut Kale yaklaşıyor!",
 	"Rogue Castle defeated!  +%d": "Haydut Kale yenildi!  +%d",

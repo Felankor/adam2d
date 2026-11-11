@@ -15,6 +15,8 @@ signal summon_lesser(pos: Vector2, hp: float, dmg: float, spd: float)
 signal bolt(origin: Vector2, dmg: float)
 signal beam(dmg: float, origin: Vector2, aim: Vector2)
 signal void_fire(origin: Vector2, aim: Vector2, dmg: float)
+signal summon_bees(pos: Vector2, count: int)
+signal bomb(origin: Vector2, dest: Vector2)
 signal announce(text: String, icon: String)
 
 const ABILITIES := ["speed", "regen", "titan", "hell", "void"]
@@ -47,6 +49,7 @@ var _attack_timer: float = 6.0
 var _next_attack: String = "fire"
 var _burst_left: int = 0
 var _burst_cd: float = 0.0
+var _bomb_timer: float = 3.0
 var _t: float = 0.0
 
 static func make_boss(lvl: int, biome: int) -> Boss:
@@ -71,9 +74,16 @@ static func make_boss(lvl: int, biome: int) -> Boss:
 	b._bolt_timer = b._bolt_interval
 	match ab:
 		"speed":
+			# Garden Warden: twice as fast as before, bee swarms, Petek Bombs and a machine-gun-like orb stream
 			b.hp = base_hp * 0.9
-			b.speed *= 2.4
+			b.speed *= 4.8
 			b.dodge_dash = 720.0
+			b._summon_interval = 3.0
+			b._summon_count = 10
+			b._summon_timer = 2.0
+			b._bolt_interval = 0.4 / GameState.speed_mult()       # 10x the default ranged attack speed
+			b._bolt_timer = b._bolt_interval
+			b._bomb_timer = 3.0
 		"regen":
 			b.regen_rate = 0.015
 			b.dmg_taken_mult = 0.75
@@ -129,8 +139,20 @@ func _process(delta: float) -> void:
 		_summon_timer -= delta
 		if _summon_timer <= 0.0:
 			_summon_timer = _summon_interval
-			summon.emit(position, _summon_count)
+			if ability == "speed":
+				summon_bees.emit(position, _summon_count)       # the Garden Warden calls bees, not soldiers
+			else:
+				summon.emit(position, _summon_count)
 			Sfx.play("boss_spawn", -6.0)
+		if ability == "speed":
+			_bomb_timer -= delta
+			if _bomb_timer <= 0.0:
+				_bomb_timer = 5.0
+				for i in 2:
+					var off := Vector2.RIGHT.rotated(randf() * TAU) * randf_range(60.0, 230.0)
+					bomb.emit(position, target + off)
+				announce.emit(Loc.t("Petek Bombs incoming!  Fly out of the ring!"), "skull")
+				Sfx.play("bolt", -2.0)
 		_bolt_timer -= delta
 		if _bolt_timer <= 0.0:
 			_bolt_timer = _bolt_interval

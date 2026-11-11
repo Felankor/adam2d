@@ -29,22 +29,22 @@ static func of_enemy(e: Enemy) -> float:
 	return score(ehp, offense)
 
 # Damage per second of a castle with these stats (energy limits the fire rate).
-static func castle_dps(weapon_tier: int, energy_regen: float, dmg_mult: float, autos: int, auto_interval: float) -> float:
+static func castle_dps(weapon_tier: int, energy_regen: float, dmg_mult: float, autos: int, auto_interval: float, atk: float = 1.0) -> float:
 	var interval: float = Weapons.INTERVAL[weapon_tier]
 	var cost: float = Weapons.ENERGY_COST[weapon_tier]
 	var dmg: float = Weapons.DAMAGE[weapon_tier]
-	var shots := minf(1.0 / interval, energy_regen / cost)
+	var shots := minf(atk / interval, energy_regen / cost)
 	var dps := dmg * shots
 	if autos > 0:
 		var adm: float = Weapons.AUTO_DAMAGE[weapon_tier]
-		dps += float(autos) * adm / auto_interval
+		dps += float(autos) * adm / auto_interval * atk
 	return dps * dmg_mult
 
 static func castle_ehp(max_hp: float) -> float:
 	return max_hp * 1.3      # the Barrier skill makes the castle ~30% tougher
 
 static func of_base(b: Base) -> float:
-	var dps := castle_dps(b.weapon_tier, b.energy_regen, b.damage_mult, b.auto_cannons, b.auto_interval)
+	var dps := castle_dps(b.weapon_tier, b.energy_regen, b.damage_mult, b.auto_cannons, b.auto_interval, b.attack_speed)
 	return score(castle_ehp(b.max_hp), dps)
 
 # Power of one freshly made enemy of this kind (handy for building wave budgets).

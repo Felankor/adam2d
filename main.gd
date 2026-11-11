@@ -12,21 +12,20 @@ const MAX_ALIVE := 180            # safety cap so huge summons never overload th
 const BIOME_NAMES := ["Greenland Biome", "Mudland Biome", "Rocky Mountain Biome", "Hell Biome", "Space Biome"]
 const BOSS_NAMES := ["Garden Warden", "Mud Colossus", "Stone Titan", "Hell Lord", "Void Overlord"]
 
-# Shop rows, in order (the number keys 1-6 buy them). Weapon upgrade and repair are special.
+# Shop rows, in order (the number keys 1-6 buy them). The weapon upgrade is special. Repair is now a skill (slot 3).
 const ITEMS := [
 	{"id": "damage", "name": "Weapon damage", "desc": "+5% damage for all weapons", "icon": "damage", "cost": 10, "growth": 1.16},
 	{"id": "weapon", "name": "Weapon upgrade", "desc": "", "icon": "cannon", "cost": 0, "growth": 1.0},
 	{"id": "regen", "name": "Energy regen", "desc": "+4 energy per second", "icon": "regen", "cost": 10, "growth": 1.5},
 	{"id": "autorate", "name": "Auto fire rate", "desc": "Auto-weapons fire 15% faster and reach further", "icon": "autorate", "cost": 20, "growth": 1.5},
-	{"id": "energy", "name": "Max energy", "desc": "+20 maximum energy", "icon": "energy", "cost": 10, "growth": 1.5},
-	{"id": "repair", "name": "Repair base", "desc": "Heal 50% of max health", "icon": "repair", "cost": 15, "growth": 1.0},
+	{"id": "atkspeed", "name": "Attack speed", "desc": "+5% weapon attack speed", "icon": "atkspeed", "cost": 15, "growth": 1.4},
 	{"id": "armor", "name": "Armor plating", "desc": "+10 max health and heal 10", "icon": "walls", "cost": 25, "growth": 1.45},
 ]
 
 # Reward cards offered after each level (3 random ones). Auto-weapons only come from Gunner allies.
 const UPGRADES := [
 	{"id": "regen", "name": "Fast loading", "icon": "regen", "desc": "Energy regen +4 per second"},
-	{"id": "energy", "name": "Bigger magazine", "icon": "energy", "desc": "Max energy +20"},
+	{"id": "atkspeed", "name": "Quick hands", "icon": "atkspeed", "desc": "Weapon attack speed +5%"},
 	{"id": "autorate", "name": "Gun oil", "icon": "autorate", "desc": "Auto-weapons fire 15% faster\nand reach further"},
 	{"id": "walls", "name": "Thicker walls", "icon": "walls", "desc": "Max health +10 and heal 10"},
 	{"id": "repair", "name": "Field repairs", "icon": "repair", "desc": "Heal 50% of max health"},
@@ -98,6 +97,7 @@ func _ready() -> void:
 	base.destroyed.connect(_on_base_destroyed)
 	base.damaged.connect(_on_base_damaged)
 	base.blocked.connect(_on_base_blocked)
+	base.poisoned.connect(_on_base_poisoned)
 
 	camera = Camera2D.new()
 	camera.position = base.position
@@ -205,7 +205,9 @@ func _apply_save(d: Dictionary) -> void:
 	level = maxi(int(d.get("level", 1)), 1)
 	coins = int(d.get("coins", 0))
 	if int(d.get("version", 1)) >= 2:   # older saves used a different shop order
-		var saved_levels: Array = d.get("shop_levels", [])
+		var saved_levels: Array = (d.get("shop_levels", []) as Array).duplicate()
+		if int(d.get("version", 1)) == 2 and saved_levels.size() > 5:
+			saved_levels.remove_at(5)       # the old "Repair base" row no longer exists
 		for i in mini(saved_levels.size(), levels.size()):
 			levels[i] = int(saved_levels[i])
 	base.from_dict(d.get("base", {}) as Dictionary)
@@ -213,7 +215,7 @@ func _apply_save(d: Dictionary) -> void:
 
 func _make_save_data() -> Dictionary:
 	return {
-		"version": 2,
+		"version": 3,
 		"difficulty": GameState.difficulty,
 		"level": level,
 		"coins": coins,
@@ -476,9 +478,9 @@ func _apply_upgrade(id: String) -> String:
 		"regen":
 			base.energy_regen += 4.0
 			return "Energy regen +4 per second"
-		"energy":
-			base.max_energy += 20.0
-			return "Max energy +20"
+		"atkspeed":
+			base.attack_speed += 0.05
+			return "Weapon attack speed +5%"
 		"autorate":
 			base.upgrade_auto_rate()
 			return "Auto-weapons fire faster and reach further"
@@ -607,6 +609,25 @@ func _spawn_minions(pos: Vector2, count: int) -> void:
 		alive += 1
 		_register_mob(m, true)
 
+# Bees summoned by the Garden Warden (no gold, vanish with the boss).
+func _spawn_bees(pos: Vector2, count: int) -> void:
+	for i in count:
+		if alive >= MAX_ALIVE:
+			break
+		var m := Enemy.make_bee(level)
+		m.position = pos + Vector2.RIGHT.rotated(randf() * TAU) * randf_range(40.0, 110.0)
+		m.target = base.position
+		m.reach = base.body_radius()
+		alive += 1
+		_register_mob(m, true)
+
+func _on_boss_bomb(origin: Vector2, dest: Vector2) -> void:
+	var b := PetekBomb.new()
+	b.start = origin
+	b.dest = dest
+	b.base_ref = base
+	add_child(b)
+
 func _spawn_boss() -> void:
 	var b := Boss.make_boss(level, biome)
 	b.boss_name = Loc.t(BOSS_NAMES[biome])
@@ -618,6 +639,8 @@ func _spawn_boss() -> void:
 	b.bolt.connect(_on_boss_bolt)
 	b.beam.connect(_on_boss_beam)
 	b.void_fire.connect(_on_void_fire)
+	b.summon_bees.connect(_spawn_bees)
+	b.bomb.connect(_on_boss_bomb)
 	b.announce.connect(_on_boss_announce)
 	add_child(b)
 	alive += 1
@@ -748,6 +771,8 @@ func _on_mob_arrived(e: Enemy) -> void:
 	else:
 		alive -= 1
 		base.take_damage(e.damage)
+		if e.kind == "bee":
+			base.apply_poison(2.0, 4.0)        # the sting poisons (blocked by the Barrier)
 		_update_label()
 
 # An ally that reaches the base becomes a helper. The toast shows only the
@@ -805,7 +830,9 @@ func _input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 			if not get_tree().paused and not game_over:
 				var used := base.skill_slots[i]
-				if base.use_skill(i):
+				if used == "repair":
+					_use_repair(i)
+				elif base.use_skill(i):
 					if used == "overcharge":
 						Sfx.play("weapon_up")
 						_notify(Loc.t("Overcharge!  Weapon damage +30%% for %d s") % int(Base.BOOST_DURATION), "damage", Color(1.0, 0.6, 0.2), "boost")
@@ -817,6 +844,25 @@ func _input(event: InputEvent) -> void:
 		var idx := int(key.keycode) - int(KEY_1)
 		if idx >= 0 and idx < ITEMS.size():
 			_buy(idx)
+
+# Repair skill: pay gold, heal 50% of max health, 1 second cooldown.
+func _use_repair(slot: int) -> void:
+	if base.skill_cd[slot] > 0.0:
+		return
+	if base.hp >= base.max_hp:
+		_notify(Loc.t("Base is already at full health"), "repair", Color(1.0, 0.6, 0.3), "full")
+		return
+	var cost := base.repair_cost()
+	if coins < cost:
+		_notify(Loc.t("Not enough gold to repair"), "coin", Color(1.0, 0.6, 0.3), "norepair")
+		return
+	coins -= cost
+	base.heal(base.max_hp * Base.REPAIR_HEAL)
+	base.skill_cd[slot] = Base.REPAIR_COOLDOWN
+	base.skill_cd_max[slot] = Base.REPAIR_COOLDOWN
+	Sfx.play("powerup")
+	_notify(Loc.t("Base repaired  -%d gold") % cost, "repair", Color(0.5, 1.0, 0.6), "repair")
+	_update_label()
 
 func _on_escape() -> void:
 	if upgrade_menu.visible:
@@ -860,9 +906,7 @@ func _shop_row(i: int) -> Dictionary:
 		"level": "%s %d" % [Loc.t("Lv"), levels[i]],
 		"maxed": false,
 	}
-	if id == "repair":
-		row["level"] = ""
-	elif id == "weapon":
+	if id == "weapon":
 		var tier := base.weapon_tier
 		row["level"] = "%d / %d" % [tier + 1, Weapons.MAX_TIER + 1]
 		if tier >= Weapons.MAX_TIER:
@@ -881,8 +925,6 @@ func _cost(i: int) -> int:
 		if base.weapon_tier >= Weapons.MAX_TIER:
 			return 0
 		return int(Weapons.UPGRADE_PRICE[base.weapon_tier])
-	if id == "repair":
-		return int(item["cost"]) + base.tier * 5
 	return int(float(item["cost"]) * pow(float(item["growth"]), levels[i]))
 
 func _buy(i: int) -> void:
@@ -914,23 +956,16 @@ func _buy(i: int) -> void:
 				return
 			base.upgrade_auto_rate()
 			text = "Auto-weapons fire faster"
-		"energy":
-			base.max_energy += 20.0
-			text = "Max energy +20"
+		"atkspeed":
+			base.attack_speed += 0.05
+			text = "Weapon attack speed +5%"
 		"armor":
 			base.hp_bonus += 10
 			base.max_hp += 10.0
 			base.heal(10.0)
 			text = "Max health +10"
-		"repair":
-			if base.hp >= base.max_hp:
-				_notify(Loc.t("Base is already at full health"), "repair", Color(1.0, 0.6, 0.3), "full")
-				return
-			base.heal(base.max_hp * 0.5)
-			text = "Base repaired"
 	coins -= cost
-	if id != "repair":
-		levels[i] += 1
+	levels[i] += 1
 	Sfx.play("coin")
 	_notify(Loc.t(text), icon, Color(0.5, 1.0, 0.6))
 	_update_label()
@@ -938,13 +973,16 @@ func _buy(i: int) -> void:
 
 # ---------- Game over and HUD text ----------
 
+func _on_base_poisoned() -> void:
+	_notify(Loc.t("Poisoned!  -2 HP per second"), "skull", Color(0.55, 1.0, 0.3), "poison")
+
 func _on_base_destroyed() -> void:
 	if game_over:
 		return
 	game_over = true
 	Sfx.play("fail")
 	_add_shake(26.0)
-	for group in ["enemies", "allies", "bolts", "shots"]:
+	for group in ["enemies", "allies", "bolts", "bombs", "shots"]:
 		for node in get_tree().get_nodes_in_group(group):
 			node.set_process(false)
 	boss_label.visible = false

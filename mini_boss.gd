@@ -21,6 +21,7 @@ var energy: float = 100.0
 var max_energy: float = 100.0
 var energy_regen: float = 20.0
 var weapon_scale: float = 1.0       # damage multiplier (player's x 0.7)
+var attack_speed: float = 1.0
 var barrier_time: float = 0.0
 var boost_time: float = 0.0
 var _barrier_cd: float = 0.0
@@ -34,6 +35,14 @@ var _orbit_timer: float = 0.0
 var _beam_charge: float = 0.0
 var _beam_aim: Vector2 = Vector2.ZERO
 var boss_name: String = "Rogue Castle"
+var _pix: PixelCastle = null
+
+func _ready() -> void:
+	super._ready()
+	if PixelCastle.ENABLED:
+		z_index = 1
+		_pix = PixelCastle.new()
+		add_child(_pix)
 
 static func make_from(b: Base) -> MiniBoss:
 	var m := MiniBoss.new()
@@ -45,6 +54,7 @@ static func make_from(b: Base) -> MiniBoss:
 	m.max_energy = b.max_energy
 	m.energy = b.max_energy
 	m.energy_regen = b.energy_regen
+	m.attack_speed = b.attack_speed
 	m.weapon_scale = b.damage_mult * POWER_RATIO
 	m.speed = b.move_speed * b.move_mult
 	m.radius = b.body_radius()
@@ -55,7 +65,7 @@ static func make_from(b: Base) -> MiniBoss:
 
 # The same formula as the player's PowerScore, using this castle's own stats.
 func power() -> float:
-	var dps := Power.castle_dps(weapon_tier, energy_regen, weapon_scale, 0, 1.5)
+	var dps := Power.castle_dps(weapon_tier, energy_regen, weapon_scale, 0, 1.5, attack_speed)
 	return Power.score(Power.castle_ehp(max_hp), dps)
 
 func _process(delta: float) -> void:
@@ -70,6 +80,8 @@ func _process(delta: float) -> void:
 	_move(delta)
 	_skills()
 	_shoot(delta)
+	if _pix != null:
+		_pix.update_look(tier, radius, 0.55 + 0.45 * clampf(_flash / 0.12, 0.0, 1.0), _anim, sin(_anim * 1.5) * (3.0 + radius * 0.05), radius * 2.6)
 	queue_redraw()
 
 # Hovers around the player at a distance, changing its spot now and then.
@@ -113,7 +125,7 @@ func _shoot(delta: float) -> void:
 	if _fire_cd > 0.0 or energy < cost or position.distance_to(target) > 1150.0:
 		return
 	energy -= cost
-	_fire_cd = Weapons.INTERVAL[weapon_tier]
+	_fire_cd = Weapons.INTERVAL[weapon_tier] / attack_speed
 	if weapon_tier == 3:
 		_beam_charge = BEAM_CHARGE
 		_beam_aim = target
@@ -150,9 +162,12 @@ func take_damage(amount: float) -> void:
 func _draw() -> void:
 	var r := radius
 	var bob := sin(_anim * 1.5) * (3.0 + r * 0.05)
-	draw_circle(Vector2(8.0, r * 2.6), r * 1.1, Color(0, 0, 0, 0.18))
-	draw_set_transform(Vector2(0.0, bob), sin(_anim * 1.1 + 1.0) * 0.015, Vector2.ONE)
-	BaseArt.draw_all(self, tier, r, _anim, 0.55 + 0.45 * clampf(_flash / 0.12, 0.0, 1.0))
+	if _pix == null:
+		draw_circle(Vector2(8.0, r * 2.6), r * 1.1, Color(0, 0, 0, 0.18))
+		draw_set_transform(Vector2(0.0, bob), sin(_anim * 1.1 + 1.0) * 0.015, Vector2.ONE)
+		BaseArt.draw_all(self, tier, r, _anim, 0.55 + 0.45 * clampf(_flash / 0.12, 0.0, 1.0))
+	else:
+		draw_set_transform(Vector2(0.0, bob), 0.0, Vector2.ONE)
 	var dir := Vector2.RIGHT.rotated(_heading)
 	var col: Color = Weapons.COLORS[weapon_tier]
 	draw_line(Vector2.ZERO, dir * (r + 14.0), Color(0.05, 0.05, 0.08, 0.8), 13.0)

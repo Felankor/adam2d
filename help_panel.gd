@@ -53,7 +53,7 @@ func refresh() -> void:
 	_key_row("Open shop", Keybinds.key_text("open_shop"))
 	_key_row("Skill slot 1 (Barrier)", Keybinds.key_text("skill_1"))
 	_key_row("Skill slot 2 (Overcharge)", Keybinds.key_text("skill_2"))
-	_key_row("Skill slot 3", Keybinds.key_text("skill_3"))
+	_key_row("Skill slot 3 (Repair: costs gold)", Keybinds.key_text("skill_3"))
 	_key_row("Skill slot 4", Keybinds.key_text("skill_4"))
 	_key_row("Pause menu / go back", "Esc")
 	_key_row("Buy in shop / pick a reward card", "Number keys or click")

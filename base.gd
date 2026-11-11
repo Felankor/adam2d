@@ -4,6 +4,7 @@ extends Node2D
 signal destroyed
 signal damaged(amount: float)
 signal blocked
+signal poisoned
 
 const TIER_NAMES := ["Hoverin Village", "High Town", "Flyin City", "Fortress of the Wind", "Capital", "Battlestation", "Juggernaut", "Dreadnaught", "Galactus", "Death Star"]
 const TIER_HP := [20, 40, 70, 110, 160, 230, 310, 400, 520, 650]
@@ -27,6 +28,8 @@ const BARRIER_COOLDOWN := 10.0
 const BOOST_DURATION := 5.0        # Overcharge skill: +30% weapon damage for 5 s
 const BOOST_COOLDOWN := 15.0
 const BOOST_MULT := 1.3
+const REPAIR_COOLDOWN := 1.0       # Repair skill: costs gold, heals 50% of max health
+const REPAIR_HEAL := 0.5
 
 var tier: int = 0
 var max_hp: float = 20.0
@@ -52,13 +55,17 @@ var engineers: int = 0
 var mechanics: int = 0
 
 # Active skills: 4 slots, triggered with the skill keybinds (V, B, N, M by default).
-var skill_slots: Array[String] = ["barrier", "overcharge", "", ""]
+var skill_slots: Array[String] = ["barrier", "overcharge", "repair", ""]
 var skill_cd: Array[float] = [0.0, 0.0, 0.0, 0.0]
-var skill_cd_max: Array[float] = [BARRIER_COOLDOWN, BOOST_COOLDOWN, 1.0, 1.0]
+var skill_cd_max: Array[float] = [BARRIER_COOLDOWN, BOOST_COOLDOWN, REPAIR_COOLDOWN, 1.0]
 var barrier_time: float = 0.0
 var boost_time: float = 0.0
 var move_speed: float = 280.0
 var move_mult: float = 1.0          # Thrusters perk: +5% per reward pick
+var attack_speed: float = 1.0       # Attack speed perk: +5% per pick (manual and auto weapons)
+var poison_time: float = 0.0        # seconds of poison left
+var poison_dps: float = 0.0
+var _poison_acc: float = 0.0
 var _vel: Vector2 = Vector2.ZERO
 
 var aim_angle: float = 0.0
@@ -68,9 +75,14 @@ var _heal_acc: float = 0.0
 var _anim: float = 0.0
 var _hurt: float = 0.0
 var _muzzle: float = 0.0
+var _pix: PixelCastle = null
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_PAUSABLE
+	if PixelCastle.ENABLED:
+		z_index = 1                 # the pixel castle (z -1) lands on the normal layer; barrel and barrier draw above it
+		_pix = PixelCastle.new()
+		add_child(_pix)
 
 func body_radius() -> float:
 	return 42.0 + tier * 5.0
@@ -95,6 +107,15 @@ func take_damage(amount: float) -> void:
 		set_process(false)
 		destroyed.emit()
 
+# Poison (Petek Bomb clouds and bee stings): HP loss every second. The Barrier blocks it.
+func apply_poison(dps: float, seconds: float) -> void:
+	if barrier_time > 0.0 or hp <= 0.0:
+		blocked.emit()
+		return
+	poison_dps = maxf(poison_dps, dps)
+	poison_time = maxf(poison_time, seconds)
+	poisoned.emit()
+
 # Each auto-cannon upgrade also extends the range of all auto-cannons.
 func add_auto_cannon() -> bool:
 	if auto_cannons >= MAX_AUTO:
@@ -113,6 +134,10 @@ func upgrade_weapon() -> bool:
 	weapon_tier += 1
 	queue_redraw()
 	return true
+
+# Gold price of one Repair use (grows with the castle stage).
+func repair_cost() -> int:
+	return 15 + tier * 5
 
 func use_skill(slot: int) -> bool:
 	if slot < 0 or slot >= skill_slots.size():
@@ -146,6 +171,7 @@ func to_dict() -> Dictionary:
 		"energy_regen": energy_regen,
 		"damage_mult": damage_mult,
 		"move_mult": move_mult,
+		"attack_speed": attack_speed,
 		"weapon_tier": weapon_tier,
 		"auto_cannons": auto_cannons,
 		"auto_interval": auto_interval,
@@ -168,6 +194,7 @@ func from_dict(d: Dictionary) -> void:
 	energy_regen = float(d.get("energy_regen", 20.0))
 	damage_mult = float(d.get("damage_mult", 1.0))
 	move_mult = float(d.get("move_mult", 1.0))
+	attack_speed = float(d.get("attack_speed", 1.0))
 	weapon_tier = clampi(int(d.get("weapon_tier", 1)), 0, Weapons.MAX_TIER)
 	auto_cannons = int(d.get("auto_cannons", 0))
 	auto_interval = float(d.get("auto_interval", 1.5))
@@ -189,6 +216,22 @@ func _process(delta: float) -> void:
 	_muzzle = maxf(_muzzle - delta, 0.0)
 	energy = minf(energy + energy_regen * delta, max_energy)
 	_fire_cd -= delta
+	if poison_time > 0.0:
+		poison_time = maxf(poison_time - delta, 0.0)
+		_poison_acc += delta
+		if _poison_acc >= 1.0:
+			_poison_acc -= 1.0
+			if barrier_time <= 0.0:
+				hp = maxf(hp - poison_dps, 0.0)
+				_hurt = 0.15
+				damaged.emit(poison_dps)
+				if hp <= 0.0:
+					set_process(false)
+					destroyed.emit()
+					return
+		if poison_time <= 0.0:
+			poison_dps = 0.0
+			_poison_acc = 0.0
 	aim_angle = (get_global_mouse_position() - global_position).angle()
 	_move(delta)
 
@@ -206,7 +249,7 @@ func _process(delta: float) -> void:
 	var cost: float = Weapons.ENERGY_COST[weapon_tier]
 	if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and _fire_cd <= 0.0 and energy >= cost:
 		energy -= cost
-		_fire_cd = Weapons.INTERVAL[weapon_tier]
+		_fire_cd = Weapons.INTERVAL[weapon_tier] / attack_speed
 		var dmg: float = Weapons.DAMAGE[weapon_tier]
 		var angle := aim_angle
 		if weapon_tier == 0:
@@ -223,7 +266,7 @@ func _process(delta: float) -> void:
 			if target != null:
 				var adm: float = Weapons.AUTO_DAMAGE[weapon_tier]
 				_fire((target.global_position - global_position).angle(), adm * dmg_factor(), true)
-				_auto_timer = auto_interval / auto_cannons
+				_auto_timer = auto_interval / auto_cannons / attack_speed
 
 	# Mechanics: slow repairs
 	if mechanics > 0 and hp < max_hp:
@@ -232,6 +275,9 @@ func _process(delta: float) -> void:
 			_heal_acc -= 1.0
 			heal(1.0)
 
+	if _pix != null:
+		var pr := body_radius()
+		_pix.update_look(tier, pr, clampf(_hurt / 0.25, 0.0, 1.0), _anim, sin(_anim * 1.5) * (3.0 + pr * 0.05), pr * 3.0 if tier <= 4 else pr * 1.7)
 	queue_redraw()
 
 # The castle can be flown around the map with the move keys (WASD by default).
@@ -337,13 +383,14 @@ func _draw() -> void:
 	var bob := sin(_anim * 1.5) * (3.0 + r * 0.05)
 	var tilt := sin(_anim * 1.1 + 1.0) * 0.015
 	var drop := r * 3.0 if tier <= 4 else r * 1.7
-	# the shadow stays on the ground and shrinks as the castle rises
-	draw_set_transform(Vector2(6.0, drop), 0.0, Vector2(1.0, 0.28))
-	draw_circle(Vector2.ZERO, r * 1.2 * (1.0 - bob / (r * 6.0)), Color(0, 0, 0, 0.22))
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-	draw_set_transform(Vector2(0.0, bob), tilt, Vector2.ONE)
-	BaseArt.draw_all(self, tier, r, _anim, tint)
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	if _pix == null:
+		# the shadow stays on the ground and shrinks as the castle rises
+		draw_set_transform(Vector2(6.0, drop), 0.0, Vector2(1.0, 0.28))
+		draw_circle(Vector2.ZERO, r * 1.2 * (1.0 - bob / (r * 6.0)), Color(0, 0, 0, 0.22))
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		draw_set_transform(Vector2(0.0, bob), tilt, Vector2.ONE)
+		BaseArt.draw_all(self, tier, r, _anim, tint)
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	draw_set_transform(Vector2(0.0, bob), 0.0, Vector2.ONE)
 	if boost_time > 0.0:
 		var flick := 0.5 + 0.5 * sin(_anim * 14.0)
@@ -370,6 +417,13 @@ func _draw() -> void:
 		var pulse := 0.5 + 0.5 * sin(_anim * 8.0)
 		draw_circle(Vector2.ZERO, r * 1.75, Color(0.3, 0.8, 1.0, (0.16 + 0.08 * pulse) * blink))
 		draw_arc(Vector2.ZERO, r * 1.75, 0.0, TAU, 64, Color(0.5, 0.95, 1.0, 0.9 * blink), 4.0)
+	if poison_time > 0.0:
+		# green poison bubbles rising off the castle
+		draw_circle(Vector2.ZERO, r * 1.1, Color(0.4, 0.9, 0.2, 0.12))
+		for i in 6:
+			var ph := fmod(_anim * 0.9 + float(i) * 0.37, 1.0)
+			var bx := sin(float(i) * 2.1 + _anim) * r * 0.8
+			draw_circle(Vector2(bx, r * 0.4 - ph * r * 1.5), 3.0 + 3.0 * (1.0 - ph), Color(0.55, 1.0, 0.3, 0.7 * (1.0 - ph)))
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 # The manual weapon changes its look with the weapon tier.

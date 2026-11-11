@@ -33,6 +33,8 @@ static func draw(ci: CanvasItem, kind: String, origin: Vector2, k: float, with_b
 			_chevrons(ci)
 		"energy":
 			_battery(ci)
+		"atkspeed":
+			_stopwatch(ci)
 		"repair":
 			_wrench_plus(ci)
 		"walls":
@@ -150,6 +152,22 @@ static func _battery(ci: CanvasItem) -> void:
 	ci.draw_rect(Rect2(15, 23, 8, 20), Color.LIME_GREEN)
 	ci.draw_rect(Rect2(26, 23, 8, 20), Color.LIME_GREEN)
 	ci.draw_rect(Rect2(37, 23, 7, 20), Color(0.3, 0.45, 0.3))
+
+# Attack speed: a stopwatch with speed chevrons.
+static func _stopwatch(ci: CanvasItem) -> void:
+	var steel := Color(0.8, 0.85, 0.92)
+	ci.draw_rect(Rect2(28, 6, 8, 7), steel)
+	ci.draw_line(Vector2(44, 14), Vector2(50, 9), steel, 5.0)
+	ci.draw_circle(Vector2(32, 36), 21.0, steel)
+	ci.draw_circle(Vector2(32, 36), 17.0, Color(0.12, 0.14, 0.2))
+	for i in 12:
+		var a := TAU * float(i) / 12.0
+		ci.draw_line(Vector2(32, 36) + Vector2.UP.rotated(a) * 13.0, Vector2(32, 36) + Vector2.UP.rotated(a) * 16.0, steel, 2.0)
+	ci.draw_line(Vector2(32, 36), Vector2(42, 27), Color(1.0, 0.75, 0.2), 4.0)
+	ci.draw_circle(Vector2(32, 36), 3.0, Color(1.0, 0.75, 0.2))
+	var cyan := Color(0.3, 0.9, 1.0)
+	ci.draw_polyline(PackedVector2Array([Vector2(2, 28), Vector2(8, 34), Vector2(2, 40)]), cyan, 3.0)
+	ci.draw_polyline(PackedVector2Array([Vector2(2, 42), Vector2(8, 48), Vector2(2, 54)]), cyan, 3.0)
 
 static func _chevrons(ci: CanvasItem) -> void:
 	var cyan := Color(0.3, 0.9, 1.0)

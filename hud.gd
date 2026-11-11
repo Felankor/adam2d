@@ -6,6 +6,8 @@ var coins: int = 0
 
 const SLOT := 64.0
 const GAP := 10.0
+const MAP_RADIUS := 115.0           # minimap circle size on screen
+const MAP_RANGE := 1700.0           # world distance the minimap shows (a bit beyond where enemies spawn)
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -51,8 +53,40 @@ func _draw() -> void:
 	var hp_col := Color(0.9, 0.2, 0.2).lerp(Color(0.25, 0.85, 0.35), clampf(hr * 1.4, 0.0, 1.0))
 	_bar(Vector2(x, s.y - 126.0), Vector2(w, h), _hp_front, _hp_ghost, hp_col, hp_col.lightened(0.3), hp_text, 0.0, hr < 0.3)
 	_draw_skills(s)
+	_draw_minimap(s)
 	_draw_weapon(Vector2(x - 82.0, s.y - 160.0))
 	_draw_helpers()
+
+# Round radar at the bottom left: you (orange) in the middle, enemies red, bosses purple.
+func _draw_minimap(s: Vector2) -> void:
+	var c := Vector2(30.0 + MAP_RADIUS, s.y - 30.0 - MAP_RADIUS)
+	var k := MAP_RADIUS / MAP_RANGE
+	draw_circle(c, MAP_RADIUS, Color(0.04, 0.06, 0.09, 0.62))
+	draw_arc(c, MAP_RADIUS * 0.5, 0.0, TAU, 48, Color(1, 1, 1, 0.08), 1.5)
+	draw_line(c + Vector2(-MAP_RADIUS, 0.0), c + Vector2(MAP_RADIUS, 0.0), Color(1, 1, 1, 0.06), 1.5)
+	draw_line(c + Vector2(0.0, -MAP_RADIUS), c + Vector2(0.0, MAP_RADIUS), Color(1, 1, 1, 0.06), 1.5)
+	var tree := get_tree()
+	if tree != null:
+		for node in tree.get_nodes_in_group("enemies"):
+			var e := node as Enemy
+			if e == null or e.dead:
+				continue
+			var rel := (e.global_position - base.global_position) * k
+			var big := e.kind == "boss" or e.kind == "minicastle"
+			var dist := rel.length()
+			if dist > MAP_RADIUS - 5.0:
+				if not big:
+					continue
+				rel = rel / dist * (MAP_RADIUS - 6.0)         # bosses stay on the rim so you know where they are
+			if big:
+				var pulse := 0.5 + 0.5 * sin(_t * 6.0)
+				draw_circle(c + rel, 6.5 + pulse, Color(0.7, 0.3, 1.0, 0.35))
+				draw_circle(c + rel, 4.5, Color(0.7, 0.3, 1.0))
+			else:
+				draw_circle(c + rel, 2.4, Color(1.0, 0.2, 0.2))
+	draw_circle(c, 5.5, Color(0, 0, 0, 0.6))
+	draw_circle(c, 4.0, Color(1.0, 0.6, 0.1))
+	draw_arc(c, MAP_RADIUS, 0.0, TAU, 64, Color(1, 1, 1, 0.55), 3.0)
 
 func _text(pos: Vector2, text: String, font_size: int, color: Color) -> void:
 	var font := ThemeDB.fallback_font
@@ -142,6 +176,10 @@ func _draw_skills(s: Vector2) -> void:
 				_text(r.get_center() + Vector2(-8, 10), str(ceili(cd)), 26, Color.WHITE)
 			if active:
 				_text(r.position + Vector2(8, SLOT - 6), "%.1f" % active_time, 18, active_col.lightened(0.4))
+			if id == "repair":
+				var price := base.repair_cost()
+				var ok := coins >= price
+				_text(r.position + Vector2(SLOT - 40.0 - (8.0 if price >= 100 else 0.0), SLOT - 6), str(price), 18, Color(1.0, 0.85, 0.3) if ok else Color(1.0, 0.35, 0.3))
 		var border := Color(1, 1, 1, 0.2)
 		if active:
 			border = active_col
@@ -159,6 +197,8 @@ func _draw_skill_icon(id: String, r: Rect2) -> void:
 			var glow := 0.5 + 0.5 * sin(_t * 6.0)
 			if base.boost_time > 0.0:
 				draw_rect(r, Color(1.0, 0.6, 0.15, 0.18 + 0.18 * glow))
+		"repair":
+			Icons.draw(self, "repair", r.position, h / 64.0, false)
 		"barrier":
 			var pts := PackedVector2Array([
 				c + Vector2(-0.30, -0.28) * h, c + Vector2(0.30, -0.28) * h,
