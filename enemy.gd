@@ -7,6 +7,7 @@ signal shoot(origin: Vector2, dmg: float)    # tanks fire shells at the base
 
 # Space biome: the same units look like ships/drones, move faster and dodge.
 static var space_mode: bool = false
+const SPEED_SCALE := 2.0    # all hostile mobs move this much faster than their base values
 var space: bool = false
 
 var kind: String = "soldier"      # "soldier", "tank", "mech", "worm", "golem", "demon", "hunter", "void" (Boss uses "boss")
@@ -134,6 +135,7 @@ static func make(k: String, level: int) -> Enemy:
 				e.dodge_chance = 0.5
 				e.dodge_cd_time = 1.0
 				e.dodge_dash = 420.0
+	e.speed *= SPEED_SCALE
 	e.max_hp = e.hp
 	return e
 

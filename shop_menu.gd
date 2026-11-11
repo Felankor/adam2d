@@ -110,7 +110,7 @@ func setup(count: int) -> void:
 # rows: one Dictionary per item: name, desc, icon, cost, level, can_buy, maxed
 func refresh(coins: int, rows: Array) -> void:
 	_coins_label.text = "x %d" % coins
-	_hint.text = "Click Buy or press 1-%d   |   %s or Esc to close" % [rows.size(), Keybinds.key_text("open_shop")]
+	_hint.text = Loc.t("Click Buy or press 1-%d   |   %s or Esc to close") % [rows.size(), Keybinds.key_text("open_shop")]
 	for i in mini(rows.size(), _buttons.size()):
 		var r: Dictionary = rows[i]
 		_icons[i].set_kind(str(r["icon"]))

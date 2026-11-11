@@ -128,13 +128,13 @@ func _process_void(delta: float) -> void:
 		_check_timer = 5.0
 		for off: float in [-1.0, 1.0]:
 			summon_lesser.emit(position + Vector2(off * 80.0, 30.0), _lesser_hp, damage * 0.5, speed * 0.5)
-		announce.emit("Void Overlord split in two! Destroy the copies within 5 seconds!", "skull")
+		announce.emit(Loc.t("Void Overlord split in two! Destroy the copies within 5 seconds!"), "skull")
 		Sfx.play("boss_spawn", -4.0)
 	if _check_timer > 0.0:
 		_check_timer -= delta
 		if _check_timer <= 0.0 and _lessers_alive():
 			_beam_charge = BEAM_CHARGE_TIME
-			announce.emit("Void beam charging!  Use your Barrier!", "shield")
+			announce.emit(Loc.t("Void beam charging!  Use your Barrier!"), "shield")
 			Sfx.play("beam_charge")
 	if _beam_charge > 0.0:
 		_beam_charge -= delta
@@ -189,7 +189,7 @@ func _grow_phase() -> void:
 	_flash = 0.4
 	Fx.spawn(get_parent(), "explosion", position, Color.WHITE, "", 1.8, 0.9)
 	Sfx.play("boss_die", -4.0)
-	announce.emit("%s grows stronger!  Phase %d / 3" % [boss_name, phase], "skull")
+	announce.emit(Loc.t("%s grows stronger!  Phase %d / 3") % [boss_name, phase], "skull")
 
 # ---------- drawing ----------
 
@@ -357,7 +357,7 @@ func _draw_boss_bar() -> void:
 	var value := "%d/%d" % [ceili(hp), ceili(max_hp)]
 	var title := boss_name
 	if ability == "titan":
-		title = "%s  -  Phase %d/3" % [boss_name, phase]
+		title = Loc.t("%s  -  Phase %d/3") % [boss_name, phase]
 	draw_string_outline(font, pos + Vector2(0, 15), value, HORIZONTAL_ALIGNMENT_CENTER, w, 15, 4, Color.BLACK)
 	draw_string(font, pos + Vector2(0, 15), value, HORIZONTAL_ALIGNMENT_CENTER, w, 15, Color.WHITE)
 	draw_string_outline(font, pos + Vector2(0, -6), title, HORIZONTAL_ALIGNMENT_CENTER, w, 16, 4, Color.BLACK)

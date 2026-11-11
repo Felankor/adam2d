@@ -43,8 +43,8 @@ func _draw() -> void:
 	var w := 440.0
 	var h := 26.0
 	var x := (s.x - w) * 0.5
-	var hp_text := "Health %d / %d" % [ceili(base.hp), ceili(base.max_hp)]
-	var en_text := "Energy %d / %d" % [int(base.energy), int(base.max_energy)]
+	var hp_text := "%s %d / %d" % [Loc.t("Health"), ceili(base.hp), ceili(base.max_hp)]
+	var en_text := "%s %d / %d" % [Loc.t("Energy"), int(base.energy), int(base.max_energy)]
 	var hr := clampf(base.hp / base.max_hp, 0.0, 1.0)
 	var er := clampf(base.energy / base.max_energy, 0.0, 1.0)
 	_bar(Vector2(x, s.y - 160.0), Vector2(w, h), _en_front, _en_front, Color(1.0, 0.62, 0.12), Color(1.0, 0.85, 0.3), en_text, _en_gain, er < 0.2)

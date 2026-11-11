@@ -72,6 +72,13 @@ func refresh() -> void:
 	_heading("Enemies")
 	_text("Soldier: the standard foe.\nTank: slow and armored; stops at a distance and shells your castle. Shoot the shells down.\nMechanized vehicle: very fast, dodges shots, and explodes into 3 soldiers.")
 
+	_heading("Biome enemies")
+	_text("Mudland - Bloodworm: tiny, very fast and fragile. They come in swarms.")
+	_text("Rocky Mountain - Golem: huge and armored, as slow as a tank but much stronger. When it is destroyed it leaves one smaller golem behind.")
+	_text("Hell - Demon: faster and stronger than a Golem, with 3 times its health.")
+	_text("Space - Hunter: arrives in a pack of 5. Dodges again and again and shoots from twice as far as a tank.")
+	_text("In the Space biome soldiers become kamikaze drones, tanks become starships and mechanized vehicles become space corvettes. They are faster and dodge shots.")
+
 	_heading("Bosses")
 	_text("Each biome ends with a boss that moves, dodges and summons soldiers. Shoot down its energy orbs. If the Void Overlord charges its beam, use your Barrier!")
 

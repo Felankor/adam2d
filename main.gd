@@ -5,7 +5,9 @@ const ALLY_CHANCE := 0.10
 const LEVELS_PER_TIER := 7        # the base evolves every 7 levels (Death Star at level 64)
 const SPACE_BIOME := 4            # the last biome: no refugees, 3x hostiles, space ships
 const LEVELS_PER_BIOME := 10      # a new biome every 10 levels; level 10, 20, 30... are boss levels
-const MAX_ALIVE := 140            # safety cap so huge summons never overload the game
+const SPAWN_RATE_BASE := 3.0       # every biome spawns at least 3x as fast as before
+const SPAWN_RATE_PER_LEVEL := 0.20 # ...and +0.20 more (of the base rate) with every level
+const MAX_ALIVE := 180            # safety cap so huge summons never overload the game
 
 const BIOME_NAMES := ["Greenland Biome", "Mudland Biome", "Rocky Mountain Biome", "Hell Biome", "Space Biome"]
 const BOSS_NAMES := ["Garden Warden", "Mud Colossus", "Stone Titan", "Hell Lord", "Void Overlord"]
@@ -208,10 +210,10 @@ func _save_game() -> void:
 	var data := _make_save_data()
 	if GameState.write_save(data):
 		Sfx.play("powerup")
-		pause_menu.set_status("Game saved. You will resume at the start of Level %d." % level)
-		_notify("Game saved", "star", Color(1.0, 0.85, 0.3), "save")
+		pause_menu.set_status(Loc.t("Game saved. You will resume at the start of Level %d.") % level)
+		_notify(Loc.t("Game saved"), "star", Color(1.0, 0.85, 0.3), "save")
 	else:
-		pause_menu.set_status("Could not save the game.")
+		pause_menu.set_status(Loc.t("Could not save the game."))
 
 func _close_pause_menu() -> void:
 	pause_menu.close()
@@ -237,24 +239,24 @@ func _start_level() -> void:
 	var new_tier := mini(int((level - 1) / float(LEVELS_PER_TIER)), Base.TIER_NAMES.size() - 1)
 	if new_tier != base.tier:
 		base.set_tier(new_tier)
-		_notify("Your settlement grew into a %s!" % Base.TIER_NAMES[new_tier], "star", Color(1.0, 0.85, 0.3))
+		_notify(Loc.t("Your settlement grew into a %s!") % Loc.t(Base.TIER_NAMES[new_tier]), "star", Color(1.0, 0.85, 0.3))
 	var new_biome := _biome_for(level)
 	if new_biome != biome:
 		_change_biome(new_biome)
 		if new_biome < BIOME_ENEMY_NOTES.size() and BIOME_ENEMY_NOTES[new_biome] != "":
-			_notify(str(BIOME_ENEMY_NOTES[new_biome]), "skull", Color(1.0, 0.6, 0.3))
-	var title := "Level %d  -  %s" % [level, BIOME_NAMES[biome]]
+			_notify(Loc.t(str(BIOME_ENEMY_NOTES[new_biome])), "skull", Color(1.0, 0.6, 0.3))
+	var title := Loc.t("Level %d  -  %s") % [level, Loc.t(BIOME_NAMES[biome])]
 	_boss_level = level % LEVELS_PER_BIOME == 0
 	Enemy.space_mode = biome == SPACE_BIOME
-	var count := int((3 + level * 2) * GameState.count_mult())
+	var count := int((3 + level * 2) * GameState.count_mult() * 3.0)
 	if biome == SPACE_BIOME:
 		count *= 3                      # the space biome throws 3x as many hostiles at you
 	boss_pending = _boss_level
 	if boss_pending:
 		count = int(count * 0.6)
 		boss_timer = 2.5
-		title = "Level %d  -  %s Boss Level" % [level, BIOME_NAMES[biome]]
-		boss_label.text = "!!  %s BOSS LEVEL  !!" % BIOME_NAMES[biome].to_upper()
+		title = Loc.t("Level %d  -  %s Boss Level") % [level, Loc.t(BIOME_NAMES[biome])]
+		boss_label.text = Loc.t("!!  %s BOSS LEVEL  !!") % Loc.t(BIOME_NAMES[biome]).to_upper()
 	boss_label.visible = _boss_level
 	to_spawn = count
 	spawn_timer = 1.5
@@ -338,7 +340,7 @@ func _process(delta: float) -> void:
 		if spawn_timer <= 0.0 and alive < MAX_ALIVE:
 			_spawn_mob()
 			to_spawn -= 1
-			spawn_timer = maxf(0.35, 2.0 - level * 0.1) * GameState.interval_mult()
+			spawn_timer = maxf(0.08, maxf(0.35, 2.0 - level * 0.1) / _spawn_rate()) * GameState.interval_mult()
 	elif alive == 0 and not boss_pending:
 		if _clear_timer < 0.0:
 			_clear_timer = 0.8
@@ -400,12 +402,12 @@ func _on_base_damaged(amount: float) -> void:
 	_add_shake(minf(7.0 + amount * 3.0, 24.0))
 	vignette.flash(minf(0.55 + amount * 0.12, 1.0))
 	Sfx.play("base_hit")
-	_notify("Taken Damage!  -%d" % int(ceil(amount)), "hit", Color(1.0, 0.3, 0.3), "dmg")
+	_notify(Loc.t("Taken Damage!  -%d") % int(ceil(amount)), "hit", Color(1.0, 0.3, 0.3), "dmg")
 	_update_label()
 
 func _on_base_blocked() -> void:
 	Sfx.play("block")
-	_notify("Blocked by the Barrier!", "shield", Color(0.4, 0.85, 1.0), "block")
+	_notify(Loc.t("Blocked by the Barrier!"), "shield", Color(0.4, 0.85, 1.0), "block")
 
 # ---------- Level reward menu ----------
 
@@ -414,12 +416,12 @@ func _level_cleared() -> void:
 	var biome_done := cleared % LEVELS_PER_BIOME == 0
 	level += 1
 	Sfx.play("biome_win" if biome_done else "win")
-	var title := "Level %d cleared!  Choose a reward" % cleared
+	var title := Loc.t("Level %d cleared!  Choose a reward") % cleared
 	_boss_level = false
 	boss_label.visible = false
-	_notify("Level %d cleared!" % cleared, "star", Color(1.0, 0.85, 0.3))
+	_notify(Loc.t("Level %d cleared!") % cleared, "star", Color(1.0, 0.85, 0.3))
 	if biome_done:
-		title = "%s conquered!  Choose a reward" % BIOME_NAMES[_biome_for(cleared)]
+		title = Loc.t("%s conquered!  Choose a reward") % Loc.t(BIOME_NAMES[_biome_for(cleared)])
 	_open_upgrade_menu(title)
 
 func _is_available(u: Dictionary) -> bool:
@@ -448,7 +450,7 @@ func _on_upgrade_chosen(id: String) -> void:
 	for u in UPGRADES:
 		if str(u["id"]) == id:
 			picked = u
-	_notify(text, str(picked.get("icon", "star")), Color(0.5, 1.0, 0.6))
+	_notify(Loc.t(text), str(picked.get("icon", "star")), Color(0.5, 1.0, 0.6))
 
 func _apply_upgrade(id: String) -> String:
 	match id:
@@ -472,7 +474,7 @@ func _apply_upgrade(id: String) -> String:
 		"coins":
 			var gain := 5 + level * 3
 			coins += gain
-			return "Collected %d gold" % gain
+			return Loc.t("Collected %d gold") % gain
 		"speed":
 			base.move_mult += 0.05
 			return "Move speed +5%"
@@ -508,6 +510,10 @@ const BIOME_ENEMY_NOTES := [
 	"Demons rise from the lava - tough, fast and brutal!",
 	"Hunter packs incoming - they dodge a lot and shoot from far away!",
 ]
+
+# Spawn-rate multiplier: x3 in every biome, +0.20 per level on top (level 11 = x9).
+func _spawn_rate() -> float:
+	return SPAWN_RATE_BASE * (1.0 + SPAWN_RATE_PER_LEVEL * float(level - 1))
 
 func _pick_kind() -> String:
 	var special := ""
@@ -598,7 +604,7 @@ func _spawn_minions(pos: Vector2, count: int) -> void:
 
 func _spawn_boss() -> void:
 	var b := Boss.make_boss(level, biome)
-	b.boss_name = BOSS_NAMES[biome]
+	b.boss_name = Loc.t(BOSS_NAMES[biome])
 	b.position = _edge_spawn_pos()
 	b.target = base.position
 	b.died.connect(_on_enemy_died)
@@ -610,7 +616,7 @@ func _spawn_boss() -> void:
 	add_child(b)
 	alive += 1
 	Sfx.play("boss_spawn")
-	_notify("%s approaches!" % BOSS_NAMES[biome], "skull", Color(0.8, 0.4, 1.0))
+	_notify(Loc.t("%s approaches!") % Loc.t(BOSS_NAMES[biome]), "skull", Color(0.8, 0.4, 1.0))
 
 func _on_boss_lesser(pos: Vector2, hp: float, dmg: float, spd: float) -> void:
 	var e := Enemy.make_void_lesser(hp, dmg, spd)
@@ -649,7 +655,7 @@ func _on_tank_shoot(origin: Vector2, dmg: float) -> void:
 
 func _on_enemy_died(e: Enemy) -> void:
 	if e.is_ally:
-		_notify("Refugee Hit!", "ally", Color(1.0, 0.2, 0.2), "allyhit")
+		_notify(Loc.t("Refugee Hit!"), "ally", Color(1.0, 0.2, 0.2), "allyhit")
 		return
 	coins += e.reward
 	alive -= 1
@@ -670,7 +676,7 @@ func _on_enemy_died(e: Enemy) -> void:
 		_register_mob(sg, true)
 	elif e.kind == "boss":
 		_add_shake(22.0)
-		_notify("%s defeated!  +%d" % [BOSS_NAMES[biome], e.reward], "coin", Color(1.0, 0.85, 0.3))
+		_notify(Loc.t("%s defeated!  +%d") % [Loc.t(BOSS_NAMES[biome]), e.reward], "coin", Color(1.0, 0.85, 0.3))
 		# Everything the boss summoned disappears with it.
 		for node in get_tree().get_nodes_in_group("minions"):
 			var m := node as Enemy
@@ -698,18 +704,18 @@ func _recruit() -> void:
 		0:
 			base.gunners += 1
 			base.add_auto_cannon()
-			_notify("+1 auto-weapon", "gunner", Color(0.5, 0.85, 0.4))
+			_notify(Loc.t("+1 auto-weapon"), "gunner", Color(0.5, 0.85, 0.4))
 		1:
 			base.scientists += 1
 			base.damage_mult += 0.15
-			_notify("Weapon damage +15%", "scientist", Color(0.4, 0.95, 0.8))
+			_notify(Loc.t("Weapon damage +15%"), "scientist", Color(0.4, 0.95, 0.8))
 		2:
 			base.engineers += 1
 			base.energy_regen += 5.0
-			_notify("Energy regen +5 per second", "engineer", Color(1.0, 0.85, 0.25))
+			_notify(Loc.t("Energy regen +5 per second"), "engineer", Color(1.0, 0.85, 0.25))
 		3:
 			base.mechanics += 1
-			_notify("Base repairs itself slowly", "mechanic", Color(1.0, 0.55, 0.35))
+			_notify(Loc.t("Base repairs itself slowly"), "mechanic", Color(1.0, 0.55, 0.35))
 
 # ---------- Input: Esc menu, pause, shop, skills ----------
 
@@ -748,10 +754,10 @@ func _input(event: InputEvent) -> void:
 				if base.use_skill(i):
 					if used == "overcharge":
 						Sfx.play("weapon_up")
-						_notify("Overcharge!  Weapon damage +30%% for %d s" % int(Base.BOOST_DURATION), "damage", Color(1.0, 0.6, 0.2), "boost")
+						_notify(Loc.t("Overcharge!  Weapon damage +30%% for %d s") % int(Base.BOOST_DURATION), "damage", Color(1.0, 0.6, 0.2), "boost")
 					else:
 						Sfx.play("barrier")
-						_notify("Barrier up!  Invincible for %d s" % int(Base.BARRIER_DURATION), "shield", Color(0.4, 0.85, 1.0), "barrier")
+						_notify(Loc.t("Barrier up!  Invincible for %d s") % int(Base.BARRIER_DURATION), "shield", Color(0.4, 0.85, 1.0), "barrier")
 			return
 	if shop_menu.visible:
 		var idx := int(key.keycode) - int(KEY_1)
@@ -793,11 +799,11 @@ func _shop_row(i: int) -> Dictionary:
 	var item: Dictionary = ITEMS[i]
 	var id := str(item["id"])
 	var row := {
-		"name": str(item["name"]),
-		"desc": str(item["desc"]),
+		"name": Loc.t(str(item["name"])),
+		"desc": Loc.t(str(item["desc"])),
 		"icon": str(item["icon"]),
 		"cost": _cost(i),
-		"level": "Lv %d" % levels[i],
+		"level": "%s %d" % [Loc.t("Lv"), levels[i]],
 		"maxed": false,
 	}
 	if id == "repair":
@@ -806,11 +812,11 @@ func _shop_row(i: int) -> Dictionary:
 		var tier := base.weapon_tier
 		row["level"] = "%d / %d" % [tier + 1, Weapons.MAX_TIER + 1]
 		if tier >= Weapons.MAX_TIER:
-			row["desc"] = "%s - maximum weapon reached" % Weapons.name_of(tier)
+			row["desc"] = Loc.t("%s - maximum weapon reached") % Loc.t(Weapons.name_of(tier))
 			row["icon"] = Weapons.id_of(tier)
 			row["maxed"] = true
 		else:
-			row["desc"] = "%s -> %s\nAuto-weapons are upgraded too" % [Weapons.name_of(tier), Weapons.name_of(tier + 1)]
+			row["desc"] = Loc.t("%s -> %s\nAuto-weapons are upgraded too") % [Loc.t(Weapons.name_of(tier)), Loc.t(Weapons.name_of(tier + 1))]
 			row["icon"] = Weapons.id_of(tier + 1)
 	return row
 
@@ -843,14 +849,14 @@ func _buy(i: int) -> void:
 			if not base.upgrade_weapon():
 				return
 			Sfx.play("weapon_up")
-			text = "Weapon upgraded: %s" % Weapons.name_of(base.weapon_tier)
+			text = Loc.t("Weapon upgraded: %s") % Loc.t(Weapons.name_of(base.weapon_tier))
 			icon = Weapons.id_of(base.weapon_tier)
 		"regen":
 			base.energy_regen += 4.0
 			text = "Energy regen +4 per second"
 		"autorate":
 			if base.auto_cannons == 0:
-				_notify("No auto-weapons yet - a Gunner ally builds one", "gunner", Color(1.0, 0.6, 0.3), "noauto")
+				_notify(Loc.t("No auto-weapons yet - a Gunner ally builds one"), "gunner", Color(1.0, 0.6, 0.3), "noauto")
 				return
 			base.upgrade_auto_rate()
 			text = "Auto-weapons fire faster"
@@ -864,7 +870,7 @@ func _buy(i: int) -> void:
 			text = "Max health +10"
 		"repair":
 			if base.hp >= base.max_hp:
-				_notify("Base is already at full health", "repair", Color(1.0, 0.6, 0.3), "full")
+				_notify(Loc.t("Base is already at full health"), "repair", Color(1.0, 0.6, 0.3), "full")
 				return
 			base.heal(base.max_hp * 0.5)
 			text = "Base repaired"
@@ -872,7 +878,7 @@ func _buy(i: int) -> void:
 	if id != "repair":
 		levels[i] += 1
 	Sfx.play("coin")
-	_notify(text, icon, Color(0.5, 1.0, 0.6))
+	_notify(Loc.t(text), icon, Color(0.5, 1.0, 0.6))
 	_update_label()
 	_refresh_shop()
 
@@ -888,8 +894,8 @@ func _on_base_destroyed() -> void:
 		for node in get_tree().get_nodes_in_group(group):
 			node.set_process(false)
 	boss_label.visible = false
-	var info := "Your %s fell on Level %d  (%s)" % [Base.TIER_NAMES[base.tier], level, BIOME_NAMES[biome]]
-	get_tree().create_timer(1.3).timeout.connect(gameover_menu.open.bind(info, "Retry Level %d" % level))
+	var info := Loc.t("Your %s fell on Level %d  (%s)") % [Loc.t(Base.TIER_NAMES[base.tier]), level, Loc.t(BIOME_NAMES[biome])]
+	get_tree().create_timer(1.3).timeout.connect(gameover_menu.open.bind(info, Loc.t("Retry Level %d") % level))
 
 # Game-over text stays on the info label; everything else is a pop-up notification.
 func _say(text: String, seconds: float) -> void:
@@ -904,7 +910,7 @@ func _notify(text: String, icon: String = "", color: Color = Color.WHITE, key: S
 func _update_label() -> void:
 	hud.coins = coins
 	var diff_name: String = GameState.DIFFICULTY_NAMES[GameState.difficulty]
-	var t := "%s   |   Level %d   |   %s   |   %s   |   Enemy damage x%.2f" % [Base.TIER_NAMES[base.tier], level, BIOME_NAMES[biome], diff_name, 1.0 + 0.25 * (level - 1)]
+	var t := "%s   |   %s %d   |   %s   |   %s   |   %s x%.2f   |   %s x%.1f" % [Loc.t(Base.TIER_NAMES[base.tier]), Loc.t("Level"), level, Loc.t(BIOME_NAMES[biome]), Loc.t(diff_name), Loc.t("Enemy damage"), 1.0 + 0.25 * (level - 1), Loc.t("Spawn rate"), _spawn_rate()]
 	if _msg != "":
 		t += "\n" + _msg
 	info_label.text = t

@@ -71,7 +71,7 @@ func _ready() -> void:
 	if not save.is_empty():
 		var lvl := int(save.get("level", 1))
 		var diff := clampi(int(save.get("difficulty", 0)), 0, 1)
-		var label := "Continue  (Level %d, %s)" % [lvl, GameState.DIFFICULTY_NAMES[diff]]
+		var label := Loc.t("Continue  (Level %d, %s)") % [lvl, Loc.t(GameState.DIFFICULTY_NAMES[diff])]
 		_main_box.add_child(_button(label, _on_continue.bind(save)))
 	_main_box.add_child(_button("New Game", _on_new_game))
 	_main_box.add_child(_button("Settings", _on_settings))

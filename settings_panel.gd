@@ -68,6 +68,23 @@ func _build_game_page() -> VBoxContainer:
 	fs.button_pressed = Settings.fullscreen
 	fs.toggled.connect(_on_fullscreen)
 	page.add_child(fs)
+	var lang_row := HBoxContainer.new()
+	lang_row.add_theme_constant_override("separation", 14)
+	var lang_label := Label.new()
+	lang_label.text = "Language"
+	lang_label.custom_minimum_size = Vector2(220, 0)
+	lang_label.add_theme_font_size_override("font_size", 22)
+	lang_row.add_child(lang_label)
+	var lang_opt := OptionButton.new()
+	lang_opt.focus_mode = Control.FOCUS_NONE
+	lang_opt.custom_minimum_size = Vector2(220, 40)
+	lang_opt.add_theme_font_size_override("font_size", 20)
+	for n: String in Loc.LANG_NAMES:
+		lang_opt.add_item(n)
+	lang_opt.selected = maxi(Loc.LANGS.find(Settings.language), 0)
+	lang_opt.item_selected.connect(_on_language)
+	lang_row.add_child(lang_opt)
+	page.add_child(lang_row)
 	return page
 
 func _build_sound_page() -> VBoxContainer:
@@ -174,6 +191,11 @@ func _on_reset() -> void:
 	Keybinds.reset_defaults()
 	Settings.save()
 	_refresh()
+
+func _on_language(index: int) -> void:
+	Settings.language = str(Loc.LANGS[index])
+	Loc.set_language(Settings.language)
+	Settings.save()
 
 func _on_fullscreen(on: bool) -> void:
 	Settings.fullscreen = on
