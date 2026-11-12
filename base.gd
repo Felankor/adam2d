@@ -218,8 +218,21 @@ func upgrade_weapon() -> bool:
 	if weapon_tier >= Weapons.MAX_TIER:
 		return false
 	weapon_tier += 1
+	refunded_damage_pts = refund_damage_points()
 	queue_redraw()
 	return true
+
+var refunded_damage_pts: int = 0     # points handed back by the last weapon upgrade (main shows a toast)
+
+# A new weapon has a different base damage, so the Weapon damage points are given back to be re-spent.
+func refund_damage_points() -> int:
+	var pts := int(stat_pts.get("damage", 0))
+	if pts <= 0:
+		return 0
+	damage_mult /= pow(1.01, float(pts))
+	stat_pts["damage"] = 0
+	free_points += pts
+	return pts
 
 # Gold price of one Repair use (grows with the castle stage).
 func repair_cost() -> int:

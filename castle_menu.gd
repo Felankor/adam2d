@@ -6,8 +6,12 @@ extends Control
 # It replaces the old shop. Number keys 1-8 spend a point on the matching row.
 signal spend(id: String)
 signal weapon_upgrade
+signal exchange_pressed
 signal laser_toggled(on: bool)
 signal continue_pressed
+
+const EXCHANGE_GOLD := 1000          # Exchange: this much gold...
+const EXCHANGE_POINTS := 5           # ...buys this many stat points
 
 const STATS := [
 	{"id": "damage", "name": "Weapon damage", "icon": "damage"},
@@ -30,6 +34,7 @@ var _stat_pts: Array[Label] = []
 var _stat_buttons: Array[Button] = []
 var _weapon_label: Label
 var _weapon_button: Button
+var _exchange_button: Button
 var _laser: CheckButton
 var _close: Button
 var _awaiting: bool = false
@@ -157,6 +162,13 @@ func _ready() -> void:
 	_weapon_button.custom_minimum_size = Vector2(0, 44)
 	_weapon_button.pressed.connect(func() -> void: weapon_upgrade.emit())
 	right.add_child(_weapon_button)
+	right.add_child(HSeparator.new())
+	_exchange_button = Button.new()
+	_exchange_button.focus_mode = Control.FOCUS_NONE
+	_exchange_button.custom_minimum_size = Vector2(0, 44)
+	_exchange_button.icon = CoinTex.get_texture()
+	_exchange_button.pressed.connect(func() -> void: exchange_pressed.emit())
+	right.add_child(_exchange_button)
 	_laser = CheckButton.new()
 	_laser.text = "Laser sight (aim line)"
 	_laser.focus_mode = Control.FOCUS_NONE
@@ -266,4 +278,6 @@ func refresh(coins: int, ctx: Dictionary) -> void:
 		_weapon_button.text = "%s   %d" % [Loc.t("Upgrade weapon"), price]
 		_weapon_button.icon = CoinTex.get_texture()
 		_weapon_button.disabled = coins < price
+	_exchange_button.text = Loc.t("Exchange %d gold  ->  %d stat points") % [EXCHANGE_GOLD, EXCHANGE_POINTS]
+	_exchange_button.disabled = coins < EXCHANGE_GOLD
 	_laser.set_pressed_no_signal(b.laser)

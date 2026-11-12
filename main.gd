@@ -172,6 +172,7 @@ func _ready() -> void:
 	castle_menu.spend.connect(_on_castle_spend)
 	castle_menu.weapon_upgrade.connect(_on_castle_weapon)
 	castle_menu.laser_toggled.connect(_on_castle_laser)
+	castle_menu.exchange_pressed.connect(_on_castle_exchange)
 	castle_menu.continue_pressed.connect(_close_castle)
 	layer.add_child(castle_menu)
 
@@ -906,6 +907,18 @@ func _on_castle_weapon() -> void:
 	coins -= price
 	Sfx.play("weapon_up")
 	_notify(Loc.t("Weapon upgraded: %s") % Loc.t(Weapons.name_of(base.weapon_tier)), Weapons.id_of(base.weapon_tier), Color(0.5, 1.0, 0.6))
+	if base.refunded_damage_pts > 0:
+		_notify(Loc.t("Weapon damage points refunded: %d") % base.refunded_damage_pts, "damage", Color(1.0, 0.9, 0.4))
+	_update_label()
+	_refresh_castle()
+
+func _on_castle_exchange() -> void:
+	if game_over or coins < CastleMenu.EXCHANGE_GOLD:
+		return
+	coins -= CastleMenu.EXCHANGE_GOLD
+	base.free_points += CastleMenu.EXCHANGE_POINTS
+	Sfx.play("weapon_up")
+	_notify(Loc.t("Exchanged %d gold for %d stat points") % [CastleMenu.EXCHANGE_GOLD, CastleMenu.EXCHANGE_POINTS], "coin", Color(0.5, 1.0, 0.6))
 	_update_label()
 	_refresh_castle()
 

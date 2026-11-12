@@ -184,6 +184,9 @@ const TR := {
 	"Rocket Launcher": "Roketatar",
 	"Laser Gun": "Lazer Silahı",
 	"Void Gun": "Boşluk Silahı",
+	"Exchange %d gold  ->  %d stat points": "%d altını %d özellik puanına çevir",
+	"Exchanged %d gold for %d stat points": "%d altın %d özellik puanına çevrildi",
+	"Weapon damage points refunded: %d": "Silah hasarı puanları iade edildi: %d",
 	"Armor": "Zırh",
 	"Armor penetration": "Zırh delme",
 	# --- base stages ---
