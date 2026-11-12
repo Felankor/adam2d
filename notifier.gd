@@ -39,7 +39,7 @@ func push(text: String, icon: String = "", color: Color = Color.WHITE, key: Stri
 
 	var panel := PanelContainer.new()
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var sb := PixelUI.box(Color(0.05, 0.06, 0.09, 0.88), color, 2)
+	var sb := PixelUI.plate(Color(0.07, 0.05, 0.04, 0.92), color, 2)
 	sb.content_margin_left = 14
 	sb.content_margin_right = 16
 	sb.content_margin_top = 9

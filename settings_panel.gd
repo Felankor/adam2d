@@ -60,7 +60,7 @@ func _show_page(index: int) -> void:
 func _build_game_page() -> VBoxContainer:
 	var page := VBoxContainer.new()
 	page.add_theme_constant_override("separation", 12)
-	page.custom_minimum_size = Vector2(0, 300)
+	page.custom_minimum_size = Vector2(0, 360)
 	var fs := CheckButton.new()
 	fs.text = "Fullscreen"
 	fs.focus_mode = Control.FOCUS_NONE
@@ -77,6 +77,7 @@ func _build_game_page() -> VBoxContainer:
 		Settings.autosave = on
 		Settings.save())
 	page.add_child(auto)
+	page.add_child(_slider_row("HUD size", Settings.hud_scale, _on_hud_scale, 0.6, 1.6, true))
 	page.add_child(_slider_row("Screen shake", Settings.shake_scale, _on_shake))
 	page.add_child(_slider_row("Screen flashes", Settings.flash_scale, _on_flash))
 	var lang_row := HBoxContainer.new()
@@ -145,7 +146,7 @@ func _build_controls_page() -> VBoxContainer:
 	page.add_child(_button("Reset controls to default", _on_reset))
 	return page
 
-func _slider_row(label_text: String, value: float, handler: Callable) -> HBoxContainer:
+func _slider_row(label_text: String, value: float, handler: Callable, lo: float = 0.0, hi: float = 1.0, show_pct: bool = false) -> HBoxContainer:
 	var row := HBoxContainer.new()
 	var label := Label.new()
 	label.text = label_text
@@ -153,8 +154,8 @@ func _slider_row(label_text: String, value: float, handler: Callable) -> HBoxCon
 	label.add_theme_font_size_override("font_size", PixelUI.fs(22))
 	row.add_child(label)
 	var sl := HSlider.new()
-	sl.min_value = 0.0
-	sl.max_value = 1.0
+	sl.min_value = lo
+	sl.max_value = hi
 	sl.step = 0.05
 	sl.value = value
 	sl.focus_mode = Control.FOCUS_NONE
@@ -163,6 +164,14 @@ func _slider_row(label_text: String, value: float, handler: Callable) -> HBoxCon
 	sl.value_changed.connect(handler)
 	sl.drag_ended.connect(_on_slider_done)
 	row.add_child(sl)
+	if show_pct:
+		var pct := Label.new()
+		pct.text = "%d%%" % roundi(value * 100.0)
+		pct.custom_minimum_size = Vector2(70, 0)
+		pct.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		pct.add_theme_font_size_override("font_size", PixelUI.fs(20))
+		row.add_child(pct)
+		sl.value_changed.connect(func(v: float) -> void: pct.text = "%d%%" % roundi(v * 100.0))
 	return row
 
 func _button(text: String, handler: Callable) -> Button:
@@ -229,6 +238,9 @@ func _on_sfx_volume(v: float) -> void:
 func _on_music_volume(v: float) -> void:
 	Settings.music_volume = v
 	Music.refresh_volume()
+
+func _on_hud_scale(v: float) -> void:
+	Settings.hud_scale = v
 
 func _on_shake(v: float) -> void:
 	Settings.shake_scale = v

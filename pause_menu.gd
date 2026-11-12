@@ -19,7 +19,7 @@ func _ready() -> void:
 	visible = false
 
 	var dim := ColorRect.new()
-	dim.color = Color(0, 0, 0, 0.65)
+	dim.color = Color(0.03, 0.02, 0.01, 0.7)
 	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(dim)
 
@@ -28,7 +28,7 @@ func _ready() -> void:
 	add_child(center)
 
 	var panel := PanelContainer.new()
-	var sb := PixelUI.box(Color(0.09, 0.10, 0.14, 0.97), Color(0.85, 0.65, 0.2))
+	var sb := PixelUI.box(PixelUI.WIN_BG, PixelUI.BRONZE)
 	sb.set_content_margin_all(32)
 	panel.add_theme_stylebox_override("panel", sb)
 	center.add_child(panel)
@@ -44,7 +44,9 @@ func _ready() -> void:
 	title.text = "PAUSED"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", PixelUI.fs(44))
+	PixelUI.style_title(title)
 	_main_box.add_child(title)
+	_main_box.add_child(HSeparator.new())
 
 	_main_box.add_child(_button("Resume", _on_resume))
 	_main_box.add_child(_button("Save", _on_save))
@@ -56,7 +58,7 @@ func _ready() -> void:
 	_status = Label.new()
 	_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_status.add_theme_font_size_override("font_size", PixelUI.fs(18))
-	_status.add_theme_color_override("font_color", Color(0.6, 1.0, 0.6))
+	_status.add_theme_color_override("font_color", PixelUI.GOOD)
 	_status.custom_minimum_size = Vector2(440, 48)
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_main_box.add_child(_status)

@@ -7,8 +7,10 @@ signal critical(amount: float)
 signal blocked
 signal shield_broken
 signal poisoned
+signal burning(dps: float)
+signal status(text: String, kind: String)
 
-const TIER_NAMES := ["Hoverin Village", "High Town", "Flyin City", "Fortress of the Wind", "Capital", "Battlestation", "Juggernaut", "Dreadnaught", "Galactus", "Death Star"]
+const TIER_NAMES := ["Hoverin Village", "High Town", "Flyin City", "Fortress of the Wind", "Capital", "Battlestation", "Juggernaut", "Dreadnaught", "Galactus", "Eye of End"]
 const TIER_HP := [20, 40, 70, 110, 160, 230, 310, 400, 520, 650]
 const TIER_COLORS := [
 	Color(0.55, 0.40, 0.25),
@@ -23,6 +25,10 @@ const TIER_COLORS := [
 	Color(0.55, 0.58, 0.62),
 ]
 const MAX_AUTO := 12
+# Auto-weapon slots on the island: each castle tier has a fixed number of them.
+const AUTO_SLOTS := [2, 3, 4, 6, 8, 9, 10, 11, 12, 12]
+const SLOT_ORDER := [90.0, 30.0, 150.0, 0.0, 180.0, 330.0, 210.0, 60.0, 120.0, 300.0, 240.0, 270.0]
+const ISLAND_F := [0.68, 0.76, 0.85, 0.93, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
 const RANGE_STEP := 40.0
 const MAX_RANGE := 1000.0
 const BARRIER_DURATION := 3.0
@@ -80,6 +86,11 @@ var attack_speed: float = 1.0       # Attack speed perk: +5% per pick (manual an
 var poison_time: float = 0.0        # seconds of poison left
 var poison_dps: float = 0.0
 var _poison_acc: float = 0.0
+var burn_time: float = 0.0          # seconds of burning left (Hell Lord fire and arrows)
+var burn_dps: float = 0.0
+var _burn_acc: float = 0.0
+var slow_time: float = 0.0          # seconds the castle is slowed (Mud Colossus mud)
+var slow_factor: float = 1.0
 var _vel: Vector2 = Vector2.ZERO
 
 var aim_angle: float = 0.0
@@ -104,6 +115,12 @@ func _ready() -> void:
 
 func body_radius() -> float:
 	return 42.0 + tier * 5.0
+
+# Radius of the whole floating base (the hitbox and the size of every effect around the castle).
+func hit_radius() -> float:
+	if tier < CastleArt.TIERS:
+		return 94.0 * float(ISLAND_F[tier]) * body_radius() / 48.0 * 0.92
+	return body_radius()
 
 # XP needed to go from this level to the next one.
 static func xp_needed(lv: int) -> int:
@@ -201,7 +218,7 @@ func play_level_up() -> void:
 # Castles are too big and are only blocked). It counts as a kill, so it gives gold and XP.
 func _barrier_zap(delta: float) -> void:
 	_zap_cd = maxf(_zap_cd - delta, 0.0)
-	var reach_r := body_radius() * 1.75
+	var reach_r := hit_radius() * 1.3
 	var killed := 0
 	for e in Field.near(position, reach_r):
 		if e.is_ally or e.dead or e.kind == "boss" or e.kind == "minicastle":
@@ -263,9 +280,45 @@ func apply_poison(dps: float, seconds: float) -> void:
 	poison_time = maxf(poison_time, seconds)
 	poisoned.emit()
 
+# Burning (Hell Lord flames and Hell Arrows): HP loss every second for a few seconds. Ignores armor and the Energy Shield.
+func apply_burn(dps: float, seconds: float) -> void:
+	if barrier_time > 0.0 or hp <= 0.0:
+		return
+	var fresh := burn_time <= 0.0
+	burn_dps = maxf(burn_dps, dps)
+	burn_time = maxf(burn_time, seconds)
+	if fresh:
+		burning.emit(burn_dps)
+
+# Slow (mud, ...): the castle moves slower for a while. Not applied while the Barrier is up.
+func apply_slow(factor: float, seconds: float) -> void:
+	if barrier_time > 0.0 or hp <= 0.0:
+		return
+	var fresh := slow_time <= 0.0
+	slow_factor = minf(slow_factor if slow_time > 0.0 else 1.0, factor)
+	slow_time = maxf(slow_time, seconds)
+	if fresh:
+		status.emit("Slowed!  Movement -%d%% for %d s" % [int((1.0 - factor) * 100.0), int(ceil(seconds))], "slow")
+
+# A push from outside (a black hole pulls the castle in).
+func shove(v: Vector2) -> void:
+	position += v
+
+func max_auto() -> int:
+	return AUTO_SLOTS[clampi(tier, 0, AUTO_SLOTS.size() - 1)]
+
+# Where weapon slot i sits relative to the castle position (on the rim of the island top).
+func slot_pos(i: int, r: float) -> Vector2:
+	var a := deg_to_rad(float(SLOT_ORDER[i]))
+	if tier < CastleArt.TIERS:
+		var s := r / 48.0
+		var rx := 94.0 * float(ISLAND_F[tier]) * s * 0.84
+		return Vector2(cos(a) * rx, 11.0 * s + sin(a) * rx * 0.72)
+	return Vector2.RIGHT.rotated(a) * (r + 8.0)
+
 # Each auto-cannon upgrade also extends the range of all auto-cannons.
 func add_auto_cannon() -> bool:
-	if auto_cannons >= MAX_AUTO:
+	if auto_cannons >= max_auto():
 		return false
 	auto_cannons += 1
 	auto_range = minf(auto_range + RANGE_STEP, MAX_RANGE)
@@ -419,6 +472,26 @@ func _process(delta: float) -> void:
 		if poison_time <= 0.0:
 			poison_dps = 0.0
 			_poison_acc = 0.0
+	if slow_time > 0.0:
+		slow_time = maxf(slow_time - delta, 0.0)
+		if slow_time <= 0.0:
+			slow_factor = 1.0
+	if burn_time > 0.0:
+		burn_time = maxf(burn_time - delta, 0.0)
+		_burn_acc += delta
+		if _burn_acc >= 1.0:
+			_burn_acc -= 1.0
+			if barrier_time <= 0.0:
+				hp = maxf(hp - burn_dps, 0.0)
+				_hurt = 0.15
+				damaged.emit(burn_dps)
+				if hp <= 0.0:
+					set_process(false)
+					destroyed.emit()
+					return
+		if burn_time <= 0.0:
+			burn_dps = 0.0
+			_burn_acc = 0.0
 	aim_angle = (get_global_mouse_position() - global_position).angle()
 	_move(delta)
 
@@ -465,7 +538,7 @@ func _process(delta: float) -> void:
 
 	if _pix != null:
 		var pr := body_radius()
-		_pix.update_look(tier, pr, clampf(_hurt / 0.25, 0.0, 1.0), _anim, sin(_anim * 1.5) * (3.0 + pr * 0.05), pr * 3.0 if tier <= 4 else pr * 1.7)
+		_pix.update_look(tier, pr, clampf(_hurt / 0.25, 0.0, 1.0), _anim, sin(_anim * 1.5) * (3.0 + pr * 0.05), pr * 3.0)
 	queue_redraw()
 
 # The castle can be flown around the map with the move keys (WASD by default).
@@ -475,7 +548,7 @@ func _move(delta: float) -> void:
 		Input.get_action_strength("move_down") - Input.get_action_strength("move_up"))
 	if dir.length() > 1.0:
 		dir = dir.normalized()
-	_vel = _vel.lerp(dir * move_speed * move_mult, 1.0 - exp(-7.0 * delta))
+	_vel = _vel.lerp(dir * move_speed * move_mult * (slow_factor if slow_time > 0.0 else 1.0), 1.0 - exp(-7.0 * delta))
 	if _vel.length() < 1.0 and dir == Vector2.ZERO:
 		_vel = Vector2.ZERO
 		return
@@ -483,7 +556,7 @@ func _move(delta: float) -> void:
 
 func _fire(angle: float, dmg: float, is_auto: bool) -> void:
 	var dir := Vector2.RIGHT.rotated(angle)
-	var muzzle := position + dir * (body_radius() + 14.0)
+	var muzzle := position + dir * (hit_radius() * 0.6 + 14.0)
 	var sound: String = Weapons.SOUNDS[weapon_tier]
 	Sfx.play(sound, -6.0 if is_auto else 0.0)
 	if weapon_tier == 3:
@@ -571,19 +644,20 @@ func _laser_length() -> float:
 	return best
 
 func _draw() -> void:
-	var r := body_radius()
+	var rb := body_radius()
+	var r := hit_radius()
 	var tint := clampf(_hurt / 0.25, 0.0, 1.0)
 	# gentle PlayStation-style hover: slow bob plus a tiny sway
-	var bob := sin(_anim * 1.5) * (3.0 + r * 0.05)
+	var bob := sin(_anim * 1.5) * (3.0 + rb * 0.05)
 	var tilt := sin(_anim * 1.1 + 1.0) * 0.015
-	var drop := r * 3.0 if tier <= 4 else r * 1.7
+	var drop := rb * 3.0
 	if _pix == null:
 		# the shadow stays on the ground and shrinks as the castle rises
 		draw_set_transform(Vector2(6.0, drop), 0.0, Vector2(1.0, 0.28))
-		PixelFx.disc(self, Vector2.ZERO, r * 1.2 * (1.0 - bob / (r * 6.0)), Color(0, 0, 0, 0.22))
+		PixelFx.disc(self, Vector2.ZERO, rb * 1.2 * (1.0 - bob / (rb * 6.0)), Color(0, 0, 0, 0.22))
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 		draw_set_transform(Vector2(0.0, bob), tilt, Vector2.ONE)
-		BaseArt.draw_all(self, tier, r, _anim, tint)
+		BaseArt.draw_all(self, tier, rb, _anim, tint)
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	draw_set_transform(Vector2(0.0, bob), 0.0, Vector2.ONE)
 	if boost_time > 0.0:
@@ -592,10 +666,17 @@ func _draw() -> void:
 		PixelFx.arc(self, Vector2.ZERO, r * 1.4, _anim * 3.0, _anim * 3.0 + 4.0, Color(1.0, 0.85, 0.3, 0.7), 3.0)
 	if auto_cannons > 0:
 		PixelFx.ring(self, Vector2.ZERO, auto_range, Color(1, 1, 1, 0.12), 2.0)
-		var auto_col: Color = Weapons.COLORS[weapon_tier]
-		for i in auto_cannons:
-			var a := TAU * i / auto_cannons
-			PixelFx.disc(self, Vector2.RIGHT.rotated(a) * (r + 8.0), 7.0, auto_col)
+	var sr := maxf(6.0, rb * 0.13)
+	for i in max_auto():
+		var sp := slot_pos(i, rb)
+		PixelFx.disc(self, sp + Vector2(0.0, 2.0), sr + 2.0, Color(0.07, 0.04, 0.02, 0.8))
+		PixelFx.disc(self, sp, sr, Color(0.36, 0.22, 0.09))
+		if i < auto_cannons:
+			PixelFx.disc(self, sp, sr - 2.0, Color(0.72, 0.5, 0.18))
+			PixelFx.disc(self, sp, sr * 0.55, Weapons.COLORS[weapon_tier])
+		else:
+			PixelFx.disc(self, sp, sr - 2.0, Color(0.13, 0.08, 0.04))
+			PixelFx.ring(self, sp, sr, Color(0.72, 0.5, 0.18, 0.7), 1.5)
 	var dir := Vector2.RIGHT.rotated(aim_angle)
 	if laser:
 		var laser_start := dir * (r + 20.0)
@@ -622,6 +703,14 @@ func _draw() -> void:
 			var a := TAU * float(i) / 14.0 + k * 1.6
 			var d := r * (1.0 + 1.7 * k)
 			PixelFx.disc(self, Vector2.RIGHT.rotated(a) * d - Vector2(0.0, k * 60.0), 4.0 * (1.0 - k) + 1.0, Color(1.0, 0.95, 0.55, 0.95 * (1.0 - k)))
+	if burn_time > 0.0:
+		# flames licking up off the castle
+		PixelFx.disc(self, Vector2.ZERO, r * 1.1, Color(1.0, 0.35, 0.05, 0.14))
+		for i in 9:
+			var ph := fmod(_anim * 1.7 + float(i) * 0.23, 1.0)
+			var fx := sin(float(i) * 2.7 + _anim * 3.0) * r * 0.85
+			var col := Color(1.0, 0.85, 0.3, 0.85 * (1.0 - ph)).lerp(Color(0.9, 0.15, 0.05, 0.7 * (1.0 - ph)), ph)
+			PixelFx.disc(self, Vector2(fx, r * 0.5 - ph * r * 1.7), 3.0 + 6.0 * (1.0 - ph), col)
 	if poison_time > 0.0:
 		# green poison bubbles rising off the castle
 		PixelFx.disc(self, Vector2.ZERO, r * 1.1, Color(0.4, 0.9, 0.2, 0.12))

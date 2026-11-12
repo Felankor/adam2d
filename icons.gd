@@ -50,7 +50,11 @@ static func draw(ci: CanvasItem, kind: String, origin: Vector2, k: float, with_b
 		return
 	var tex := _icon_tex(kind, with_bg)
 	if tex == null:
-		ci.queue_redraw.call_deferred()          # the picture is not ready yet: draw again next frame
+		# the picture is not ready yet: draw again on the next frame. (A deferred call would run inside the same
+		# frame again and again, which froze the game, so wait for the next process_frame instead.)
+		var tree := Engine.get_main_loop() as SceneTree
+		if tree != null and not tree.process_frame.is_connected(ci.queue_redraw):
+			tree.process_frame.connect(ci.queue_redraw, CONNECT_ONE_SHOT)
 		return
 	var px := 2.0 * k                            # one art pixel on screen
 	var r := Rect2(origin, Vector2(64.0, 64.0) * k)

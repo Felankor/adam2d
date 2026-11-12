@@ -2,7 +2,7 @@ extends Node2D
 
 const BASE_POS := Vector2(960, 500)
 const ALLY_CHANCE := 0.10
-const LEVELS_PER_TIER := 7        # the base evolves every 7 levels (Death Star at level 64)
+const LEVELS_PER_TIER := 7        # the base evolves every 7 levels (Eye of End at level 64)
 const SPACE_BIOME := 4            # the last biome: no refugees, 3x hostiles, space ships
 const LEVELS_PER_BIOME := 10      # a new biome every 10 levels; level 10, 20, 30... are boss levels
 const SPAWN_RATE_BASE := 3.0       # every biome spawns at least 3x as fast as before
@@ -29,7 +29,10 @@ var _mini_pending: bool = false
 # Rogue Castle spawning. Never on boss waves. The first one waits MINI_FIRST_DELAY so the wave gets going.
 const MINI_CAPS := [1, 2, 3, 4, 5]        # most Rogue Castles alive at once, per biome
 const MINI_FIRST_LEVEL := 5               # Beginner: from level 5 (a chance per level, never two levels in a row)
-const MINI_SEASONED_LEVEL := 6            # Seasoned: from level 6 (a few per level)
+const MINI_SEASONED_LEVEL := 5            # I Hate Myself: from level 5, two per level (+1 every 2 levels)
+const MINI_CAPS_SEASONED := [2, 3, 4, 5, 6]   # most alive at once on I Hate Myself
+const MINI_MAX_PER_LEVEL := 8
+const SEASONED_COIN_MULT := 2             # I Hate Myself pays double gold
 const MINI_FIRST_DELAY := 15.0
 const MINI_INTERVAL_SLOW := 30.0          # seconds between castles of one wave: 30 s early ...
 const MINI_INTERVAL_FAST := 14.0          # ... down to 14 s at level 30+
@@ -55,6 +58,7 @@ var notifier: Notifier
 var gameover_menu: GameOverMenu
 var _level_snapshot: Dictionary = {}
 var boss_label: Label
+var _banner_t: float = 0.0
 
 var _manual_paused: bool = false
 var _msg: String = ""
@@ -96,6 +100,8 @@ func _ready() -> void:
 	base.blocked.connect(_on_base_blocked)
 	base.shield_broken.connect(_on_base_shield_broken)
 	base.poisoned.connect(_on_base_poisoned)
+	base.burning.connect(_on_base_burning)
+	base.status.connect(func(t: String, _k: String) -> void: _notify(t, "hit", Color(0.85, 0.65, 0.3), "status"))
 
 	camera = Camera2D.new()
 	camera.position = base.position
@@ -135,7 +141,7 @@ func _ready() -> void:
 	detail_label.add_theme_font_size_override("font_size", PixelUI.fs(17))
 	detail_label.add_theme_constant_override("outline_size", 5)
 	detail_label.add_theme_color_override("font_outline_color", Color.BLACK)
-	detail_label.add_theme_color_override("font_color", Color(0.85, 0.9, 1.0))
+	detail_label.add_theme_color_override("font_color", PixelUI.CREAM)
 	detail_label.visible = false
 	layer.add_child(detail_label)
 
@@ -143,7 +149,7 @@ func _ready() -> void:
 	layer.add_child(notifier)
 
 	boss_label = Label.new()
-	boss_label.position = Vector2(0, 92)
+	boss_label.position = Vector2(0, 124)
 	boss_label.custom_minimum_size = Vector2(Settings.WORLD_SIZE.x, 40)
 	boss_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	boss_label.add_theme_font_size_override("font_size", PixelUI.fs(30))
@@ -166,8 +172,10 @@ func _ready() -> void:
 	pause_panel = PanelContainer.new()
 	pause_panel.position = Vector2(Settings.WORLD_SIZE.x * 0.5 - 130.0, 24)
 	pause_panel.custom_minimum_size = Vector2(260, 52)
-	var sb := PixelUI.box(Color(0.02, 0.02, 0.04, 0.85), Color(0.8, 0.82, 0.9))
-	sb.set_content_margin_all(14)
+	var sb := PixelUI.box(PixelUI.WIN_BG, PixelUI.BRONZE)
+	sb.set_content_margin_all(24)
+	sb.content_margin_top = 16
+	sb.content_margin_bottom = 16
 	pause_panel.add_theme_stylebox_override("panel", sb)
 	var pause_text := Label.new()
 	pause_text.text = "GAME PAUSED"
@@ -288,6 +296,7 @@ func _start_level() -> void:
 		title = Loc.t("Wave %d  -  %s Boss Wave") % [level, Loc.t(BIOME_NAMES[biome])]
 		boss_label.text = Loc.t("!!  %s BOSS WAVE  !!") % Loc.t(BIOME_NAMES[biome]).to_upper()
 	boss_label.visible = _boss_level
+	_banner_t = 3.0
 	Music.play(biome, _boss_level)
 	if level % LEVELS_PER_BIOME == LEVELS_PER_BIOME - 2:
 		Backdrop.request(mini(biome + 1, BIOME_NAMES.size() - 1))      # build the next biome's terrain in the background
@@ -352,6 +361,10 @@ func _process(delta: float) -> void:
 	if _manual_paused:
 		# Blink the "game paused" popup until the game resumes
 		pause_panel.visible = int(Time.get_ticks_msec() / 500.0) % 2 == 0
+	if _banner_t > 0.0:
+		_banner_t -= delta
+		if _banner_t <= 0.0:
+			boss_label.visible = false
 	if _boss_level and boss_label.visible:
 		boss_label.modulate.a = 0.45 + 0.55 * (0.5 + 0.5 * sin(Time.get_ticks_msec() / 180.0))
 	if get_tree().paused:
@@ -378,7 +391,7 @@ func _process(delta: float) -> void:
 		_mini_timer -= delta
 		if _mini_timer <= 0.0:
 			if _normal_mobs_left():
-				if _minis_alive() < int(MINI_CAPS[clampi(biome, 0, MINI_CAPS.size() - 1)]):
+				if _minis_alive() < _mini_cap():
 					_spawn_mini_boss()
 					_mini_budget -= 1
 					if _mini_budget <= 0:
@@ -549,7 +562,9 @@ func _pick_kind() -> String:
 	var w_tank := 0.0 if level < 3 else minf(10.0 + level * 1.5, 30.0)
 	var w_medic := 0.0 if level < 6 else minf(4.0 + level * 0.5, 12.0)
 	var w_aegis := 0.0 if level < 9 else minf(3.0 + level * 0.4, 12.0)
-	var total := 100.0 + w_mech + w_tank + w_special + w_medic + w_aegis
+	var w_heavy := 0.0 if level < 8 else minf(3.0 + level * 0.4, 14.0)
+	var w_apoc := 0.0 if level < 14 else minf(1.5 + level * 0.2, 8.0)
+	var total := 100.0 + w_mech + w_tank + w_special + w_medic + w_aegis + w_heavy + w_apoc
 	var r := randf() * total
 	if r < w_special:
 		return special
@@ -557,6 +572,12 @@ func _pick_kind() -> String:
 	if r < w_tank:
 		return "tank"
 	r -= w_tank
+	if r < w_heavy:
+		return "heavytank"
+	r -= w_heavy
+	if r < w_apoc:
+		return "apoctank"
+	r -= w_apoc
 	if r < w_mech:
 		return "mech"
 	r -= w_mech
@@ -570,6 +591,9 @@ func _pick_kind() -> String:
 func _register_mob(e: Enemy, deferred: bool = false) -> void:
 	e.died.connect(_on_enemy_died)
 	e.arrived.connect(_on_mob_arrived)
+	e.launch.connect(_on_enemy_launch)
+	e.request.connect(_on_enemy_request)
+	e.shake.connect(_add_shake)
 	if e.shoots:
 		e.shoot.connect(_on_tank_shoot)
 	if deferred:
@@ -590,7 +614,7 @@ func _spawn_mob() -> void:
 		alive += 1
 	e.position = _ground_spawn_pos()
 	e.target = base.position
-	e.reach = base.body_radius()
+	e.reach = base.hit_radius()
 	_register_mob(e)
 
 # Hunters arrive as a pack of five.
@@ -600,7 +624,7 @@ func _spawn_hunters() -> void:
 		var h := Enemy.make("hunter", level)
 		h.position = center + Vector2.RIGHT.rotated(TAU * float(i) / 5.0) * 50.0
 		h.target = base.position
-		h.reach = base.body_radius()
+		h.reach = base.hit_radius()
 		alive += 1
 		_register_mob(h)
 
@@ -608,7 +632,7 @@ func _spawn_soldier_at(pos: Vector2) -> void:
 	var s := Enemy.make("soldier", level)
 	s.position = pos
 	s.target = base.position
-	s.reach = base.body_radius()
+	s.reach = base.hit_radius()
 	alive += 1
 	_register_mob(s, true)
 
@@ -621,7 +645,7 @@ func _spawn_minions(pos: Vector2, count: int) -> void:
 		var a := randf() * TAU
 		m.position = pos + Vector2.RIGHT.rotated(a) * randf_range(50.0, 120.0)
 		m.target = base.position
-		m.reach = base.body_radius()
+		m.reach = base.hit_radius()
 		alive += 1
 		_register_mob(m, true)
 
@@ -633,7 +657,7 @@ func _spawn_bees(pos: Vector2, count: int) -> void:
 		var m := Enemy.make_bee(level)
 		m.position = pos + Vector2.RIGHT.rotated(randf() * TAU) * randf_range(40.0, 110.0)
 		m.target = base.position
-		m.reach = base.body_radius()
+		m.reach = base.hit_radius()
 		alive += 1
 		_register_mob(m, true)
 
@@ -658,6 +682,12 @@ func _spawn_boss() -> void:
 	b.summon_bees.connect(_spawn_bees)
 	b.bomb.connect(_on_boss_bomb)
 	b.announce.connect(_on_boss_announce)
+	b.breath.connect(_on_boss_breath)
+	b.hell_arrow.connect(_on_hell_arrow)
+	b.hazard.connect(_on_boss_hazard)
+	b.launch.connect(_on_enemy_launch)
+	b.shake.connect(_add_shake)
+	b.raged.connect(func() -> void: _add_shake(26.0))
 	add_child(b)
 	alive += 1
 	Sfx.play("boss_spawn")
@@ -667,17 +697,33 @@ func _on_boss_lesser(pos: Vector2, hp: float, dmg: float, spd: float) -> void:
 	var e := Enemy.make_void_lesser(hp, dmg, spd)
 	e.position = pos
 	e.target = base.position
-	e.reach = base.body_radius()
+	e.reach = base.hit_radius()
 	alive += 1
 	_register_mob(e, true)
+
+func _on_boss_hazard(style: String, pos: Vector2, rad: float, delay: float, dmg: float, opts: Dictionary) -> void:
+	var h := Hazard.new()
+	h.style = style
+	h.position = pos
+	h.radius = rad
+	h.delay = delay
+	h.damage = dmg
+	h.base_ref = base
+	h.linger = float(opts.get("linger", 0.0))
+	h.pull = float(opts.get("pull", 0.0))
+	h.slow_factor = float(opts.get("slow_factor", 1.0))
+	h.slow_time = float(opts.get("slow_time", 0.0))
+	h.true_damage = bool(opts.get("true_damage", false))
+	h.ring_speed = float(opts.get("ring_speed", 700.0))
+	add_child(h)
 
 func _on_boss_announce(text: String, icon: String) -> void:
 	_notify(text, icon, Color(0.85, 0.5, 1.0))
 
 # A straight, unguided shot: it flies toward where the target WAS when fired.
-const BOLT_PEN := {"bullet": 0.0, "shell": 10.0, "rocket": 12.0, "orb": 20.0, "void": Weapons.TRUE_PEN}   # armor penetration of enemy shots by style
+const BOLT_PEN := {"rock": 15.0, "boulder": 25.0, "fireball": 20.0, "missile": 22.0, "voidorb": 35.0, "hellarrow": 25.0, "bullet": 0.0, "shell": 10.0, "rocket": 12.0, "orb": 20.0, "void": Weapons.TRUE_PEN}   # armor penetration of enemy shots by style
 
-func _spawn_bolt(origin: Vector2, aim: Vector2, dmg: float, style: String, spd: float) -> void:
+func _spawn_bolt(origin: Vector2, aim: Vector2, dmg: float, style: String, spd: float, opts: Dictionary = {}) -> void:
 	var pen := float(BOLT_PEN.get(style, 0.0))
 	var b := EnemyBolt.new()
 	b.style = style
@@ -686,26 +732,92 @@ func _spawn_bolt(origin: Vector2, aim: Vector2, dmg: float, style: String, spd: 
 	b.direction = (aim - origin).normalized()
 	b.base_ref = base
 	b.damage = dmg
-	b.reach = base.body_radius()
-	b.hit_base.connect(func(d: float) -> void: base.take_damage(d, pen))
+	b.reach = base.hit_radius()
+	b.homing = float(opts.get("homing", 0.0))
+	if bool(opts.get("dest", false)):
+		b.dest_mode = true
+		b.dest = aim
+		b.blast_radius = float(opts.get("blast", 90.0))
+	if style == "hellarrow":
+		b.pierce = true
+		b.hit_base.connect(func(d: float) -> void:
+			base.take_damage(d, pen)
+			base.apply_burn(maxf(1.0, d * 0.35), 5.0))
+	else:
+		b.hit_base.connect(func(d: float) -> void: base.take_damage(d, pen))
 	add_child(b)
 
 # Beam weapons hit everything on the line from origin toward the locked aim point.
 func _beam_hit_check(origin: Vector2, aim: Vector2, dmg: float, width: float, pen: float = 30.0) -> void:
 	var dir := (aim - origin).normalized()
 	var rel := base.position - origin
-	if rel.dot(dir) > -base.body_radius() and absf(rel.cross(dir)) <= base.body_radius() + width:
+	if rel.dot(dir) > -base.hit_radius() and absf(rel.cross(dir)) <= base.hit_radius() + width:
 		base.take_damage(dmg, pen)
 
 func _on_boss_beam(dmg: float, origin: Vector2, aim: Vector2) -> void:
 	_add_shake(16.0)
 	_beam_hit_check(origin, aim, dmg, 30.0, Weapons.TRUE_PEN)    # TRUE DAMAGE: ignores armor and Energy Shield; cannot be shot down - only moving away stops it
 
+# Hell Lord fire breath: a cone of flame. Anything of ours inside it burns.
+func _on_boss_breath(origin: Vector2, angle: float, reach: float, half: float, dmg: float) -> void:
+	var rel := base.position - origin
+	var dist := rel.length()
+	var hr := base.hit_radius()
+	if dist > reach + hr:
+		return
+	var spread := half + asin(clampf(hr / maxf(dist, hr + 1.0), 0.0, 1.0))
+	if absf(angle_difference(angle, rel.angle())) <= spread:
+		_add_shake(5.0)
+		base.take_damage(dmg, 20.0)
+		base.apply_burn(maxf(1.0, dmg * 0.8), 5.0)
+
+func _on_hell_arrow(origin: Vector2, aim: Vector2, dmg: float) -> void:
+	_spawn_bolt(origin, aim, dmg, "hellarrow", 900.0)
+
 func _on_void_fire(origin: Vector2, aim: Vector2, dmg: float) -> void:
 	_spawn_bolt(origin, aim, dmg, "void", 560.0)
 
 func _on_boss_bolt(from_pos: Vector2, dmg: float) -> void:
 	_spawn_bolt(from_pos, base.position, dmg, "orb", 260.0)
+
+# Rocks, boulders, fireballs, missiles and void orbs thrown by mobs and bosses.
+func _on_enemy_launch(kind: String, origin: Vector2, aim: Vector2, dmg: float) -> void:
+	match kind:
+		"rock":
+			_spawn_bolt(origin, aim, dmg, "rock", 430.0)
+		"boulder":
+			_spawn_bolt(origin, aim, dmg, "boulder", 360.0, {"dest": true, "blast": 150.0})
+		"fireball":
+			_spawn_bolt(origin, aim, dmg, "fireball", 520.0, {"dest": true, "blast": 100.0})
+		"missile":
+			_spawn_bolt(origin, aim, dmg, "missile", 300.0, {"homing": 1.7})
+		"voidorb":
+			_spawn_bolt(origin, aim, dmg, "voidorb", 250.0, {"homing": 1.1})
+
+# Earthworms burst out under the castle; Sinners crowd around their Demon.
+func _on_enemy_request(what: String, src: Enemy, count: int) -> void:
+	for i in count:
+		var e: Enemy
+		var pos := Vector2.ZERO
+		match what:
+			"worms":
+				e = Enemy.make("earthworm", level)
+				pos = base.position + Vector2.RIGHT.rotated(randf() * TAU) * (base.hit_radius() + randf_range(18.0, 40.0))
+				Fx.spawn(self, "spark", pos, Color(0.55, 0.45, 0.32), "", 1.4, 0.45)
+			"sinners":
+				if src == null or not is_instance_valid(src):
+					return
+				e = Enemy.make("sinner", level)
+				e.master = src
+				pos = src.position + Vector2.RIGHT.rotated(TAU * float(i) / float(maxi(count, 1))) * (src.radius + 40.0)
+				Fx.spawn(self, "spark", pos, Color(0.9, 0.2, 0.1), "", 1.2, 0.4)
+			_:
+				return
+		e.position = pos
+		e.target = base.position
+		e.reach = base.hit_radius()
+		alive += 1
+		_register_mob(e, true)
 
 func _on_tank_shoot(origin: Vector2, dmg: float) -> void:
 	_spawn_bolt(origin, base.position, dmg, "shell", 340.0)
@@ -715,7 +827,7 @@ func _on_tank_shoot(origin: Vector2, dmg: float) -> void:
 # How many Rogue Castles this level gets.
 #  Beginner: from level 5, a 25% chance (+5% per level, at most 60%) of ONE castle, and never on
 #            two levels in a row, so there is always a breather.
-#  Seasoned: from level 6, one castle, plus one more every 5 levels (never more than the biome's cap).
+#  I Hate Myself: from level 5, two castles, plus one more every 2 levels (at most MINI_MAX_PER_LEVEL).
 #  Boss waves have none: the boss is the fight.
 func _mini_count(lv: int) -> int:
 	if _boss_level:
@@ -727,7 +839,15 @@ func _mini_count(lv: int) -> int:
 		return 1 if randf() < chance else 0
 	if lv < MINI_SEASONED_LEVEL:
 		return 0
-	return mini(1 + floori(float(lv - MINI_SEASONED_LEVEL) / 5.0), int(MINI_CAPS[clampi(biome, 0, MINI_CAPS.size() - 1)]))
+	return mini(2 + floori(float(lv - MINI_SEASONED_LEVEL) / 2.0), MINI_MAX_PER_LEVEL)
+
+func _mini_cap() -> int:
+	var caps: Array = MINI_CAPS if GameState.difficulty == 0 else MINI_CAPS_SEASONED
+	return int(caps[clampi(biome, 0, caps.size() - 1)])
+
+# Gold multiplier for every kill reward (I Hate Myself pays double).
+func _coin_mult() -> int:
+	return COIN_MULT * (SEASONED_COIN_MULT if GameState.difficulty == 1 else 1)
 
 func _minis_alive() -> int:
 	var n := 0
@@ -748,7 +868,7 @@ func _normal_mobs_left() -> bool:
 	return false
 
 func _spawn_mini_boss() -> void:
-	var m := MiniBoss.make_from(base, level)
+	var m := MiniBoss.make_from(base, level, GameState.difficulty == 1)
 	m.reward = 25 + level * 5
 	m.position = _edge_spawn_pos()
 	m.target = base.position
@@ -787,8 +907,8 @@ func _on_enemy_died(e: Enemy) -> void:
 	if e.is_ally:
 		_notify(Loc.t("Refugee Hit!"), "ally", Color(1.0, 0.2, 0.2), "allyhit")
 		return
-	coins += e.reward * COIN_MULT
-	stat_gold += e.reward * COIN_MULT
+	coins += e.reward * _coin_mult()
+	stat_gold += e.reward * _coin_mult()
 	stat_kills += 1
 	if e.kind == "boss":
 		stat_bosses += 1
@@ -801,20 +921,21 @@ func _on_enemy_died(e: Enemy) -> void:
 		for off in [-55.0, 0.0, 55.0]:
 			_spawn_soldier_at(e.position + side * off)
 	elif e.kind == "golem" and not e.is_small:
-		# The golem crumbles and leaves one smaller golem behind.
+		# The golem crumbles and leaves two smaller golems behind.
 		_add_shake(9.0)
-		var sg := Enemy.make_small_golem(e)
-		sg.position = e.position
-		sg.target = base.position
-		sg.reach = base.body_radius()
-		alive += 1
-		_register_mob(sg, true)
+		for off in [-34.0, 34.0]:
+			var sg := Enemy.make_small_golem(e)
+			sg.position = e.position + Vector2(off, 0.0)
+			sg.target = base.position
+			sg.reach = base.hit_radius()
+			alive += 1
+			_register_mob(sg, true)
 	elif e.kind == "minicastle":
 		_add_shake(14.0)
-		_notify(Loc.t("Rogue Castle defeated!  +%d") % (e.reward * COIN_MULT), "coin", Color(1.0, 0.85, 0.3))
+		_notify(Loc.t("Rogue Castle defeated!  +%d") % (e.reward * _coin_mult()), "coin", Color(1.0, 0.85, 0.3))
 	elif e.kind == "boss":
 		_add_shake(22.0)
-		_notify(Loc.t("%s defeated!  +%d") % [Loc.t(BOSS_NAMES[biome]), e.reward * COIN_MULT], "coin", Color(1.0, 0.85, 0.3))
+		_notify(Loc.t("%s defeated!  +%d") % [Loc.t(BOSS_NAMES[biome]), e.reward * _coin_mult()], "coin", Color(1.0, 0.85, 0.3))
 		# Everything the boss summoned disappears with it.
 		for node in get_tree().get_nodes_in_group("minions"):
 			var m := node as Enemy
@@ -840,11 +961,18 @@ func _on_mob_arrived(e: Enemy) -> void:
 # profession ICON, the same way the gold coin icon replaces the word "coin".
 func _recruit() -> void:
 	Sfx.play("powerup")
-	match randi() % 4:
+	var pick := randi() % 4
+	if pick == 0 and base.auto_cannons >= base.max_auto():
+		pick = 4                                  # all weapon slots are full
+	match pick:
 		0:
 			base.gunners += 1
 			base.add_auto_cannon()
 			_notify(Loc.t("+1 auto-weapon"), "gunner", Color(0.5, 0.85, 0.4))
+		4:
+			base.gunners += 1
+			base.upgrade_auto_rate()
+			_notify(Loc.t("Weapon slots full: auto fire rate up"), "gunner", Color(0.5, 0.85, 0.4))
 		1:
 			base.scientists += 1
 			base.damage_mult += 0.15
@@ -1038,6 +1166,9 @@ func _on_castle_laser(on: bool) -> void:
 
 # ---------- Game over and HUD text ----------
 
+func _on_base_burning(dps: float) -> void:
+	_notify(Loc.t("Burning!  -%d HP per second for 5 s") % int(ceil(dps)), "hit", Color(1.0, 0.5, 0.15), "burn")
+
 func _on_base_poisoned() -> void:
 	_notify(Loc.t("Poisoned!  -2 HP per second"), "skull", Color(0.55, 1.0, 0.3), "poison")
 
@@ -1052,7 +1183,7 @@ func _on_base_destroyed() -> void:
 	game_over = true
 	Sfx.play("fail")
 	_add_shake(26.0)
-	for group in ["enemies", "allies", "bolts", "bombs", "shots"]:
+	for group in ["enemies", "allies", "bolts", "bombs", "shots", "hazards"]:
 		for node in get_tree().get_nodes_in_group(group):
 			node.set_process(false)
 	boss_label.visible = false

@@ -13,7 +13,7 @@ const HP_RATIO := 0.7               # health: 70% of the player's (then x HP_MUL
 const SPEED_RATIO := 0.75           # move speed: 25% slower than the player
 const ATTACK_RATIO := 0.8           # attack speed: 20% slower than the player
 const DAMAGE_RATIO := 0.8           # damage: 20% lower than the player
-const HP_MULT := 10.0                # Rogue Castles are 10x tougher than the plain 70% copy
+const HP_MULT := 100.0               # Rogue Castles are 100x tougher than the plain 70% copy (was 10x)
 const ATTACK_MAX := 2.5            # attack speed ceiling (stat points can push the player far higher)
 const SCALE_MIN := 0.3             # damage multiplier floor
 const BEAM_CHARGE := 0.7
@@ -54,7 +54,7 @@ func _ready() -> void:
 # damage is damped (square root of the player's multiplier) and then limited so that, after the
 # player's armor, one hit never exceeds a small share of the player's health and the sustained
 # damage per second never kills the player faster than Power.dps_cap allows.
-static func make_from(b: Base, level: int = 1) -> MiniBoss:
+static func make_from(b: Base, level: int = 1, randomized: bool = false) -> MiniBoss:
 	var m := MiniBoss.new()
 	m.kind = "minicastle"
 	m.tier = b.tier
@@ -83,6 +83,16 @@ static func make_from(b: Base, level: int = 1) -> MiniBoss:
 	m.speed = b.move_speed * b.move_mult * SPEED_RATIO
 	m.radius = b.body_radius()
 	m.damage = 3.0 * DAMAGE_RATIO
+	if randomized:
+		# Every rival is a little different, and never stronger than the budget above allows:
+		# each factor only lowers its stat.
+		m.max_hp *= randf_range(0.55, 1.0)
+		m.hp = m.max_hp
+		m.speed *= randf_range(0.7, 1.0)
+		m.attack_speed *= randf_range(0.6, 1.0)
+		m.weapon_scale *= randf_range(0.6, 1.0)
+		m.energy_regen *= randf_range(0.8, 1.0)
+		m.tier = clampi(b.tier - randi() % 2, 0, b.tier)
 	m.shoots = true
 	m.power_mult = 1.0
 	return m

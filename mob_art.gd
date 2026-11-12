@@ -10,16 +10,17 @@ const PX := 3.0
 const ROTATING := []
 const FLIPPING := []
 # seen from above like the map: painted for 16 headings so the light always comes from the upper left
-const DIRECTIONAL := ["soldier", "ally", "medic", "bee", "golem", "demon", "tank", "mech", "aegis", "worm", "hunter", "drone", "starship", "corvette", "b_hell", "b_garden", "b_mud", "b_titan", "b_void"]
+const DIRECTIONAL := ["soldier", "ally", "medic", "bee", "golem", "demon", "tank", "heavytank", "apoctank", "sinner", "earthworm", "mech", "aegis", "worm", "hunter", "drone", "starship", "corvette", "b_hell", "b_garden", "b_mud", "b_titan", "b_void"]
 const DIRS := 16
 # frames, and how many frames per unit of the mob's walk phase (see Enemy._walk)
 const INFO := {
 	"soldier": [4, 0.64], "ally": [4, 0.64], "medic": [4, 0.64], "bee": [2, 3.0],
-	"tank": [3, 0.6], "mech": [2, 0.6], "aegis": [1, 1.0], "worm": [4, 0.22],
+	"tank": [3, 0.6], "heavytank": [3, 0.6], "apoctank": [3, 0.6], "sinner": [4, 0.5], "earthworm": [4, 0.22], "mech": [2, 0.6], "aegis": [1, 1.0], "worm": [4, 0.22],
 	"golem": [4, 0.95], "demon": [4, 0.45], "hunter": [2, 1.5], "drone": [2, 1.5],
 	"starship": [2, 1.5], "corvette": [2, 1.5], "void": [2, 0.25],
 	"b_garden": [1, 1.0], "b_leaves": [10, 1.0], "b_mud": [1, 1.0], "b_titan": [1, 1.0],
 	"b_void": [2, 1.0], "b_hell": [4, 1.0],
+	"castle0": [1, 1.0], "castle1": [1, 1.0], "castle2": [1, 1.0], "castle3": [1, 1.0], "castle4": [1, 1.0],
 }
 const GROUND_SQUASH := 0.82      # sin(ELEV): how much a circle on the ground is flattened by the camera tilt
 const BOSS_R := 16.0      # body radius of the boss sprites, in art pixels
@@ -34,11 +35,15 @@ static func key_for(kind: String, space: bool, ally: bool) -> String:
 			return ""
 		"tank":
 			return "starship" if space else "tank"
+		"heavytank":
+			return "starship" if space else "heavytank"
+		"apoctank":
+			return "starship" if space else "apoctank"
 		"mech":
 			return "corvette" if space else "mech"
 		"soldier":
 			return "drone" if space else "soldier"
-		"worm", "golem", "demon", "hunter", "void", "bee", "medic", "aegis":
+		"worm", "earthworm", "sinner", "golem", "demon", "hunter", "void", "bee", "medic", "aegis":
 			return kind
 	return "soldier"
 
@@ -57,7 +62,7 @@ static func boss_key(ability: String) -> String:
 # infantry is drawn smaller than the vehicles so tanks and mechs look big next to it
 static func scale_for(key: String) -> float:
 	match key:
-		"soldier", "ally", "medic":
+		"soldier", "ally", "medic", "sinner":
 			return 0.62
 		"bee":
 			return 0.7
@@ -87,34 +92,123 @@ static func directional(key: String) -> bool:
 static func dir_of(heading: float) -> int:
 	return posmod(roundi(heading / TAU * float(DIRS)), DIRS)
 
-static func frames(key: String, dir: int = 0) -> Dictionary:
-	var ck := key
-	var ang := 0.0
-	if DIRECTIONAL.has(key):
-		ck = "%s#%d" % [key, dir]
-		ang = TAU * float(dir) / float(DIRS)
-	if _cache.has(ck):
-		return _cache[ck]
-	var n := frame_count(key)
-	var tex: Array = []
-	var flash: Array = []
+# ---- sprite cache -------------------------------------------------------------------------------------------
+# Painting a 3D unit takes a moment, so only the first picture of a kind is painted at once; the other headings
+# are painted on a background thread and used as soon as they are ready (until then the nearest ready heading
+# is shown). prewarm() paints the common kinds while the menu is open.
+
+static var _mutex := Mutex.new()
+static var _thread: Thread = null
+static var _running: bool = false
+static var _jobs: Array = []        # [key, dir]
+static var _done: Array = []        # [key, dir, result]
+static var _pending: Dictionary = {}
+static var _drain_frame: int = -1
+
+static func _ck(key: String, dir: int) -> String:
+	return "%s#%d" % [key, dir] if DIRECTIONAL.has(key) else key
+
+# Paints every frame of one kind/heading into Images. Safe to run on a thread.
+static func _build(key: String, dir: int) -> Dictionary:
+	var ang := TAU * float(dir) / float(DIRS) if DIRECTIONAL.has(key) else 0.0
+	var imgs: Array = []
+	var fimgs: Array = []
 	var off := Vector2.ZERO
-	for f in n:
+	for f in frame_count(key):
 		var cv := _paint(key, f, ang)
 		cv.outline()
 		if cv.anchor_y >= 0.0:
 			off = Vector2(0.0, float(cv.h) * 0.5 - (cv.anchor_y - 3.0))      # feet stand on the unit's position
-		tex.append(ImageTexture.create_from_image(cv.img))
+		imgs.append(cv.img)
 		var fi := cv.img.duplicate() as Image
 		for y in fi.get_height():
 			for x in fi.get_width():
 				var c := fi.get_pixel(x, y)
 				if c.a > 0.5:
 					fi.set_pixel(x, y, c.lerp(Color.WHITE, 0.75))
-		flash.append(ImageTexture.create_from_image(fi))
-	var out := {"n": n, "tex": tex, "flash": flash, "off": off}
-	_cache[ck] = out
-	return out
+		fimgs.append(fi)
+	return {"imgs": imgs, "fimgs": fimgs, "off": off}
+
+static func _to_entry(res: Dictionary) -> Dictionary:
+	var tex: Array = []
+	var flash: Array = []
+	for im: Image in (res["imgs"] as Array):
+		tex.append(ImageTexture.create_from_image(im))
+	for im: Image in (res["fimgs"] as Array):
+		flash.append(ImageTexture.create_from_image(im))
+	return {"n": tex.size(), "tex": tex, "flash": flash, "off": res["off"]}
+
+static func _worker() -> void:
+	while true:
+		_mutex.lock()
+		if _jobs.is_empty():
+			_running = false
+			_mutex.unlock()
+			return
+		var j: Array = _jobs.pop_front()
+		_mutex.unlock()
+		var res := _build(j[0], int(j[1]))
+		_mutex.lock()
+		_done.append([j[0], j[1], res])
+		_mutex.unlock()
+
+static func _request(key: String, dir: int) -> void:
+	var ck := _ck(key, dir)
+	if _pending.has(ck) or _cache.has(ck):
+		return
+	_pending[ck] = true
+	_mutex.lock()
+	_jobs.append([key, dir])
+	var start := not _running
+	if start:
+		_running = true
+	_mutex.unlock()
+	if start:
+		if _thread != null:
+			_thread.wait_to_finish()
+		_thread = Thread.new()
+		_thread.start(_worker)
+
+static func _drain() -> void:
+	var fr := Engine.get_frames_drawn()
+	if fr == _drain_frame:
+		return
+	_drain_frame = fr
+	for i in 3:
+		_mutex.lock()
+		var item: Array = [] if _done.is_empty() else _done.pop_front()
+		_mutex.unlock()
+		if item.is_empty():
+			return
+		var ck := _ck(item[0], int(item[1]))
+		_cache[ck] = _to_entry(item[2])
+		_pending.erase(ck)
+
+# Paint the common kinds in the background (call while a menu is showing).
+static func prewarm() -> void:
+	CastleArt._pals()                  # fill the palettes here, not from the worker thread
+	for key in ["soldier", "ally", "medic", "tank", "mech", "bee", "golem", "worm", "aegis", "sinner", "earthworm", "heavytank", "apoctank"]:
+		for d in [0, 4, 8, 12]:
+			_request(key, d)
+
+static func frames(key: String, dir: int = 0) -> Dictionary:
+	_drain()
+	var ck := _ck(key, dir)
+	if _cache.has(ck):
+		return _cache[ck]
+	if not DIRECTIONAL.has(key):
+		_cache[ck] = _to_entry(_build(key, 0))
+		return _cache[ck]
+	# a heading that is not painted yet: ask for it, and show the nearest one that is ready
+	_request(key, dir)
+	for step in range(1, DIRS / 2 + 1):
+		for sgn in [-1, 1]:
+			var nk := _ck(key, posmod(dir + sgn * step, DIRS))
+			if _cache.has(nk):
+				return _cache[nk]
+	var entry := _to_entry(_build(key, dir))        # the very first picture of this kind is painted right away
+	_cache[ck] = entry
+	return entry
 
 # ---------- a tiny pixel canvas; (0, 0) is the middle ----------
 
@@ -129,8 +223,8 @@ class Cv extends RefCounted:
 	func _init(wd: int, ht: int) -> void:
 		w = wd
 		h = ht
-		ox = wd / 2
-		oy = ht / 2
+		ox = int(wd * 0.5)
+		oy = int(ht * 0.5)
 		img = Image.create(wd, ht, false, Image.FORMAT_RGBA8)
 		img.fill(Color(0, 0, 0, 0))
 
@@ -313,6 +407,7 @@ const ELEV := 55.0        # camera elevation in degrees: 90 = straight down, 0 =
 
 class Scene3 extends RefCounted:
 	var rot: Basis
+	var lt := Vector3(-0.55, -0.5, 0.75).normalized()      # direction towards the light
 	var prims: Array = []     # [centre Vector3, radii Vector3, Basis, palette Array]
 
 	func _init(a: float) -> void:
@@ -324,6 +419,14 @@ class Scene3 extends RefCounted:
 	# a box with half sizes h (hard edges: hulls, treads, bodies)
 	func box(c: Vector3, h: Vector3, pal: Array, tilt: Basis = Basis.IDENTITY) -> void:
 		prims.append([rot * c, h, rot * tilt, pal, 1])
+
+	# an upright cylinder: c = middle of the cylinder, r = radius, hh = half height (flat top: towers, drums)
+	func cyl(c: Vector3, r: float, hh: float, pal: Array) -> void:
+		prims.append([rot * c, Vector3(r, r, hh), rot, pal, 3])
+
+	# an upright cone: c = middle of the cone, r = radius at the bottom, hh = half height (roofs, spires)
+	func cone(c: Vector3, r: float, hh: float, pal: Array) -> void:
+		prims.append([rot * c, Vector3(r, r, hh), rot, pal, 2])
 
 	# a rounded bar between two points
 	func cap(a: Vector3, b: Vector3, r: float, pal: Array) -> void:
@@ -344,7 +447,7 @@ class Scene3 extends RefCounted:
 		var ph := deg_to_rad(MobArt.ELEV)
 		var cam := Vector3(0, cos(ph), sin(ph))
 		var up := Vector3(0, -sin(ph), cos(ph))
-		var light := Vector3(-0.55, -0.5, 0.75).normalized()
+		var light := lt
 		var n := prims.size()
 		var cs: Array = []
 		var rs: Array = []
@@ -368,6 +471,16 @@ class Scene3 extends RefCounted:
 			aas.append(d2.dot(d2))
 			kinds.append(pr[4])
 			invs.append(Vector3(1.0 / (d.x if absf(d.x) > 1.0e-9 else 1.0e-9), 1.0 / (d.y if absf(d.y) > 1.0e-9 else 1.0e-9), 1.0 / (d.z if absf(d.z) > 1.0e-9 else 1.0e-9)))
+		# screen-space bounds of every part, so a pixel only tests the parts that can cover it
+		var bx: Array = []
+		var by: Array = []
+		var br: Array = []
+		for i in n:
+			var c3: Vector3 = cs[i]
+			var rr: Vector3 = rs[i]
+			bx.append(c3.x)
+			by.append(c3.y * sin(ph) - c3.z * cos(ph) + gy)
+			br.append(maxf(rr.x, maxf(rr.y, rr.z)) * 1.75 + 1.0)
 		for py in h:
 			for pxx in w:
 				var sx := float(pxx) + 0.5 - float(w) * 0.5
@@ -377,7 +490,12 @@ class Scene3 extends RefCounted:
 				var hit := -1
 				var hl := Vector3.ZERO
 				var hn := Vector3.ZERO
+				var spx := float(pxx) + 0.5
+				var spy := float(py) + 0.5
 				for i in n:
+					var brr: float = br[i]
+					if absf(spx - float(w) * 0.5 - float(bx[i])) > brr or absf(spy - float(by[i])) > brr:
+						continue
 					var r: Vector3 = rs[i]
 					var mt: Basis = mts[i]
 					var o: Vector3 = mt * (p0 - (cs[i] as Vector3))
@@ -404,6 +522,53 @@ class Scene3 extends RefCounted:
 						hl = o + dv * tmax
 						hn = nl
 						continue
+					if int(kinds[i]) >= 2:
+						var oc: Vector3 = o / r
+						var dc: Vector3 = d2s[i]
+						var tt := -1.0e9
+						var nl2 := Vector3.ZERO
+						if int(kinds[i]) == 3:
+							if absf(dc.z) > 1.0e-9:
+								var tc := (1.0 - oc.z) / dc.z
+								var qx := oc.x + dc.x * tc
+								var qy := oc.y + dc.y * tc
+								if qx * qx + qy * qy <= 1.0:
+									tt = tc
+									nl2 = Vector3(0, 0, 1)
+							var a3 := dc.x * dc.x + dc.y * dc.y
+							if a3 > 1.0e-9:
+								var b3 := oc.x * dc.x + oc.y * dc.y
+								var c3 := oc.x * oc.x + oc.y * oc.y - 1.0
+								var dd := b3 * b3 - a3 * c3
+								if dd >= 0.0:
+									var sq := sqrt(dd)
+									for sg: float in [1.0, -1.0]:
+										var ts := (-b3 + sg * sq) / a3
+										var zz := oc.z + dc.z * ts
+										if zz >= -1.0 and zz <= 1.0 and ts > tt:
+											tt = ts
+											nl2 = Vector3((oc.x + dc.x * ts) / r.x, (oc.y + dc.y * ts) / r.y, 0.0)
+						else:
+							var ac := dc.x * dc.x + dc.y * dc.y - dc.z * dc.z * 0.25
+							var bc := oc.x * dc.x + oc.y * dc.y + (1.0 - oc.z) * dc.z * 0.25
+							var cc := oc.x * oc.x + oc.y * oc.y - (1.0 - oc.z) * (1.0 - oc.z) * 0.25
+							if absf(ac) > 1.0e-9:
+								var dd2 := bc * bc - ac * cc
+								if dd2 >= 0.0:
+									var sq2 := sqrt(dd2)
+									for sg2: float in [1.0, -1.0]:
+										var ts2 := (-bc + sg2 * sq2) / ac
+										var zz2 := oc.z + dc.z * ts2
+										if zz2 >= -1.0 and zz2 <= 1.0 and ts2 > tt:
+											tt = ts2
+											var gx := oc.x + dc.x * ts2
+											var gy2 := oc.y + dc.y * ts2
+											nl2 = Vector3(2.0 * gx / r.x, 2.0 * gy2 / r.y, (1.0 - zz2) * 0.5 / r.z)
+						if tt > best and tt > -1.0e8:
+							best = tt
+							hit = i
+							hn = nl2
+						continue
 					var o2: Vector3 = o / r
 					var d2: Vector3 = d2s[i]
 					var a: float = aas[i]
@@ -421,7 +586,7 @@ class Scene3 extends RefCounted:
 					var pr: Array = prims[hit]
 					var r: Vector3 = pr[1]
 					var nrm: Vector3 = ((pr[2] as Basis) * (hl / (r * r))).normalized()
-					if int(pr[4]) == 1:
+					if int(pr[4]) >= 1:
 						nrm = ((pr[2] as Basis) * hn).normalized()
 					var lv := clampf(0.04 + 0.80 * maxf(nrm.dot(light), 0.0) + 0.16 * maxf(nrm.dot(cam), 0.0), 0.0, 0.999)
 					var pal: Array = pr[3]
@@ -446,6 +611,8 @@ static func _P(list: Array) -> Array:
 	return out
 
 static func _paint(key: String, f: int, ang: float = 0.0) -> Cv:
+	if key.begins_with("castle"):
+		return CastleArt.paint(int(key.substr(6)))
 	match key:
 		"soldier":
 			return _soldier(f, ang, 0)
@@ -457,6 +624,14 @@ static func _paint(key: String, f: int, ang: float = 0.0) -> Cv:
 			return _bee(f, ang)
 		"tank":
 			return _tank(f, ang)
+		"heavytank":
+			return _tank(f, ang, 1)
+		"apoctank":
+			return _tank(f, ang, 2)
+		"sinner":
+			return _soldier(f, ang, 3)
+		"earthworm":
+			return _worm(f, ang, true)
 		"mech":
 			return _mech(f, ang)
 		"aegis":
@@ -508,6 +683,12 @@ static func _soldier(f: int, ang: float, role: int) -> Cv:
 			jac = _P(["9aa89a", "c8d4c8", "e8f0e8", "ffffff"])
 			hel = _P(["a8b4a8", "d0dcd0", "f0f8f0", "ffffff"])
 			pants = _P(["2a382a", "3a4a3a", "4a5c4a", "5e7260"])
+		3:   # Sinner: all black, unarmed
+			jac = _P(["030303", "0c0c0e", "18181c", "282830"])
+			hel = _P(["020202", "08080a", "101014", "1c1c22"])
+			pants = _P(["020202", "0a0a0c", "141418", "202026"])
+			skin = _P(["0a0a0c", "16161c", "26262e", "3a3a46"])
+			sw *= 0.6
 		_:
 			jac = _P(["1f2a14", "2f4020", "47602f", "6a8a45"])
 			hel = _P(["1c2614", "2c3a1e", "3e5229", "567338"])
@@ -517,16 +698,24 @@ static func _soldier(f: int, ang: float, role: int) -> Cv:
 	s.ell(Vector3(0, 0, 9.5), Vector3(2.6, 4.0, 4.4), jac)
 	if role == 0:
 		s.ell(Vector3(-2.8, 0, 10), Vector3(1.6, 2.6, 3.0), _P(["0e1409", "1a2310", "2a3a1a", "3a5024"]))
-	s.cap(Vector3(0, -4.0, 11.5), Vector3(3.5, -3.5, 8.5), 1.5, jac)
-	s.cap(Vector3(0, 4.0, 11.5), Vector3(4.5, 3.0, 9.0), 1.5, jac)
-	s.ell(Vector3(4.2, -3.4, 8.4), Vector3(1.2, 1.2, 1.2), skin)
-	s.ell(Vector3(5.2, 3.0, 9.0), Vector3(1.2, 1.2, 1.2), skin)
+	if role == 3:       # zombie walk: both arms stretched out in front, swaying
+		var sway := sw * 0.5
+		s.cap(Vector3(0, -4.0, 11.5), Vector3(9.0, -3.2 + sway, 11.0), 1.5, jac)
+		s.cap(Vector3(0, 4.0, 11.5), Vector3(9.0, 3.2 + sway, 11.4), 1.5, jac)
+		s.ell(Vector3(10.0, -3.2 + sway, 11.0), Vector3(1.2, 1.2, 1.2), skin)
+		s.ell(Vector3(10.0, 3.2 + sway, 11.4), Vector3(1.2, 1.2, 1.2), skin)
+	else:
+		s.cap(Vector3(0, -4.0, 11.5), Vector3(3.5, -3.5, 8.5), 1.5, jac)
+		s.cap(Vector3(0, 4.0, 11.5), Vector3(4.5, 3.0, 9.0), 1.5, jac)
+		s.ell(Vector3(4.2, -3.4, 8.4), Vector3(1.2, 1.2, 1.2), skin)
+		s.ell(Vector3(5.2, 3.0, 9.0), Vector3(1.2, 1.2, 1.2), skin)
 	if role == 0:
 		s.cap(Vector3(-2, 3.0, 9.4), Vector3(9.5, 3.0, 9.4), 0.9, _P(["0a0b08", "1c1e18", "2e3126", "444838"]))
 	s.ell(Vector3(0.4, 0, 15.2), Vector3(3.1, 3.1, 3.2), skin)
 	s.ell(Vector3(0.0, 0, 16.9), Vector3(3.7, 3.7, 2.3), hel)
-	s.ell(Vector3(3.2, -1.2, 15.4), Vector3(0.5, 0.5, 0.5), [_hx("0a0a0a")])
-	s.ell(Vector3(3.2, 1.2, 15.4), Vector3(0.5, 0.5, 0.5), [_hx("0a0a0a")])
+	var eye := _hx("ff2020") if role == 3 else _hx("0a0a0a")
+	s.ell(Vector3(3.2, -1.2, 15.4), Vector3(0.5, 0.5, 0.5), [eye])
+	s.ell(Vector3(3.2, 1.2, 15.4), Vector3(0.5, 0.5, 0.5), [eye])
 	if role == 2:
 		s.ell(Vector3(-2.8, 0, 10.0), Vector3(0.6, 2.2, 0.6), _P(["1f7a30", "2fcb4a", "6aee80", "9af0a8"]))
 	if role == 1:
@@ -549,20 +738,45 @@ static func _bee(f: int, ang: float) -> Cv:
 	s.ell(Vector3(-6.0, 0, 9.0), Vector3(1.4, 0.8, 0.8), _P(["2a1e0c"]))
 	return s.render(26, 30, 24.0)
 
-static func _tank(f: int, ang: float) -> Cv:
+static func _tank(f: int, ang: float, variant: int = 0) -> Cv:
+	# variant 0 tank (green), 1 Heavy Tank (grey, double barrel), 2 Apocalypse Tank (dark, double barrel + missile launcher)
 	var s := Scene3.new(ang)
-	var tr := _P(["0c0d0a", "1c1d18", "2c2d26", "3e3f36"])
+	var trd := _P(["0c0d0a", "1c1d18", "2c2d26", "3e3f36"])
 	var hull := _P(["1c2a14", "2f4222", "47602f", "6a8a45"])
+	var tur := _P(["1c2a14", "2f4222", "47602f", "6a8a45", "88ab5c"])
+	var gun := _P(["0c0e08", "1c2014", "2e3424"])
+	if variant == 1:
+		hull = _P(["202328", "383d45", "59606b", "8a929e"])
+		tur = _P(["202328", "383d45", "59606b", "8a929e", "b0b8c4"])
+		gun = _P(["0a0b0d", "181a1f", "2c3038"])
+	elif variant == 2:
+		trd = _P(["050506", "0e0f12", "1a1c20", "2a2d34"])
+		hull = _P(["07080a", "121419", "1f222a", "323744"])
+		tur = _P(["07080a", "121419", "1f222a", "323744", "4a5160"])
+		gun = _P(["030304", "0c0d10", "1a1c22"])
 	for sy: float in [-7.5, 7.5]:
-		s.box(Vector3(0, sy, 3), Vector3(9, 2.4, 3), tr)
+		s.box(Vector3(0, sy, 3), Vector3(9, 2.4, 3), trd)
 		for i in range(0, 18, 3):
-			s.box(Vector3(float(-8 + ((i + f) % 18)), sy, 5.9), Vector3(0.7, 2.5, 0.5), [_hx("5a5b50")])
+			s.box(Vector3(float(-8 + ((i + f) % 18)), sy, 5.9), Vector3(0.7, 2.5, 0.5), [_hx("5a5b50") if variant == 0 else _hx("45484f")])
 	s.box(Vector3(0, 0, 6.5), Vector3(8.5, 5.2, 2.6), hull)
-	s.box(Vector3(-7.5, 0, 7.2), Vector3(1.2, 4.5, 1.2), _P(["14200e", "24361a"]))
-	s.ell(Vector3(1, 0, 10.5), Vector3(5, 4.6, 2.6), _P(["1c2a14", "2f4222", "47602f", "6a8a45", "88ab5c"]))
-	s.cap(Vector3(4, 0, 10.8), Vector3(15, 0, 10.8), 1.1, _P(["0c0e08", "1c2014", "2e3424"]))
-	s.ell(Vector3(15.5, 0, 10.8), Vector3(1.4, 1.6, 1.6), _P(["0c0e08", "1c2014"]))
-	s.ell(Vector3(0, 2.2, 12.5), Vector3(1.5, 1.5, 0.8), _P(["1c2a14", "47602f"]))
+	s.box(Vector3(-7.5, 0, 7.2), Vector3(1.2, 4.5, 1.2), _P(["14200e", "24361a"]) if variant == 0 else _P(["0c0d10", "1c1e24"]))
+	s.ell(Vector3(1, 0, 10.5), Vector3(5, 4.6, 2.6), tur)
+	if variant == 0:
+		s.cap(Vector3(4, 0, 10.8), Vector3(15, 0, 10.8), 1.1, gun)
+		s.ell(Vector3(15.5, 0, 10.8), Vector3(1.4, 1.6, 1.6), _P(["0c0e08", "1c2014"]))
+	else:
+		for sy: float in [-2.1, 2.1]:        # double barrel
+			s.cap(Vector3(4, sy, 10.8), Vector3(16, sy, 10.8), 1.0, gun)
+			s.ell(Vector3(16.5, sy, 10.8), Vector3(1.3, 1.5, 1.5), _P(["0c0d10", "1c1e24"]))
+	s.ell(Vector3(0, 2.2, 12.5), Vector3(1.5, 1.5, 0.8), tur)
+	if variant == 2:
+		# anti-air missile launcher on the back deck: a box with four upward-slanting tubes and red warheads
+		s.box(Vector3(-5.2, 0, 9.4), Vector3(3.0, 4.4, 1.5), _P(["07080a", "181a20", "2a2e38"]))
+		for ty: float in [-3.0, -1.0, 1.0, 3.0]:
+			s.cap(Vector3(-6.2, ty, 10.4), Vector3(-2.4, ty, 14.8), 0.9, _P(["0a0b0e", "1c1f26", "343a46"]))
+			s.ell(Vector3(-2.2, ty, 15.0), Vector3(0.8, 0.8, 0.8), [_hx("e02020")])
+		s.ell(Vector3(1.5, -3.6, 12.6), Vector3(0.6, 0.6, 0.6), [_hx("ff3030")])
+		s.ell(Vector3(1.5, 3.6, 12.6), Vector3(0.6, 0.6, 0.6), [_hx("ff3030")])
 	return s.render(44, 44, 34.0)
 
 static func _mech(f: int, ang: float) -> Cv:
@@ -590,17 +804,22 @@ static func _aegis(ang: float) -> Cv:
 	s.ell(Vector3(4.5, 0, 8), Vector3(2.2, 2.2, 2.2), _P(["8a6a10", "d8a820", "ffd860"]))
 	return s.render(26, 30, 22.0)
 
-static func _worm(f: int, ang: float) -> Cv:
+static func _worm(f: int, ang: float, grey: bool = false) -> Cv:
 	var s := Scene3.new(ang)
 	var pal := _P(["3a0408", "5c0a10", "8a1418", "b02a30", "d04048"])
+	var head := _P(["5a0a10", "8a1418", "c42a32", "e85058"])
+	if grey:      # Earthworm: the grey cousin of the Bloodworm
+		pal = _P(["1c1c1e", "34343a", "54545c", "7a7a84", "a0a0aa"])
+		head = _P(["2a2a2e", "4a4a52", "74747e", "9a9aa6"])
 	for i in range(6, 0, -1):
 		var y := sin(float(f) * 1.57 - float(i) * 0.9) * 1.8
 		var r := 3.6 if i < 4 else 2.8
 		s.ell(Vector3(float(-i) * 3.6 + 3.0, y, r + 0.5), Vector3(r + 0.5, r, r), pal)
-	s.ell(Vector3(4.5, 0, 5), Vector3(4.2, 3.8, 3.8), _P(["5a0a10", "8a1418", "c42a32", "e85058"]))
-	s.ell(Vector3(8, 0, 4.2), Vector3(2.2, 2.0, 1.0), _P(["200204", "3a0408"]))
-	s.ell(Vector3(6.2, -2.0, 6.6), Vector3(0.7, 0.7, 0.7), [_hx("ffe040")])
-	s.ell(Vector3(6.2, 2.0, 6.6), Vector3(0.7, 0.7, 0.7), [_hx("ffe040")])
+	s.ell(Vector3(4.5, 0, 5), Vector3(4.2, 3.8, 3.8), head)
+	s.ell(Vector3(8, 0, 4.2), Vector3(2.2, 2.0, 1.0), _P(["200204", "3a0408"]) if not grey else _P(["0a0a0c", "1c1c20"]))
+	var eyec := _hx("ffe040") if not grey else _hx("d8e8ff")
+	s.ell(Vector3(6.2, -2.0, 6.6), Vector3(0.7, 0.7, 0.7), [eyec])
+	s.ell(Vector3(6.2, 2.0, 6.6), Vector3(0.7, 0.7, 0.7), [eyec])
 	return s.render(52, 44, 30.0)
 
 static func _hunter(f: int, ang: float) -> Cv:

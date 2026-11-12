@@ -8,7 +8,7 @@ signal back_pressed
 
 const GOLD := Color(1.0, 0.85, 0.4)
 const KEY_COL := Color(1.0, 0.9, 0.5)
-const DIM := Color(0.75, 0.78, 0.85)
+const DIM := Color(0.82, 0.76, 0.66)
 
 var _content: VBoxContainer
 
@@ -22,7 +22,7 @@ class BarCtl extends Control:
 		custom_minimum_size = Vector2(330, 22)
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
 	func _draw() -> void:
-		draw_rect(Rect2(Vector2.ZERO, size), Color(0.12, 0.13, 0.18))
+		draw_rect(Rect2(Vector2.ZERO, size), Color(0.11, 0.08, 0.06))
 		draw_rect(Rect2(Vector2.ZERO, Vector2(size.x * clampf(frac, 0.0, 1.0), size.y)), col)
 		draw_rect(Rect2(Vector2.ZERO, size), Color(1, 1, 1, 0.25), false, 1.0)
 
@@ -154,7 +154,7 @@ func refresh() -> void:
 
 	# ---------------- goal and quick start ----------------
 	_heading("Goal")
-	_text(Loc.t("Defend your castle. Enemies walk in one by one - shoot them to earn gold and XP. Clear every wave to grow from a Village into a Death Star. Every 10th wave is a boss wave."))
+	_text(Loc.t("Defend your castle. Enemies walk in one by one - shoot them to earn gold and XP. Clear every wave to grow from a Village into an Eye of End. Every 10th wave is a boss wave."))
 
 	_heading("Quick start")
 	_step_row("sight", Loc.t("1. Aim with the mouse, hold the left button to fire. Every shot costs mana."))
@@ -171,7 +171,7 @@ func refresh() -> void:
 	_legend(2, Loc.t("Your helpers (gunners, scientists, engineers, mechanics) and how many you have."))
 	_legend(3, Loc.t("Gold, and the FPS counter with the 1% low."))
 	_legend(4, Loc.t("Minimap: you are orange, enemies red, bosses purple, refugees green."))
-	_legend(5, Loc.t("Health (red, top) and Mana (blue, bottom). The thin cyan bar above your health is the Energy Shield."))
+	_legend(5, Loc.t("Health (red, left) and Mana (blue, right) on the bronze bar, with your level in the middle. The ice-blue layer on top of the health tube is the Energy Shield."))
 	_legend(6, Loc.t("Your current weapon."))
 	_legend(7, Loc.t("Skills: Overcharge, Repair."))
 	_legend(8, Loc.t("XP bar. When it fills you gain a level."))
@@ -250,14 +250,18 @@ func refresh() -> void:
 	_heading("Enemies")
 	_enemy_row(["soldier"], Loc.t("Soldier: the standard foe. No armor."))
 	_enemy_row(["tank"], Loc.t("Tank (armor 40): slow; stops at a distance and shells your castle. Shoot the shells down."))
+	_enemy_row(["heavytank"], Loc.t("Heavy Tank (from wave 8): a grey Tank that is 30% bigger, stronger and more armored, with a double barrel."))
+	_enemy_row(["apoctank"], Loc.t("Apocalypse Tank (from wave 14): darker and bigger still, with 50% more health than a Heavy Tank and a launcher that fires guided anti-air missiles. Shoot the missiles down!"))
 	_enemy_row(["mech"], Loc.t("Mechanized vehicle: very fast, dodges shots, and explodes into 3 soldiers."))
 	_enemy_row(["medic"], Loc.t("Medic (from wave 6): heals the enemies around it. Kill it first!"))
 	_enemy_row(["aegis"], Loc.t("Aegis (from wave 9): an energy shield soaks damage first and recharges if you stop hitting it. Burst it down."))
 
 	_heading("Biome enemies")
-	_enemy_row(["worm"], Loc.t("Mudland - Bloodworm: tiny, very fast and fragile. They come in swarms."))
-	_enemy_row(["golem"], Loc.t("Rocky Mountain - Golem (armor 30): huge, as slow as a tank but much stronger. When it is destroyed it leaves one smaller golem behind."))
-	_enemy_row(["demon"], Loc.t("Hell - Demon (armor 20): faster and stronger than a Golem, with 3 times its health."))
+	_enemy_row(["worm"], Loc.t("Mudland - Bloodworm: tiny and very fast, with double the health it used to have. They come in swarms."))
+	_enemy_row(["golem"], Loc.t("Rocky Mountain - Golem (armor 30): throws rocks from far away and slams the ground to summon 3 Earthworms under your castle. When it is destroyed it leaves two smaller golems behind."))
+	_enemy_row(["earthworm"], Loc.t("Earthworm: the grey cousin of the Bloodworm with half its health. Golems summon them under your castle."))
+	_enemy_row(["demon"], Loc.t("Hell - Demon (armor 20): throws fireballs that burst the moment they land, and spawns 5 Sinners. Kill every Sinner and it spawns 5 more at once!"))
+	_enemy_row(["sinner"], Loc.t("Sinner: a black, unarmed zombie that shambles toward your castle. Demons keep spawning them."))
 	_enemy_row(["hunter"], Loc.t("Space - Hunter: arrives in a pack of 5. Dodges again and again and shoots from twice as far as a tank."))
 	_enemy_row(["soldier", "tank", "mech"], Loc.t("In the Space biome soldiers become kamikaze drones, tanks become starships and mechanized vehicles become space corvettes. They are faster and dodge shots."), true)
 
@@ -441,7 +445,7 @@ func _key_row(action: String, keys: Array, icon: String = "") -> void:
 
 func _keycap(text: String) -> PanelContainer:
 	var pc := PanelContainer.new()
-	var sb := PixelUI.box(Color(0.2, 0.22, 0.29), Color(0.75, 0.78, 0.88), 2)
+	var sb := PixelUI.plate(Color(0.2, 0.14, 0.09), Color(0.85, 0.65, 0.2), 2)
 	sb.content_margin_left = 10.0
 	sb.content_margin_right = 10.0
 	sb.content_margin_top = 3.0

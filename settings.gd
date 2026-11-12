@@ -21,6 +21,7 @@ static var muted: bool = false
 static var music_volume: float = 0.5
 static var shake_scale: float = 1.0     # 0 = no screen shake, 1 = full
 static var flash_scale: float = 1.0     # 0 = no screen flashes, 1 = full
+static var hud_scale: float = 1.0     # size of the HUD (bars, skills, minimap), 0.6 - 1.6
 static var autosave: bool = true      # save automatically at the start of every wave
 static var language: String = ""      # "en" or "tr"; empty = pick from the system language
 static var _window_sized: bool = false
@@ -37,6 +38,7 @@ static func load_and_apply() -> void:
 		shake_scale = clampf(float(cfg.get_value("display", "shake", 1.0)), 0.0, 1.0)
 		flash_scale = clampf(float(cfg.get_value("display", "flash", 1.0)), 0.0, 1.0)
 		language = str(cfg.get_value("ui", "language", ""))
+		hud_scale = clampf(float(cfg.get_value("ui", "hud_scale", 1.0)), 0.6, 1.6)
 	Keybinds.load_from(cfg)
 	if language == "":
 		language = "tr" if OS.get_locale_language() == "tr" else "en"
@@ -56,6 +58,7 @@ static func save() -> void:
 	cfg.set_value("display", "shake", shake_scale)
 	cfg.set_value("display", "flash", flash_scale)
 	cfg.set_value("ui", "language", language)
+	cfg.set_value("ui", "hud_scale", hud_scale)
 	for a in Keybinds.ORDER:
 		cfg.set_value("keys", a, Keybinds.get_key(a))
 	cfg.save(PATH)

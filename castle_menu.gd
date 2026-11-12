@@ -65,7 +65,7 @@ func _ready() -> void:
 	visible = false
 
 	var dim := ColorRect.new()
-	dim.color = Color(0, 0, 0, 0.65)
+	dim.color = Color(0.03, 0.02, 0.01, 0.7)
 	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(dim)
 
@@ -74,7 +74,7 @@ func _ready() -> void:
 	add_child(center)
 
 	var panel := PanelContainer.new()
-	var sb := PixelUI.box(Color(0.09, 0.10, 0.14, 0.97), Color(0.85, 0.65, 0.2))
+	var sb := PixelUI.box(PixelUI.WIN_BG, PixelUI.BRONZE)
 	sb.set_content_margin_all(26)
 	panel.add_theme_stylebox_override("panel", sb)
 	center.add_child(panel)
@@ -86,6 +86,7 @@ func _ready() -> void:
 	_title = Label.new()
 	_title.add_theme_font_size_override("font_size", PixelUI.fs(36))
 	_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	PixelUI.style_title(_title)
 	outer.add_child(_title)
 	outer.add_child(HSeparator.new())
 
@@ -100,7 +101,7 @@ func _ready() -> void:
 	var lh := Label.new()
 	lh.text = "Castle"
 	lh.add_theme_font_size_override("font_size", PixelUI.fs(26))
-	lh.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3))
+	lh.add_theme_color_override("font_color", PixelUI.GOLD)
 	left.add_child(lh)
 	_info = GridContainer.new()
 	_info.columns = 2
@@ -115,7 +116,7 @@ func _ready() -> void:
 	cols.add_child(right)
 	_points = Label.new()
 	_points.add_theme_font_size_override("font_size", PixelUI.fs(28))
-	_points.add_theme_color_override("font_color", Color(0.5, 1.0, 0.6))
+	_points.add_theme_color_override("font_color", PixelUI.GOOD)
 	_points.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var points_row := HBoxContainer.new()
 	points_row.add_theme_constant_override("separation", 12)
@@ -133,7 +134,7 @@ func _ready() -> void:
 	note.add_theme_font_size_override("font_size", PixelUI.fs(16))
 	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	note.custom_minimum_size = Vector2(680, 0)
-	note.add_theme_color_override("font_color", Color(0.75, 0.78, 0.85))
+	note.add_theme_color_override("font_color", PixelUI.DIM)
 	right.add_child(note)
 
 	var n := 1
@@ -152,21 +153,21 @@ func _ready() -> void:
 		row.add_child(name_label)
 		var dl := Label.new()          # the default value, in grey
 		dl.add_theme_font_size_override("font_size", PixelUI.fs(22))
-		dl.add_theme_color_override("font_color", Color(0.55, 0.57, 0.62))
+		dl.add_theme_color_override("font_color", PixelUI.DIM)
 		dl.custom_minimum_size = Vector2(90, 0)
 		dl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		row.add_child(dl)
 		_stat_defaults.append(dl)
 		var val := Label.new()
 		val.add_theme_font_size_override("font_size", PixelUI.fs(22))
-		val.add_theme_color_override("font_color", Color(1.0, 0.9, 0.5))
+		val.add_theme_color_override("font_color", PixelUI.GOLD)
 		val.custom_minimum_size = Vector2(110, 0)
 		val.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		row.add_child(val)
 		_stat_values.append(val)
 		var pl := Label.new()
 		pl.add_theme_font_size_override("font_size", PixelUI.fs(20))
-		pl.add_theme_color_override("font_color", Color(0.5, 1.0, 0.6))
+		pl.add_theme_color_override("font_color", PixelUI.GOOD)
 		pl.custom_minimum_size = Vector2(80, 0)
 		pl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		row.add_child(pl)
@@ -205,7 +206,7 @@ func _ready() -> void:
 	ex.add_child(coin)
 	_ex_price = Label.new()
 	_ex_price.add_theme_font_size_override("font_size", PixelUI.fs(22))
-	_ex_price.add_theme_color_override("font_color", Color(1.0, 0.9, 0.3))
+	_ex_price.add_theme_color_override("font_color", PixelUI.GOLD)
 	ex.add_child(_ex_price)
 	var arrow := Label.new()
 	arrow.text = "->"
@@ -219,7 +220,7 @@ func _ready() -> void:
 	ex.add_child(star)
 	_ex_points = Label.new()
 	_ex_points.add_theme_font_size_override("font_size", PixelUI.fs(22))
-	_ex_points.add_theme_color_override("font_color", Color(0.5, 1.0, 0.6))
+	_ex_points.add_theme_color_override("font_color", PixelUI.GOOD)
 	ex.add_child(_ex_points)
 	var spacer := Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -315,7 +316,7 @@ func _row(label: String, value: String) -> void:
 	var a := Label.new()
 	a.text = Loc.t(label)
 	a.add_theme_font_size_override("font_size", PixelUI.fs(19))
-	a.add_theme_color_override("font_color", Color(0.72, 0.76, 0.85))
+	a.add_theme_color_override("font_color", PixelUI.CREAM)
 	a.custom_minimum_size = Vector2(200, 0)
 	_info.add_child(a)
 	var b := Label.new()

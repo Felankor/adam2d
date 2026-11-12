@@ -44,7 +44,7 @@ func _explode() -> void:
 	Sfx.play("rocket_boom", -3.0)
 	Fx.spawn(get_parent(), "explosion", dest, Color(0.7, 0.95, 0.2), "", 1.6, 0.7)
 	if base_ref != null and is_instance_valid(base_ref):
-		if base_ref.position.distance_to(dest) <= BLAST_RADIUS + base_ref.body_radius():
+		if base_ref.position.distance_to(dest) <= BLAST_RADIUS + base_ref.hit_radius():
 			base_ref.apply_poison(POISON_DPS, POISON_SECONDS)
 
 func _draw() -> void:

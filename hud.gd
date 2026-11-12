@@ -4,14 +4,31 @@ extends Control
 var base: Base
 var coins: int = 0
 
+const HUD_K := 2.0                 # one art pixel of the HUD frame on screen
+const HUD_UP := 226.0              # top of the HUD frame, measured up from the bottom edge
 const SLOT := 64.0
 const GAP := 10.0
 const MAP_RADIUS := 115.0           # minimap circle size on screen
 const MAP_RANGE := 1700.0           # world distance the minimap shows (a bit beyond where enemies spawn)
 
+# The HUD lays itself out in a virtual screen of WORLD_SIZE / hud_scale and is then scaled up or down,
+# so everything stays glued to its screen edge at any scale.
+var _applied_scale: float = -1.0
+
+func _vs() -> Vector2:
+	return Settings.WORLD_SIZE / Settings.hud_scale
+
+func _apply_scale() -> void:
+	_applied_scale = Settings.hud_scale
+	scale = Vector2(_applied_scale, _applied_scale)
+	size = Settings.WORLD_SIZE / _applied_scale
+	queue_redraw()
+
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
-	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	set_anchors_preset(Control.PRESET_TOP_LEFT)
+	position = Vector2.ZERO
+	_apply_scale()
 
 var _t: float = 0.0
 var _hp_front: float = 1.0       # smoothed fill
@@ -44,17 +61,17 @@ var _map_tex: ImageTexture = null
 func _check_crit(delta: float) -> void:
 	_crit_flash = maxf(_crit_flash - delta * 2.5, 0.0)
 	if _hp_last >= 0.0 and _hp_last - base.hp >= 0.25 * base.max_hp:
-		var s := Settings.WORLD_SIZE
-		var bw := 440.0
-		var bx := (s.x - bw) * 0.5
-		var by := s.y - 160.0
+		var s := _vs()
+		var bw := float(HudArt.TL) * HUD_K
+		var bx := s.x * 0.5 - float(HudArt.TGAP) * HUD_K - bw      # left end of the health tube
+		var by := s.y - HUD_UP + float(HudArt.YC - HudArt.TR) * HUD_K
 		var f_to := clampf(base.hp / base.max_hp, 0.0, 1.0)
 		var f_from := clampf(_hp_last / base.max_hp, 0.0, 1.0)
 		var n := 7
 		for i in n:
 			var fx := lerpf(f_to, f_from, (float(i) + 0.5) / float(n))
 			var sw := bw * (f_from - f_to) / float(n)
-			_shards.append([Vector2(bx + bw * fx - sw * 0.5, by), Vector2(randf_range(-90.0, 90.0), randf_range(-260.0, -80.0)), Vector2(maxf(sw, 6.0), 26.0), 1.0])
+			_shards.append([Vector2(bx + bw * (1.0 - fx) - sw * 0.5, by), Vector2(randf_range(-90.0, 90.0), randf_range(-260.0, -80.0)), Vector2(maxf(sw, 6.0), 50.0), 1.0])
 		_crit_flash = 1.0
 	_hp_last = base.hp
 	var j := _shards.size() - 1
@@ -69,6 +86,8 @@ func _check_crit(delta: float) -> void:
 
 func _process(delta: float) -> void:
 	_t += delta
+	if not is_equal_approx(_applied_scale, Settings.hud_scale):
+		_apply_scale()
 	_update_fps(delta)
 	_update_xp(delta)
 	if base != null:
@@ -189,94 +208,208 @@ func _draw_fps(s: Vector2) -> void:
 func _draw() -> void:
 	if base == null:
 		return
-	var s := Settings.WORLD_SIZE
+	var s := _vs()
 	_draw_coins(s)
 	_draw_fps(s)
-	var w := 440.0
-	var h := 26.0
-	var x := (s.x - w) * 0.5
-	var hp_text := "%s %d / %d" % [Loc.t("Health"), ceili(base.hp), ceili(base.max_hp)]
-	var en_text := "%s %d / %d" % [Loc.t("Mana"), int(base.energy), int(base.max_energy)]
+	var k := HUD_K
+	var ox := roundf(s.x * 0.5 - float(HudArt.CX) * k)
+	var oy := s.y - HUD_UP
+	var yc := oy + float(HudArt.YC) * k
+	var ty := oy + float(HudArt.YC - HudArt.TR) * k
+	var th := float(HudArt.TR * 2 + 1) * k
+	var xr := ox + float(HudArt.CX - HudArt.TGAP) * k            # inner edge of the health tube (next to the medallion)
+	var xl := ox + float(HudArt.CX + HudArt.TGAP) * k            # inner edge of the mana tube
+	var tw := float(HudArt.TL) * k
 	var hr := clampf(base.hp / base.max_hp, 0.0, 1.0)
 	var er := clampf(base.energy / base.max_energy, 0.0, 1.0)
-	_bar(Vector2(x, s.y - 126.0), Vector2(w, h), _en_front, _en_front, Color(0.16, 0.42, 0.95), Color(0.5, 0.78, 1.0), en_text, _en_gain, er < 0.2)
-	var hp_col := Color(0.86, 0.1, 0.14)       # health is always red
-	_bar(Vector2(x, s.y - 160.0), Vector2(w, h), _hp_front, _hp_ghost, hp_col, hp_col.lightened(0.3), hp_text, 0.0, hr < 0.3)
+	draw_texture_rect(HudArt.tex("back"), Rect2(Vector2(ox, oy), Vector2(float(HudArt.CW), float(HudArt.CH)) * k), false)
+	# damage trail, then the health liquid (it drains towards the left, away from the medallion)
+	var gw := floori(float(HudArt.TL) * clampf(_hp_ghost, 0.0, 1.0))
+	var fw := floori(float(HudArt.TL) * clampf(_hp_front, 0.0, 1.0))
+	var pulse := 0.5 + 0.5 * sin(_t * 8.0)
+	var th_a := HudArt.TR * 2 + 1
+	if gw > fw:
+		draw_texture_rect_region(HudArt.tex("ghost_l"), Rect2(xr - float(gw) * k, ty, float(gw - fw) * k, th), Rect2(HudArt.TL - gw, 0, gw - fw, th_a))
+	if fw > 0:
+		draw_texture_rect_region(HudArt.tex("red_l"), Rect2(xr - float(fw) * k, ty, float(fw) * k, th), Rect2(HudArt.TL - fw, 0, fw, th_a))
+		if hr < 0.3:
+			draw_rect(Rect2(xr - float(fw) * k, ty, float(fw) * k, th), Color(1.0, 0.1, 0.05, 0.22 * floorf(pulse * 2.0)))
+		_tube_end(xr - float(fw) * k, ty, th, k, false)
+	# mana liquid (drains to the right)
+	var ew := floori(float(HudArt.TL) * clampf(_en_front, 0.0, 1.0))
+	if ew > 0:
+		draw_texture_rect_region(HudArt.tex("blue_r"), Rect2(xl, ty, float(ew) * k, th), Rect2(0, 0, ew, th_a))
+		if er < 0.2:
+			draw_rect(Rect2(xl, ty, float(ew) * k, th), Color(1.0, 0.1, 0.05, 0.22 * floorf(pulse * 2.0)))
+		if _en_gain > 0.05:
+			var shx := floorf(fposmod(_t * 70.0, float(HudArt.TL) + 20.0)) - 10.0
+			var x_a := clampf(shx, 0.0, float(ew))
+			var x_b := clampf(shx + 5.0, 0.0, float(ew))
+			if x_b > x_a:
+				draw_rect(Rect2(xl + x_a * k, ty + 2.0 * k, (x_b - x_a) * k, th - 4.0 * k), Color(1, 1, 1, 0.28 * _en_gain))
+		_tube_end(xl + float(ew) * k, ty, th, k, true)
+	# energy shield: an ice layer inside the top of the health tube
 	var sh_max := base.shield_cap()
 	if sh_max > 0.0 and base.shield > 0.0:
-		var sr := clampf(base.shield / sh_max, 0.0, 1.0)
-		var sy := s.y - 160.0 - 12.0
-		draw_rect(Rect2(x, sy, w, 8.0), Color(0.05, 0.06, 0.09, 0.85))
-		draw_rect(Rect2(x, sy, w * sr, 8.0), Color(0.3, 0.8, 1.0))
-		draw_rect(Rect2(x, sy, w * sr, 3.0), Color(0.75, 0.95, 1.0, 0.8))
-		_text(Vector2(x + w + 10.0, sy + 9.0), "%d" % ceili(base.shield), 15, Color(0.6, 0.9, 1.0))
+		var sw := floori(float(HudArt.TL) * clampf(base.shield / sh_max, 0.0, 1.0))
+		if sw > 0:
+			draw_texture_rect_region(HudArt.tex("ice_l"), Rect2(xr - float(sw) * k, ty + k, float(sw) * k, 7.0 * k), Rect2(HudArt.TL - sw, 0, sw, 7))
+		PixelUI.text(self, Vector2(xr - tw + 8.0, ty - 6.0), "%s %d" % [Loc.t("Shield"), ceili(base.shield)], 20, Color(0.75, 0.95, 1.0), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 4)
+	draw_texture_rect(HudArt.tex("front"), Rect2(Vector2(ox, oy), Vector2(float(HudArt.CW), float(HudArt.CH)) * k), false)
 	if _crit_flash > 0.01:
-		var cf := Rect2(Vector2(x - 6.0, s.y - 166.0), Vector2(w + 12.0, h + 12.0))
+		var cf := Rect2(Vector2(ox + float(HudArt.CX - HudArt.HALF) * k - 6.0, oy + float(HudArt.YC - HudArt.R) * k - 6.0), Vector2(float(HudArt.HALF * 2) * k + 12.0, float(HudArt.R * 2 + 1) * k + 12.0))
 		draw_rect(cf, Color(1.0, 0.25, 0.1, 0.8 * _crit_flash * Settings.flash_scale), false, 4.0)
 	for sh in _shards:
 		var life := float(sh[3])
 		draw_rect(Rect2(sh[0] as Vector2, sh[2] as Vector2), Color(0.95, 0.2, 0.15, life))
 		draw_rect(Rect2(sh[0] as Vector2, sh[2] as Vector2), Color(1.0, 0.9, 0.7, 0.8 * life), false, 2.0)
+	# numbers on the tubes and the level in the medallion
+	var hp_text := "%d / %d" % [ceili(base.hp), ceili(base.max_hp)]
+	var en_text := "%d / %d" % [int(base.energy), int(base.max_energy)]
+	PixelUI.text(self, Vector2(xr - tw, ty + th * 0.5 + 10.0), hp_text, 30, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, tw, 5)
+	PixelUI.text(self, Vector2(xl, ty + th * 0.5 + 10.0), en_text, 30, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, tw, 5)
+	var lv_size := 40 if base.xp_level < 10 else 30
+	PixelUI.text(self, Vector2(s.x * 0.5 - 40.0, yc + (14.0 if lv_size == 40 else 11.0)), str(base.xp_level), lv_size, Color(1.0, 0.9, 0.55), HORIZONTAL_ALIGNMENT_CENTER, 80.0, 5)
 	_draw_skills(s)
-	# castle level (XP): a full-width golden bar along the bottom edge, like an MMORPG
+	_draw_xp(s, ox, oy)
+	if base.free_points > 0:
+		# blinking "[Tab] Stat points: N" tag above the beam
+		var blink := 0.5 + 0.5 * sin(_t * 5.0)
+		var tag := "[%s]  %s: %d" % [Keybinds.key_text("open_shop"), Loc.t("Stat points"), base.free_points]
+		var tag_w := PixelUI.font().get_string_size(tag, HORIZONTAL_ALIGNMENT_LEFT, -1, PixelUI.fs(20)).x + 30.0
+		var bob := roundf(sin(_t * 6.0) * 2.0)
+		var tag_box := PixelUI.box(Color(0.1, 0.35, 0.16, 0.55 + 0.3 * blink), Color(0.35, 0.9, 0.5), 2)
+		draw_style_box(tag_box, Rect2(s.x * 0.5 - tag_w * 0.5, oy - 30.0 + bob, tag_w, 30.0))
+		PixelUI.text(self, Vector2(s.x * 0.5 - tag_w * 0.5, oy - 9.0 + bob), tag, 20, Color(0.55, 1.0, 0.65).lerp(Color.WHITE, blink), HORIZONTAL_ALIGNMENT_CENTER, tag_w, 4)
+	_draw_boss_bars(s)
+	_draw_levelup(s)
+	_draw_minimap(s)
+	_draw_weapon(Vector2(roundf(s.x * 0.5 - float(HudArt.CX) * HUD_K) - 68.0, s.y - HUD_UP + float(HudArt.YC) * HUD_K - 31.0))
+	_draw_helpers()
+
+# Boss health at the top middle of the screen, in the same bronze + glass style as the player bars.
+var _boss_ghost: Dictionary = {}     # boss instance id -> slow damage trail (0..1)
+
+func _draw_boss_bars(s: Vector2) -> void:
+	var y := 64.0
+	var live: Array = []
+	for m in Field.mobs():
+		if m is Boss and not m.dead:
+			live.append(m)
+	for id in _boss_ghost.keys():
+		var found := false
+		for m in live:
+			if (m as Node).get_instance_id() == id:
+				found = true
+		if not found:
+			_boss_ghost.erase(id)
+	var dt := get_process_delta_time()
+	for m in live:
+		var b: Boss = m
+		var frac := clampf(b.hp / b.max_hp, 0.0, 1.0)
+		var id := b.get_instance_id()
+		var gh: float = _boss_ghost.get(id, frac)
+		gh = frac if frac > gh else lerpf(gh, frac, 1.0 - exp(-1.6 * dt))
+		_boss_ghost[id] = gh
+		_boss_bar(Vector2(s.x * 0.5, y), 560.0, 27.0, frac, gh, b)
+		y += 64.0
+
+func _boss_bar(c: Vector2, w: float, h: float, frac: float, ghost: float, b: Boss) -> void:
+	var u := 3.0
+	var x := roundf(c.x - w * 0.5)
+	var y := roundf(c.y)
+	var cap := 30.0
+	# bronze beam with end caps
+	var fx := x - cap
+	var fw_ := w + cap * 2.0
+	var bronze := [Color(0.08, 0.04, 0.03), Color(0.33, 0.2, 0.1), Color(0.5, 0.31, 0.14), Color(0.68, 0.46, 0.2), Color(0.92, 0.78, 0.47)]
+	var ft := y - 9.0
+	var fh := h + 18.0
+	draw_rect(Rect2(fx - 3.0, ft - 3.0, fw_ + 6.0, fh + 6.0), bronze[0])
+	draw_rect(Rect2(fx, ft, fw_, fh), bronze[2])
+	draw_rect(Rect2(fx, ft, fw_, 3.0), bronze[4])
+	draw_rect(Rect2(fx, ft + 3.0, fw_, 3.0), bronze[3])
+	draw_rect(Rect2(fx, ft + fh - 6.0, fw_, 3.0), bronze[1])
+	draw_rect(Rect2(fx, ft + fh - 3.0, fw_, 3.0), bronze[0])
+	for rx in [fx + 12.0, fx + fw_ - 15.0]:
+		draw_rect(Rect2(rx, y + h * 0.5 - 6.0, 6.0, 12.0), bronze[1])
+		draw_rect(Rect2(rx, y + h * 0.5 - 6.0, 3.0, 3.0), bronze[4])
+	# dark trough
+	draw_rect(Rect2(x - 3.0, y - 3.0, w + 6.0, h + 6.0), Color(0.03, 0.02, 0.06))
+	draw_rect(Rect2(x, y, w, h), Color(0.07, 0.05, 0.12))
+	var fw := floorf(w * frac / u) * u
+	var gw := floorf(w * ghost / u) * u
+	if gw > fw:
+		draw_rect(Rect2(x + fw, y, gw - fw, h), Color(1.0, 0.82, 0.95, 0.85))
+		draw_rect(Rect2(x + fw, y, gw - fw, u), Color(1, 1, 1, 0.9))
+	if fw > 0.0:
+		# glass tube shading: dark rim, bright top, body, soft bottom reflection
+		var rows: Array = [Color(0.2, 0.05, 0.3), Color(0.9, 0.7, 1.0), Color(0.78, 0.45, 1.0), Color(0.66, 0.3, 0.96), Color(0.58, 0.22, 0.9), Color(0.55, 0.2, 0.86), Color(0.5, 0.17, 0.8), Color(0.42, 0.12, 0.68), Color(0.3, 0.07, 0.5)]
+		var rh := h / float(rows.size())
+		for i in rows.size():
+			draw_rect(Rect2(x, y + floorf(float(i) * rh / u) * u, fw, ceilf(rh / u) * u), rows[i])
+		var glint := fposmod(_t * 140.0, w + 160.0) - 80.0
+		var g0 := clampf(glint, 0.0, fw)
+		var g1 := clampf(glint + 5.0 * u, 0.0, fw)
+		if g1 > g0:
+			draw_rect(Rect2(x + g0, y + u, g1 - g0, u), Color(1, 1, 1, 0.55))
+		draw_rect(Rect2(x + fw - u, y + u, u, h - u * 2.0), Color(1, 1, 1, 0.75))
+	# glass streak across the top, even over the empty part
+	draw_rect(Rect2(x + u * 2.0, y + u * 2.0, w - u * 4.0, 2.0), Color(1, 1, 1, 0.12))
+	var title := b.boss_name
+	if b.ability == "titan":
+		title = Loc.t("%s  -  Phase %d/3") % [b.boss_name, b.phase]
+	PixelUI.text(self, Vector2(x, y - 16.0), title, 20, Color(0.95, 0.82, 1.0), HORIZONTAL_ALIGNMENT_CENTER, w, 4)
+	PixelUI.text(self, Vector2(x, y + h * 0.5 + 9.0), "%d / %d" % [ceili(b.hp), ceili(b.max_hp)], 20, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, w, 4)
+
+# Bright rim on the moving end of a liquid; `grows_right` is true when the liquid extends to the left of x.
+func _tube_end(x: float, ty: float, th: float, k: float, liquid_left_of_x: bool) -> void:
+	var edge := x - k if liquid_left_of_x else x
+	draw_rect(Rect2(edge, ty + 2.0 * k, k, th - 4.0 * k), Color(1, 1, 1, 0.7))
+	var glow_x := x - 4.0 * k if liquid_left_of_x else x + k
+	draw_rect(Rect2(glow_x, ty + 2.0 * k, 3.0 * k, th - 4.0 * k), Color(1, 1, 1, 0.16))
+
+# Thin gold XP tube under the beam, with the level text under it.
+func _draw_xp(s: Vector2, ox: float, oy: float) -> void:
+	var k := HUD_K
 	var xp_need := Base.xp_needed(base.xp_level)
 	var xp_frac := clampf(float(base.xp) / float(xp_need), 0.0, 1.0)
-	var bar_h := 16.0
-	var bar_y := s.y - bar_h
+	var xr := Rect2(s.x * 0.5 - float(HudArt.XW) * k * 0.5, oy + float(HudArt.YC + HudArt.R + 3) * k, float(HudArt.XW) * k, float(HudArt.XH) * k)
 	var front_frac := fposmod(_xp_front, 1.0)
 	var tgt_frac := fposmod(_xp_target, 1.0)
 	if floorf(_xp_target) > floorf(_xp_front) + 0.001:
 		tgt_frac = 1.0                      # the bar is still catching up to a level-up
-	draw_rect(Rect2(0.0, bar_y, s.x, bar_h), Color(0.07, 0.05, 0.02, 0.88))
-	var fw := s.x * front_frac
-	var tw := s.x * tgt_frac
-	if tw > fw + 1.0:
+	draw_texture_rect(HudArt.tex("xp_back"), xr, false)
+	var inner := Rect2(xr.position + Vector2(k, k), xr.size - Vector2(2.0 * k, 2.0 * k))
+	var fwa := floori(float(HudArt.XW) * front_frac)
+	var twa := floori(float(HudArt.XW) * tgt_frac)
+	var fw := float(fwa) * k
+	var tw := float(twa) * k
+	if twa > fwa + 1:
 		var pulse := 0.5 + 0.5 * sin(_t * 12.0)
-		draw_rect(Rect2(fw, bar_y, tw - fw, bar_h), Color(1.0, 0.95, 0.6, 0.45 + 0.3 * pulse))      # the XP just earned
-	if fw > 1.0:
-		draw_rect(Rect2(0.0, bar_y, fw, bar_h), Color(0.9, 0.62, 0.08))
-		draw_rect(Rect2(0.0, bar_y, fw, bar_h * 0.5), Color(1.0, 0.85, 0.3))
-		draw_rect(Rect2(0.0, bar_y + bar_h * 0.5, fw, bar_h * 0.18), Color(1.0, 0.95, 0.65, 0.35))
-		# slow golden shine travelling along the bar
-		var shine := fposmod(_t * 220.0, s.x + 300.0) - 150.0
+		draw_rect(Rect2(xr.position.x + fw, inner.position.y, tw - fw, inner.size.y), Color(1.0, 0.95, 0.6, 0.45 + 0.3 * pulse))      # the XP just earned
+	if fwa > 1:
+		draw_texture_rect_region(HudArt.tex("xp_fill"), Rect2(xr.position.x, xr.position.y, fw, xr.size.y), Rect2(0, 0, fwa, HudArt.XH))
+		var shine := fposmod(_t * 160.0, xr.size.x + 200.0) - 100.0
 		var sx0 := clampf(shine, 0.0, fw)
-		var sx1 := clampf(shine + 90.0, 0.0, fw)
+		var sx1 := clampf(shine + 60.0, 0.0, fw)
 		if sx1 - sx0 > 1.0:
-			draw_rect(Rect2(sx0, bar_y, sx1 - sx0, bar_h), Color(1.0, 1.0, 0.85, 0.35))
-		# glowing tip
-		draw_rect(Rect2(fw - 3.0, bar_y - 3.0, 6.0, bar_h + 6.0), Color(1.0, 0.9, 0.4, 0.28 + 0.4 * _xp_glow))
-		draw_rect(Rect2(fw - 3.0, bar_y, 3.0, bar_h), Color(1.0, 1.0, 0.8))
+			draw_rect(Rect2(xr.position.x + sx0, inner.position.y, sx1 - sx0, inner.size.y), Color(1.0, 1.0, 0.85, 0.35))
+		draw_rect(Rect2(xr.position.x + fw - 3.0, xr.position.y - 3.0, 6.0, xr.size.y + 6.0), Color(1.0, 0.9, 0.4, 0.28 + 0.4 * _xp_glow))
+		draw_rect(Rect2(xr.position.x + fw - 3.0, inner.position.y, 3.0, inner.size.y), Color(1.0, 1.0, 0.8))
 	if _xp_glow > 0.02:
 		# gain animation: a bright flare and sparkles rising from the tip
-		draw_rect(Rect2(0.0, bar_y, maxf(fw, tw), bar_h), Color(1.0, 0.95, 0.6, 0.35 * _xp_glow))
-		for k in 7:
-			var life := fposmod(_t * 1.8 + float(k) * 0.37, 1.0)
-			var spx := fw - 6.0 + sin(float(k) * 2.3) * 26.0
-			var spy := bar_y - life * 34.0
-			var sq := 3.0 if life < 0.6 else 3.0
-			draw_rect(Rect2(floorf(spx / 3.0) * 3.0, floorf(spy / 3.0) * 3.0, sq, sq), Color(1.0, 0.92, 0.5, 0.9 * _xp_glow * (1.0 - life)))
-	for i in range(1, 10):
-		draw_line(Vector2(s.x * float(i) / 10.0, bar_y), Vector2(s.x * float(i) / 10.0, s.y), Color(0, 0, 0, 0.3), 1.0)
-	draw_line(Vector2(0.0, bar_y), Vector2(s.x, bar_y), Color(1.0, 0.85, 0.4, 0.5), 1.0)
+		draw_rect(Rect2(xr.position.x, inner.position.y, maxf(fw, tw), inner.size.y), Color(1.0, 0.95, 0.6, 0.35 * _xp_glow))
+		for i in 7:
+			var life := fposmod(_t * 1.8 + float(i) * 0.37, 1.0)
+			var spx := xr.position.x + fw - 6.0 + sin(float(i) * 2.3) * 26.0
+			var spy := xr.position.y - life * 34.0
+			draw_rect(Rect2(floorf(spx / 3.0) * 3.0, floorf(spy / 3.0) * 3.0, 3.0, 3.0), Color(1.0, 0.92, 0.5, 0.9 * _xp_glow * (1.0 - life)))
 	if _xp_flash > 0.01:
-		# level-up: the whole bar flashes
-		draw_rect(Rect2(0.0, bar_y - 3.0, s.x, bar_h + 3.0), Color(1.0, 0.95, 0.55, 0.75 * _xp_flash * Settings.flash_scale))
-		draw_rect(Rect2(0.0, bar_y - 3.0, s.x, 3.0 + 6.0 * _xp_flash), Color(1.0, 0.9, 0.3, 0.6 * _xp_flash * Settings.flash_scale))
+		# level-up: the tube flashes
+		draw_rect(Rect2(xr.position.x - 8.0, xr.position.y - 8.0, xr.size.x + 16.0, xr.size.y + 16.0), Color(1.0, 0.95, 0.55, 0.75 * _xp_flash * Settings.flash_scale))
 	var xp_text := "%s %d     XP %d / %d   (%d%%)" % [Loc.t("Level"), base.xp_level, base.xp, xp_need, int(xp_frac * 100.0)]
-	var font := ThemeDB.fallback_font
-	draw_string_outline(font, Vector2(0.0, s.y - 2.5), xp_text, HORIZONTAL_ALIGNMENT_CENTER, s.x, PixelUI.fs(13), 4, Color.BLACK)
-	draw_string(font, Vector2(0.0, s.y - 2.5), xp_text, HORIZONTAL_ALIGNMENT_CENTER, s.x, PixelUI.fs(13), Color(1.0, 0.97, 0.85))
-	if base.free_points > 0:
-		# blinking "[Tab] Stat points: N" tag above the bars
-		var blink := 0.5 + 0.5 * sin(_t * 5.0)
-		var tag := "[%s]  %s: %d" % [Keybinds.key_text("open_shop"), Loc.t("Stat points"), base.free_points]
-		var tag_box := PixelUI.box(Color(0.1, 0.35, 0.16, 0.55 + 0.3 * blink), Color(0.35, 0.9, 0.5), 2)
-		draw_style_box(tag_box, Rect2(x - 12.0, s.y - 222.0 + roundf(sin(_t * 6.0) * 2.0), 330.0, 38.0))
-		_text(Vector2(x, s.y - 195.0 + sin(_t * 6.0) * 2.0), tag, 24, Color(0.55, 1.0, 0.65).lerp(Color.WHITE, blink))
-	_draw_levelup(s)
-	_draw_minimap(s)
-	_draw_weapon(Vector2(x - 82.0, s.y - 160.0))
-	_draw_helpers()
+	PixelUI.text(self, Vector2(0.0, s.y - 98.0), xp_text, 20, Color(1.0, 0.97, 0.85), HORIZONTAL_ALIGNMENT_CENTER, s.x, 5)
 
 # Round radar at the bottom right: you (orange) in the middle, enemies red, bosses purple.
 func _draw_minimap(s: Vector2) -> void:
@@ -396,7 +529,7 @@ func _draw_skills(s: Vector2) -> void:
 			active_time = base.boost_time
 			active_col = Color(1.0, 0.65, 0.2)
 		var active := active_time > 0.0
-		draw_rect(r, Color(0.08, 0.09, 0.13, 0.9))
+		draw_rect(r, Color(0.07, 0.05, 0.04, 0.92))
 		if id != "":
 			_draw_skill_icon(id, r)
 			var cd := base.skill_cd[i]
@@ -411,12 +544,7 @@ func _draw_skills(s: Vector2) -> void:
 				var price := base.repair_cost()
 				var ok := coins >= price
 				_text(r.position + Vector2(SLOT - 40.0 - (8.0 if price >= 100 else 0.0), SLOT - 6), str(price), 18, Color(1.0, 0.85, 0.3) if ok else Color(1.0, 0.35, 0.3))
-		var border := Color(1, 1, 1, 0.2)
-		if active:
-			border = active_col
-		elif id != "":
-			border = Color(1, 1, 1, 0.6)
-		draw_style_box(PixelUI.box(Color(0, 0, 0, 0), border.lerp(Color(0.8, 0.82, 0.9), 0.0) if id != "" else Color(0.3, 0.32, 0.4), 2), r)
+		draw_style_box(PixelUI.plate(Color(0, 0, 0, 0), (active_col if active else Color(0.8, 0.6, 0.3)) if id != "" else Color(0.4, 0.3, 0.2), 2), r)
 		_text(r.position + Vector2(6, 18), Keybinds.key_text("skill_%d" % (i + 1)), 16, Color(1.0, 0.9, 0.5))
 
 func _draw_skill_icon(id: String, r: Rect2) -> void:
@@ -449,7 +577,7 @@ func _draw_skill_icon(id: String, r: Rect2) -> void:
 func _draw_weapon(pos: Vector2) -> void:
 	Icons.draw(self, Weapons.id_of(base.weapon_tier), pos, 62.0 / 64.0, true)
 	var col: Color = Weapons.COLORS[base.weapon_tier]
-	draw_style_box(PixelUI.box(Color(0, 0, 0, 0), col, 2), Rect2(pos, Vector2(62, 62)))
+	draw_style_box(PixelUI.plate(Color(0, 0, 0, 0), col, 2), Rect2(pos, Vector2(62, 62)))
 
 # Helper allies as icons with counts (no profession names, just like the coin).
 func _draw_helpers() -> void:

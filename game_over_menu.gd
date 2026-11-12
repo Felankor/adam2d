@@ -23,7 +23,7 @@ func _ready() -> void:
 	add_child(center)
 
 	var panel := PanelContainer.new()
-	var sb := PixelUI.box(Color(0.09, 0.07, 0.09, 0.97), Color(0.85, 0.2, 0.2))
+	var sb := PixelUI.box(Color(0.1, 0.05, 0.04, 0.97), Color(0.7, 0.32, 0.18))
 	sb.set_content_margin_all(40)
 	panel.add_theme_stylebox_override("panel", sb)
 	center.add_child(panel)
@@ -36,7 +36,7 @@ func _ready() -> void:
 	title.text = "Your castle has been destroyed!"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", PixelUI.fs(46))
-	title.add_theme_color_override("font_color", Color(1.0, 0.4, 0.35))
+	PixelUI.style_title(title, PixelUI.BAD)
 	box.add_child(title)
 
 	_info = Label.new()

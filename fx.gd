@@ -9,6 +9,7 @@ var color: Color = Color.WHITE
 var text: String = ""
 var power: float = 1.0
 var _parts: Array = []
+var _drift: float = 0.0
 
 # Effects alive right now. Under heavy fire the cheap ones are skipped so the frame rate holds.
 static var live: int = 0
@@ -35,6 +36,8 @@ func _ready() -> void:
 	live += 1
 	process_mode = Node.PROCESS_MODE_PAUSABLE
 	z_index = 5
+	if kind == "number":
+		_drift = randf_range(-22.0, 22.0)
 	if kind == "spark" or kind == "explosion" or kind == "void_blast":
 		var count := 9 if kind == "spark" else 28
 		for i in count:
@@ -54,7 +57,8 @@ func _process(delta: float) -> void:
 		p[0] += p[1] * delta
 		p[1] *= 0.93
 	if kind == "number":
-		position.y -= 45.0 * delta
+		position.y -= (70.0 if power >= 1.5 else 45.0) * delta * (life / max_life + 0.3)
+		position.x += _drift * delta
 	queue_redraw()
 
 func _draw() -> void:
@@ -87,9 +91,19 @@ func _draw() -> void:
 			for p in _parts:
 				PixelFx.square(self, p[0], p[2] * 1.7 * a, Color(0.6 + 0.3 * t, 0.2, 1.0, a))
 		"number":
-			var font := ThemeDB.fallback_font
-			var pos := Vector2(-40, 0)
-			var fsz := int(22.0 * clampf(power, 1.0, 2.2))
-			pos = Vector2(-60.0, 0)
-			draw_string_outline(font, pos, text, HORIZONTAL_ALIGNMENT_CENTER, 120, PixelUI.fs(fsz), 6, Color(0, 0, 0, a))
-			draw_string(font, pos, text, HORIZONTAL_ALIGNMENT_CENTER, 120, PixelUI.fs(fsz), Color(color.r, color.g, color.b, a))
+			# Pixel-font damage number: pops in big, settles, drifts up and sideways, fades out at the end.
+			var crit_n := power >= 1.5
+			var base_sz := 30 if crit_n else 20
+			var pop := 1.0
+			if t < 0.18:
+				pop = 1.0 + (0.18 - t) / 0.18 * (0.5 if crit_n else 0.3)
+			var fsz := int(round(float(base_sz) * pop / 10.0)) * 10
+			var fade := 1.0 if t < 0.55 else 1.0 - (t - 0.55) / 0.45
+			var col_a := Color(color.r, color.g, color.b, fade)
+			var edge := Color(0.04, 0.03, 0.08, fade)
+			var f := PixelUI.font()
+			var p0 := Vector2(-80.0, float(fsz) * 0.35)
+			draw_string_outline(f, p0, text, HORIZONTAL_ALIGNMENT_CENTER, 160, fsz, 8, edge)
+			if crit_n:
+				draw_string(f, p0 + Vector2(0, 3), text, HORIZONTAL_ALIGNMENT_CENTER, 160, fsz, Color(0.5, 0.1, 0.05, fade))
+			draw_string(f, p0, text, HORIZONTAL_ALIGNMENT_CENTER, 160, fsz, col_a)

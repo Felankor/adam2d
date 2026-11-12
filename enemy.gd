@@ -4,6 +4,9 @@ extends Node2D
 signal died(enemy: Enemy)
 signal arrived(enemy: Enemy)
 signal shoot(origin: Vector2, dmg: float)    # tanks fire shells at the base
+signal launch(kind: String, origin: Vector2, aim: Vector2, dmg: float)   # rocks, fireballs, missiles, boulders (see Main._on_enemy_launch)
+signal request(what: String, src: Enemy, count: int)                    # "worms" under the base, "sinners" around a demon
+signal shake(amount: float)
 
 # Space biome: the same units look like ships/drones, move faster and dodge.
 static var space_mode: bool = false
@@ -72,6 +75,15 @@ var _art: Dictionary = {}
 var _art_key: String = ""
 var _push: Vector2 = Vector2.ZERO   # knockback velocity, decays smoothly
 var _slow_time: float = 0.0         # while > 0 the enemy moves slower after a hit
+var art_scale: float = 1.0          # extra size of the sprite (Heavy / Apocalypse Tank)
+var master: Enemy = null            # a Sinner remembers the Demon that spawned it
+var _sinners_alive: int = 0
+var _sinner_cd: float = 0.5
+var _slam_cd: float = 5.0           # Golem: time to the next ground slam (summons earthworms)
+var _slam_t: float = 0.0
+var _slam_fx: float = 0.0
+var _missile_cd: float = 3.0        # Apocalypse Tank: time to the next guided missile
+const SLAM_TIME := 0.8
 
 # Builds an enemy of the given kind with stats for the given level.
 # Enemy damage grows by +25% of the base value with every level cleared.
@@ -93,6 +105,34 @@ static func make(k: String, level: int) -> Enemy:
 			e.armor_pen = 10.0
 			e.reward = 4 + int(level * 0.5)
 			e.radius = 27.0
+		"heavytank":  # grey Heavy Tank: 30% bigger, stronger and more armored than a Tank, with a double barrel
+			e.hp = (40.0 + lvl * 12.0) * 1.3 * GameState.hp_mult()
+			e.speed = minf(32.0 + lvl * 1.5, 70.0) * GameState.speed_mult()
+			e.damage = 3.0 * 1.3 * dmg_mult
+			e.shoots = true
+			e.shoot_interval = 1.4
+			e.shoot_range = randf_range(430.0, 490.0)
+			e._shoot_cd = randf_range(0.5, 1.5)
+			e.armor = 40.0 * 1.3
+			e.armor_pen = 12.0
+			e.reward = 8 + int(level * 0.8)
+			e.radius = 27.0 * 1.3
+			e.art_scale = 1.3
+		"apoctank":   # dark Apocalypse Tank: 20% bigger, 50% more HP, 25% more powerful than a Heavy Tank; guided missiles
+			e.hp = (40.0 + lvl * 12.0) * 1.3 * 1.5 * GameState.hp_mult()
+			e.speed = minf(32.0 + lvl * 1.5, 70.0) * 0.9 * GameState.speed_mult()
+			e.damage = 3.0 * 1.3 * 1.25 * dmg_mult
+			e.shoots = true
+			e.shoot_interval = 1.5
+			e.shoot_range = randf_range(460.0, 520.0)
+			e._shoot_cd = randf_range(0.5, 1.5)
+			e._missile_cd = randf_range(2.0, 4.0)
+			e.armor = 40.0 * 1.3 * 1.15
+			e.armor_pen = 15.0
+			e.reward = 16 + int(level * 1.1)
+			e.radius = 27.0 * 1.3 * 1.2
+			e.art_scale = 1.3 * 1.2
+			e.power_mult = 1.3
 		"mech":
 			e.hp = (20.0 + lvl * 2.5) * GameState.hp_mult()
 			e.dodge_chance = 0.6
@@ -103,8 +143,20 @@ static func make(k: String, level: int) -> Enemy:
 			e.armor = 8.0
 			e.reward = 3 + int(level * 0.4)
 			e.radius = 22.0
-		"worm":       # Mudland: Bloodworm - tiny, very fast, fragile
+		"earthworm":  # grey worm summoned by Golems under the castle: a Bloodworm with half the health
 			e.hp = (5.0 + lvl * 1.2) * GameState.hp_mult()
+			e.speed = minf(250.0 + lvl * 4.0, 400.0) * GameState.speed_mult()
+			e.damage = 0.7 * dmg_mult
+			e.reward = 0
+			e.radius = 11.0
+		"sinner":     # Demon's unarmed black zombie-soldier
+			e.hp = (14.0 + lvl * 4.5) * GameState.hp_mult()
+			e.speed = minf(42.0 + lvl * 2.5, 100.0) * GameState.speed_mult()
+			e.damage = 1.2 * dmg_mult
+			e.reward = 1 + int(level * 0.2)
+			e.radius = 15.0
+		"worm":       # Mudland: Bloodworm - tiny, very fast, tough for its size (double health)
+			e.hp = (5.0 + lvl * 1.2) * 2.0 * GameState.hp_mult()
 			e.speed = minf(250.0 + lvl * 4.0, 400.0) * GameState.speed_mult()
 			e.damage = 0.7 * dmg_mult
 			e.reward = 1 + int(level * 0.3)
@@ -117,6 +169,11 @@ static func make(k: String, level: int) -> Enemy:
 			e.armor_pen = 15.0
 			e.reward = 8 + int(level * 0.7)
 			e.radius = 38.0
+			e.shoots = true                      # throws rocks from far away
+			e.shoot_range = randf_range(540.0, 660.0)
+			e.shoot_interval = 3.2
+			e._shoot_cd = randf_range(1.0, 2.5)
+			e._slam_cd = randf_range(3.5, 6.0)
 		"demon":      # Hell: faster and stronger than a golem, 3x its health
 			e.hp = (90.0 + lvl * 25.0) * 3.0 * GameState.hp_mult()
 			e.speed = minf(32.0 + lvl * 1.5, 70.0) * 1.6 * GameState.speed_mult()
@@ -125,6 +182,10 @@ static func make(k: String, level: int) -> Enemy:
 			e.armor_pen = 20.0
 			e.reward = 25 + int(level * 1.2)
 			e.radius = 42.0
+			e.shoots = true                      # throws fireballs, spawns sinners
+			e.shoot_range = randf_range(480.0, 560.0)
+			e.shoot_interval = 3.0
+			e._shoot_cd = randf_range(1.5, 2.5)
 		"hunter":     # Space: spawn in packs of 5, dodge again and again, shoot from far away
 			e.hp = (20.0 + lvl * 2.5) * GameState.hp_mult()
 			e.speed = minf(120.0 + lvl * 2.0, 190.0) * GameState.speed_mult()
@@ -164,10 +225,10 @@ static func make(k: String, level: int) -> Enemy:
 			e.damage = 1.0 * dmg_mult
 			e.reward = 1 + int(level * 0.5)
 			e.radius = 15.0
-	if space_mode and (e.kind == "tank" or e.kind == "mech" or e.kind == "soldier"):
+	if space_mode and (e.kind == "tank" or e.kind == "heavytank" or e.kind == "apoctank" or e.kind == "mech" or e.kind == "soldier"):
 		e.space = true
 		match e.kind:
-			"tank":      # starship
+			"tank", "heavytank", "apoctank":      # starship
 				e.speed *= 1.4
 				e.dodge_chance = 0.5
 				e.dodge_cd_time = 1.5
@@ -198,6 +259,10 @@ static func make_small_golem(parent: Enemy) -> Enemy:
 	e.armor = parent.armor
 	e.reward = maxi(parent.reward / 2, 1)
 	e.radius = 22.0
+	e.shoots = true                          # the little ones throw (smaller) rocks from closer in
+	e.shoot_range = randf_range(300.0, 380.0)
+	e.shoot_interval = 3.0
+	e._shoot_cd = randf_range(1.0, 2.0)
 	return e
 
 # A weak soldier summoned by a boss. Gives no gold.
@@ -289,8 +354,10 @@ func _update_sprite() -> void:
 		k *= 0.6
 	elif kind == "void":
 		k *= clampf(radius / 21.0, 0.4, 1.6)
+	k *= art_scale
 	k *= 1.0 + _scale_pop * 2.0
 	_sprite.scale = Vector2(k, k)
+	_sprite.position = Vector2(0.0, -sin(clampf(1.0 - _slam_t / SLAM_TIME, 0.0, 1.0) * PI) * 26.0) if _slam_t > 0.0 else Vector2.ZERO
 	if MobArt.rotates(_art_key):
 		_sprite.rotation = _heading
 	elif MobArt.flips(_art_key):
@@ -319,6 +386,33 @@ func _hit_reaction(from_dir: Vector2, strength: float) -> void:
 
 # Medic healing pulse and Aegis shield recharge.
 func _special_tick(delta: float) -> void:
+	_slam_fx = maxf(_slam_fx - delta, 0.0)
+	var dist_t := position.distance_to(target)
+	match kind:
+		"demon":
+			# spawns 5 Sinners; when every one of them is gone, 5 new ones come at once
+			if _sinners_alive <= 0:
+				_sinner_cd -= delta
+				if _sinner_cd <= 0.0:
+					_sinners_alive = 5
+					_sinner_cd = 0.0
+					_scale_pop = 0.25
+					Sfx.play("boss_summon", -5.0)
+					request.emit("sinners", self, 5)
+		"golem":
+			if not is_small and _slam_t <= 0.0 and dist_t <= shoot_range + 160.0:
+				_slam_cd -= delta
+				if _slam_cd <= 0.0:
+					_slam_cd = 12.0
+					_slam_t = SLAM_TIME
+					Sfx.play("boss_warn", -6.0)
+		"apoctank":
+			if dist_t <= shoot_range + 220.0:
+				_missile_cd -= delta
+				if _missile_cd <= 0.0:
+					_missile_cd = 5.0
+					launch.emit("missile", position + Vector2.RIGHT.rotated(_heading + PI) * 16.0, target, damage * 0.8)
+					Sfx.play("rocket", -5.0)
 	if shield_max > 0.0:
 		_shield_idle += delta
 		if _shield_idle > 3.0 and shield < shield_max:
@@ -335,6 +429,40 @@ func _special_tick(delta: float) -> void:
 					e.hp = minf(e.hp + e.max_hp * HEAL_PERCENT, e.max_hp)
 					e._bar_time = maxf(e._bar_time, 1.2)
 					Fx.spawn(get_parent(), "spark", e.position + Vector2(0.0, -e.radius), Color(0.4, 1.0, 0.5), "", 0.6, 0.35)
+
+# The Golem lands from its slam: the ground shakes and three earthworms burst out under the castle.
+func _land() -> void:
+	_slam_fx = 0.6
+	_scale_pop = 0.3
+	shake.emit(11.0)
+	Sfx.play("explode", -2.0)
+	Fx.spawn(get_parent(), "explosion", position, Color(0.6, 0.5, 0.4), "", 1.1, 0.6)
+	request.emit("worms", self, 3)
+
+# One shot of a ranged mob (tanks, golems, demons).
+func _do_shot() -> void:
+	var f := Vector2.RIGHT.rotated(_heading)
+	var origin := position + f * 38.0 * maxf(art_scale, 1.0)
+	match kind:
+		"heavytank", "apoctank":
+			var side := f.orthogonal() * 9.0
+			shoot.emit(origin + side, damage)         # the double barrel fires both shells together
+			shoot.emit(origin - side, damage)
+			Sfx.play("tank_fire", -2.0)
+		"golem":
+			launch.emit("rock", position + f * radius * 0.8, target, damage * (0.55 if is_small else 0.9))
+			Sfx.play("bolt", -4.0)
+		"demon":
+			launch.emit("fireball", position + f * radius * 0.8, target, damage)
+			Sfx.play("rocket", -4.0)
+		_:
+			shoot.emit(origin, damage)
+			Sfx.play("tank_fire", -3.0)
+
+# A Sinner that dies or reaches the castle tells its Demon, which then spawns new ones when all are gone.
+func _tell_master() -> void:
+	if master != null and is_instance_valid(master) and not master.dead:
+		master._sinners_alive = maxi(master._sinners_alive - 1, 0)
 
 # Critical hit: one strike that removes more than 25% of max health.
 func _is_crit(dealt: float) -> bool:
@@ -354,7 +482,8 @@ func _crit_effects(par: Node, scale_k: float) -> void:
 
 # Draws the lost part of a health bar: a white slice that fades, or (critical) a hot slice that
 # shatters into shards and falls.
-func _draw_chunk(x: float, y: float, w: float, h: float, a: float) -> void:
+func _draw_chunk(x: float, y: float, w: float, h: float, a: float, ci: CanvasItem = null) -> void:
+	var cv: CanvasItem = ci if ci != null else self
 	var life := 0.9 if _chunk_crit else 0.55
 	var age := float(Time.get_ticks_msec() - _chunk_start_ms) / 1000.0
 	if age < 0.0 or age > life or _chunk_from <= _chunk_to:
@@ -363,11 +492,11 @@ func _draw_chunk(x: float, y: float, w: float, h: float, a: float) -> void:
 	var x0 := x + w * _chunk_to
 	var x1 := x + w * _chunk_from
 	if not _chunk_crit:
-		draw_rect(Rect2(x0, y, x1 - x0, h), Color(1, 1, 1, 0.9 * (1.0 - k) * a))
+		cv.draw_rect(Rect2(x0, y, x1 - x0, h), Color(1, 1, 1, 0.9 * (1.0 - k) * a))
 		return
 	if k < 0.2:
-		draw_rect(Rect2(x0, y, x1 - x0, h), Color(1.0, 0.95, 0.7, a))
-		draw_rect(Rect2(x0 - 1.0, y - 2.0, x1 - x0 + 2.0, h + 4.0), Color(1.0, 0.6, 0.2, 0.5 * a), false, 2.0)
+		cv.draw_rect(Rect2(x0, y, x1 - x0, h), Color(1.0, 0.95, 0.7, a))
+		cv.draw_rect(Rect2(x0 - 1.0, y - 2.0, x1 - x0 + 2.0, h + 4.0), Color(1.0, 0.6, 0.2, 0.5 * a), false, 2.0)
 		return
 	var kk := (k - 0.2) / 0.8
 	var n := 5
@@ -375,23 +504,24 @@ func _draw_chunk(x: float, y: float, w: float, h: float, a: float) -> void:
 		var sw := (x1 - x0) / float(n)
 		var sx := x0 + sw * float(i) + (float(i) - 2.0) * 14.0 * kk
 		var fall := 10.0 * kk + 80.0 * kk * kk * (1.0 + 0.35 * float(i % 3))
-		draw_rect(Rect2(sx, y + fall, sw * (1.0 - 0.3 * kk), h * (1.0 - 0.45 * kk)), Color(1.0, 0.3 + 0.3 * kk, 0.15, (1.0 - kk) * a))
+		cv.draw_rect(Rect2(sx, y + fall, sw * (1.0 - 0.3 * kk), h * (1.0 - 0.45 * kk)), Color(1.0, 0.3 + 0.3 * kk, 0.15, (1.0 - kk) * a))
 
 # Small shield badge with the armor value next to a health bar.
-func _draw_armor_tag(origin: Vector2) -> void:
+func _draw_armor_tag(origin: Vector2, ci: CanvasItem = null) -> void:
+	var cv: CanvasItem = ci if ci != null else self
 	if armor < 5.0:
 		return
 	var pts := PackedVector2Array([Vector2(0, 0), Vector2(11, 0), Vector2(11, 7), Vector2(5.5, 13), Vector2(0, 7)])
 	for i in pts.size():
 		pts[i] += origin
-	draw_colored_polygon(pts, Color(0.55, 0.75, 0.95, 0.95))
+	cv.draw_colored_polygon(pts, Color(0.55, 0.75, 0.95, 0.95))
 	var outline := pts.duplicate()
 	outline.append(pts[0])
-	draw_polyline(outline, Color.WHITE, 1.5)
+	cv.draw_polyline(outline, Color.WHITE, 1.5)
 	var font := ThemeDB.fallback_font
 	var txt := str(int(armor))
-	draw_string_outline(font, origin + Vector2(15, 11), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, PixelUI.fs(12), 3, Color.BLACK)
-	draw_string(font, origin + Vector2(15, 11), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, PixelUI.fs(12), Color.WHITE)
+	cv.draw_string_outline(font, origin + Vector2(15, 11), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, PixelUI.fs(12), 3, Color.BLACK)
+	cv.draw_string(font, origin + Vector2(15, 11), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, PixelUI.fs(12), Color.WHITE)
 
 func _process(delta: float) -> void:
 	if preview:
@@ -401,6 +531,14 @@ func _process(delta: float) -> void:
 		return
 	_tick_common(delta)
 	_special_tick(delta)
+	if _slam_t > 0.0:                           # the Golem leaps and slams the ground: it stands still meanwhile
+		_slam_t -= delta
+		_heading = (target - position).angle()
+		if _slam_t <= 0.0:
+			_slam_t = 0.0
+			_land()
+		queue_redraw()
+		return
 	var to_target := target - position
 	var dist := to_target.length()
 	# Tanks stop in range and shell the base until they are destroyed.
@@ -409,13 +547,13 @@ func _process(delta: float) -> void:
 		_shoot_cd -= delta
 		if _shoot_cd <= 0.0:
 			_shoot_cd = shoot_interval
-			shoot.emit(position + Vector2.RIGHT.rotated(_heading) * 38.0, damage)
-			Sfx.play("tank_fire", -3.0)
+			_do_shot()
 		position += _update_dodge(delta) * delta
 		queue_redraw()
 		return
 	if dist <= reach:
 		dead = true
+		_tell_master()
 		arrived.emit(self)
 		queue_free()
 		return
@@ -540,7 +678,8 @@ func take_damage(amount: float, pen: float = 0.0) -> void:
 	Fx.spawn(par, "number", position + Vector2(0, -radius - 12.0), num_col, shown, 1.8 if crit else 1.0, 1.0 if crit else 0.7)
 	if hp <= 0.0:
 		dead = true
-		if kind == "mech" or kind == "golem" or kind == "demon":
+		_tell_master()
+		if kind == "mech" or kind == "golem" or kind == "demon" or kind == "heavytank" or kind == "apoctank":
 			Fx.spawn(par, "explosion", position, Color.WHITE, "", 1.0, 0.6)
 			Sfx.play("explode")
 		else:
@@ -554,6 +693,7 @@ func barrier_kill() -> void:
 	if dead:
 		return
 	dead = true
+	_tell_master()
 	Fx.spawn(get_parent(), "spark", position, Color(0.5, 0.95, 1.0), "", 1.5, 0.45)
 	died.emit(self)
 	queue_free()
@@ -583,6 +723,17 @@ func _draw_marker() -> void:
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 func _draw_overlays() -> void:
+	if _slam_fx > 0.0:
+		var sk := 1.0 - _slam_fx / 0.6
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2(1.0, MobArt.GROUND_SQUASH))
+		PixelFx.ring(self, Vector2.ZERO, 30.0 + 200.0 * sk, Color(0.8, 0.7, 0.5, 0.8 * (1.0 - sk)), 8.0 * (1.0 - sk) + 2.0)
+		PixelFx.ring(self, Vector2.ZERO, 20.0 + 140.0 * sk, Color(0.5, 0.4, 0.3, 0.6 * (1.0 - sk)), 5.0)
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	if _slam_t > 0.0:
+		var wk := 1.0 - _slam_t / SLAM_TIME
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2(1.0, MobArt.GROUND_SQUASH))
+		PixelFx.ring(self, Vector2.ZERO, 40.0 + 120.0 * (1.0 - wk), Color(1.0, 0.4, 0.2, 0.3 + 0.5 * wk), 3.0)
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	if kind == "medic":
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2(1.0, MobArt.GROUND_SQUASH))
 		PixelFx.ring(self, Vector2.ZERO, HEAL_RADIUS, Color(0.4, 1.0, 0.5, 0.10), 2.0)
