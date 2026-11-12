@@ -4,6 +4,8 @@ extends VBoxContainer
 # Reusable settings screen (main menu + in-game pause menu).
 # Three sections: Game, Sounds, Controls.
 signal back_pressed
+signal edit_hud_pressed
+var show_edit_hud: bool = false      # only the in-game pause menu can open the HUD editor
 
 var _key_buttons: Dictionary = {}
 var _waiting: String = ""
@@ -15,11 +17,7 @@ func _ready() -> void:
 	custom_minimum_size = Vector2(620, 0)
 	add_theme_constant_override("separation", 12)
 
-	var title := Label.new()
-	title.text = "SETTINGS"
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", PixelUI.fs(40))
-	add_child(title)
+	add_child(PixelTitle.make("SETTINGS", 40))
 
 	# Section tabs
 	var tabs := HBoxContainer.new()
@@ -33,7 +31,7 @@ func _ready() -> void:
 		tb.toggle_mode = true
 		tb.focus_mode = Control.FOCUS_NONE
 		tb.custom_minimum_size = Vector2(190, 46)
-		tb.add_theme_font_size_override("font_size", PixelUI.fs(22))
+		tb.add_theme_font_size_override("font_size", PixelUI.mfs(22))
 		tb.pressed.connect(_show_page.bind(i))
 		tabs.add_child(tb)
 		_tab_buttons.append(tb)
@@ -64,20 +62,41 @@ func _build_game_page() -> VBoxContainer:
 	var fs := CheckButton.new()
 	fs.text = "Fullscreen"
 	fs.focus_mode = Control.FOCUS_NONE
-	fs.add_theme_font_size_override("font_size", PixelUI.fs(22))
+	fs.add_theme_font_size_override("font_size", PixelUI.mfs(22))
 	fs.button_pressed = Settings.fullscreen
 	fs.toggled.connect(_on_fullscreen)
 	page.add_child(fs)
 	var auto := CheckButton.new()
 	auto.text = "Autosave at the start of each wave"
 	auto.focus_mode = Control.FOCUS_NONE
-	auto.add_theme_font_size_override("font_size", PixelUI.fs(22))
+	auto.add_theme_font_size_override("font_size", PixelUI.mfs(22))
 	auto.button_pressed = Settings.autosave
 	auto.toggled.connect(func(on: bool) -> void:
 		Settings.autosave = on
 		Settings.save())
 	page.add_child(auto)
 	page.add_child(_slider_row("HUD size", Settings.hud_scale, _on_hud_scale, 0.6, 1.6, true))
+	page.add_child(_slider_row("Menu size", Settings.menu_scale, _on_menu_scale, 0.6, 1.2, true))
+	var mf := CheckButton.new()
+	mf.text = "Light menu font (applies after restart)"
+	mf.focus_mode = Control.FOCUS_NONE
+	mf.add_theme_font_size_override("font_size", PixelUI.mfs(22))
+	mf.button_pressed = Settings.menu_font == "soft"
+	mf.toggled.connect(func(on: bool) -> void:
+		Settings.menu_font = "soft" if on else "classic"
+		Settings.save())
+	page.add_child(mf)
+	if show_edit_hud:
+		page.add_child(_button("Edit HUD layout", func() -> void:
+			Sfx.play("click")
+			edit_hud_pressed.emit()))
+	else:
+		var hud_hint := Label.new()
+		hud_hint.text = "Edit the HUD layout while playing: Esc > Settings > Edit HUD layout"
+		hud_hint.add_theme_font_size_override("font_size", PixelUI.mfs(16))
+		hud_hint.add_theme_color_override("font_color", PixelUI.DIM)
+		hud_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		page.add_child(hud_hint)
 	page.add_child(_slider_row("Screen shake", Settings.shake_scale, _on_shake))
 	page.add_child(_slider_row("Screen flashes", Settings.flash_scale, _on_flash))
 	var lang_row := HBoxContainer.new()
@@ -85,12 +104,12 @@ func _build_game_page() -> VBoxContainer:
 	var lang_label := Label.new()
 	lang_label.text = "Language"
 	lang_label.custom_minimum_size = Vector2(220, 0)
-	lang_label.add_theme_font_size_override("font_size", PixelUI.fs(22))
+	lang_label.add_theme_font_size_override("font_size", PixelUI.mfs(22))
 	lang_row.add_child(lang_label)
 	var lang_opt := OptionButton.new()
 	lang_opt.focus_mode = Control.FOCUS_NONE
 	lang_opt.custom_minimum_size = Vector2(220, 40)
-	lang_opt.add_theme_font_size_override("font_size", PixelUI.fs(20))
+	lang_opt.add_theme_font_size_override("font_size", PixelUI.mfs(20))
 	for n: String in Loc.LANG_NAMES:
 		lang_opt.add_item(n)
 	lang_opt.selected = maxi(Loc.LANGS.find(Settings.language), 0)
@@ -107,7 +126,7 @@ func _build_sound_page() -> VBoxContainer:
 	var mute := CheckButton.new()
 	mute.text = "Mute all sounds"
 	mute.focus_mode = Control.FOCUS_NONE
-	mute.add_theme_font_size_override("font_size", PixelUI.fs(22))
+	mute.add_theme_font_size_override("font_size", PixelUI.mfs(22))
 	mute.button_pressed = Settings.muted
 	mute.toggled.connect(_on_mute)
 	page.add_child(mute)
@@ -123,7 +142,7 @@ func _build_controls_page() -> VBoxContainer:
 	page.custom_minimum_size = Vector2(0, 300)
 	var hint := Label.new()
 	hint.text = "Click a key, then press the new key (Esc cancels)"
-	hint.add_theme_font_size_override("font_size", PixelUI.fs(18))
+	hint.add_theme_font_size_override("font_size", PixelUI.mfs(18))
 	page.add_child(hint)
 
 	for action in Keybinds.ORDER:
@@ -133,12 +152,12 @@ func _build_controls_page() -> VBoxContainer:
 		var name_label := Label.new()
 		name_label.text = Keybinds.label_of(a)
 		name_label.custom_minimum_size = Vector2(220, 0)
-		name_label.add_theme_font_size_override("font_size", PixelUI.fs(22))
+		name_label.add_theme_font_size_override("font_size", PixelUI.mfs(22))
 		row.add_child(name_label)
 		var kb := Button.new()
 		kb.focus_mode = Control.FOCUS_NONE
 		kb.custom_minimum_size = Vector2(220, 40)
-		kb.add_theme_font_size_override("font_size", PixelUI.fs(20))
+		kb.add_theme_font_size_override("font_size", PixelUI.mfs(20))
 		kb.pressed.connect(_on_rebind.bind(a))
 		row.add_child(kb)
 		_key_buttons[a] = kb
@@ -151,7 +170,7 @@ func _slider_row(label_text: String, value: float, handler: Callable, lo: float 
 	var label := Label.new()
 	label.text = label_text
 	label.custom_minimum_size = Vector2(220, 0)
-	label.add_theme_font_size_override("font_size", PixelUI.fs(22))
+	label.add_theme_font_size_override("font_size", PixelUI.mfs(22))
 	row.add_child(label)
 	var sl := HSlider.new()
 	sl.min_value = lo
@@ -169,7 +188,7 @@ func _slider_row(label_text: String, value: float, handler: Callable, lo: float 
 		pct.text = "%d%%" % roundi(value * 100.0)
 		pct.custom_minimum_size = Vector2(70, 0)
 		pct.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-		pct.add_theme_font_size_override("font_size", PixelUI.fs(20))
+		pct.add_theme_font_size_override("font_size", PixelUI.mfs(20))
 		row.add_child(pct)
 		sl.value_changed.connect(func(v: float) -> void: pct.text = "%d%%" % roundi(v * 100.0))
 	return row
@@ -179,7 +198,7 @@ func _button(text: String, handler: Callable) -> Button:
 	b.text = text
 	b.focus_mode = Control.FOCUS_NONE
 	b.custom_minimum_size = Vector2(380, 52)
-	b.add_theme_font_size_override("font_size", PixelUI.fs(22))
+	b.add_theme_font_size_override("font_size", PixelUI.mfs(22))
 	b.pressed.connect(handler)
 	return b
 
@@ -242,6 +261,9 @@ func _on_music_volume(v: float) -> void:
 func _on_hud_scale(v: float) -> void:
 	Settings.hud_scale = v
 
+func _on_menu_scale(v: float) -> void:
+	Settings.menu_scale = v
+
 func _on_shake(v: float) -> void:
 	Settings.shake_scale = v
 
@@ -249,6 +271,7 @@ func _on_flash(v: float) -> void:
 	Settings.flash_scale = v
 
 func _on_slider_done(_changed: bool) -> void:
+	PixelUI.refit()
 	Settings.save()
 	Sfx.play("hit")
 

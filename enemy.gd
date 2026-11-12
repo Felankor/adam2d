@@ -84,6 +84,17 @@ var _slam_t: float = 0.0
 var _slam_fx: float = 0.0
 var _missile_cd: float = 3.0        # Apocalypse Tank: time to the next guided missile
 const SLAM_TIME := 0.8
+# Apocalypse Tank: a golden shield that makes it untouchable for 5 s (when it is hit critically or drops below 30% health).
+const INVULN_TIME := 5.0
+const INVULN_COOLDOWN := 20.0           # from the moment it starts, so it comes back 15 s after it ends
+var _invuln: float = 0.0
+var _inv_cd: float = 0.0
+# Demon: leaps over lava (and water) that is in its way.
+const LEAP_TIME := 0.55
+const LEAP_SPEED := 560.0
+var _leap_t: float = 0.0
+var _leap_cd: float = 0.0
+var _leap_dir := Vector2.RIGHT
 
 # Builds an enemy of the given kind with stats for the given level.
 # Enemy damage grows by +25% of the base value with every level cleared.
@@ -123,10 +134,10 @@ static func make(k: String, level: int) -> Enemy:
 			e.speed = minf(32.0 + lvl * 1.5, 70.0) * 0.9 * GameState.speed_mult()
 			e.damage = 3.0 * 1.3 * 1.25 * dmg_mult
 			e.shoots = true
-			e.shoot_interval = 1.5
+			e.shoot_interval = 0.75              # twice as fast as it was
 			e.shoot_range = randf_range(460.0, 520.0)
 			e._shoot_cd = randf_range(0.5, 1.5)
-			e._missile_cd = randf_range(2.0, 4.0)
+			e._missile_cd = randf_range(1.0, 2.0)
 			e.armor = 40.0 * 1.3 * 1.15
 			e.armor_pen = 15.0
 			e.reward = 16 + int(level * 1.1)
@@ -149,9 +160,9 @@ static func make(k: String, level: int) -> Enemy:
 			e.damage = 0.7 * dmg_mult
 			e.reward = 0
 			e.radius = 11.0
-		"sinner":     # Demon's unarmed black zombie-soldier
+		"sinner":     # Demon's unarmed black zombie-soldier (twice as fast as it used to be)
 			e.hp = (14.0 + lvl * 4.5) * GameState.hp_mult()
-			e.speed = minf(42.0 + lvl * 2.5, 100.0) * GameState.speed_mult()
+			e.speed = minf(42.0 + lvl * 2.5, 100.0) * 2.0 * GameState.speed_mult()
 			e.damage = 1.2 * dmg_mult
 			e.reward = 1 + int(level * 0.2)
 			e.radius = 15.0
@@ -174,8 +185,8 @@ static func make(k: String, level: int) -> Enemy:
 			e.shoot_interval = 3.2
 			e._shoot_cd = randf_range(1.0, 2.5)
 			e._slam_cd = randf_range(3.5, 6.0)
-		"demon":      # Hell: faster and stronger than a golem, 3x its health
-			e.hp = (90.0 + lvl * 25.0) * 3.0 * GameState.hp_mult()
+		"demon":      # Hell: faster and stronger than a golem, 9x its health (3x, then 3x again); leaps over lava
+			e.hp = (90.0 + lvl * 25.0) * 9.0 * GameState.hp_mult()
 			e.speed = minf(32.0 + lvl * 1.5, 70.0) * 1.6 * GameState.speed_mult()
 			e.damage = 8.0 * dmg_mult
 			e.armor = 20.0
@@ -358,10 +369,47 @@ func _update_sprite() -> void:
 	k *= 1.0 + _scale_pop * 2.0
 	_sprite.scale = Vector2(k, k)
 	_sprite.position = Vector2(0.0, -sin(clampf(1.0 - _slam_t / SLAM_TIME, 0.0, 1.0) * PI) * 26.0) if _slam_t > 0.0 else Vector2.ZERO
+	if _leap_t > 0.0:
+		_sprite.position = Vector2(0.0, -sin(clampf(1.0 - _leap_t / LEAP_TIME, 0.0, 1.0) * PI) * 70.0)
+	_update_invuln_fx()
 	if MobArt.rotates(_art_key):
 		_sprite.rotation = _heading
 	elif MobArt.flips(_art_key):
 		_sprite.flip_h = cos(_heading) < 0.0
+
+# Apocalypse Tank Invincibility: a gold copy of the sprite blended on top of it (the shell shines) and the bubble above both.
+var _inv_sprite: Sprite2D = null
+var _inv_shield: EnemyShield = null
+
+func _update_invuln_fx() -> void:
+	if _invuln <= 0.0:
+		if _inv_sprite != null:
+			_inv_sprite.queue_free()
+			_inv_sprite = null
+		if _inv_shield != null:
+			_inv_shield.queue_free()
+			_inv_shield = null
+		return
+	var glow := 0.5 + 0.5 * sin(float(Time.get_ticks_msec()) / 60.0)
+	var fade := clampf(_invuln / 0.8, 0.0, 1.0)
+	if _inv_sprite == null:
+		_inv_sprite = Sprite2D.new()
+		_inv_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		var mat := CanvasItemMaterial.new()
+		mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+		_inv_sprite.material = mat
+		add_child(_inv_sprite)
+		_inv_shield = EnemyShield.new()
+		add_child(_inv_shield)
+	_inv_sprite.texture = _sprite.texture
+	_inv_sprite.offset = _sprite.offset
+	_inv_sprite.scale = _sprite.scale
+	_inv_sprite.position = _sprite.position
+	_inv_sprite.rotation = _sprite.rotation
+	_inv_sprite.flip_h = _sprite.flip_h
+	_inv_sprite.modulate = Color(1.0, 0.78, 0.2, (0.55 + 0.35 * glow) * fade)
+	_sprite.modulate = Color(1.25, 1.1, 0.7)
+	_inv_shield.setup(radius, fade, glow)
 
 func _tick_common(delta: float) -> void:
 	_update_sprite()
@@ -387,6 +435,9 @@ func _hit_reaction(from_dir: Vector2, strength: float) -> void:
 # Medic healing pulse and Aegis shield recharge.
 func _special_tick(delta: float) -> void:
 	_slam_fx = maxf(_slam_fx - delta, 0.0)
+	_invuln = maxf(_invuln - delta, 0.0)
+	_inv_cd = maxf(_inv_cd - delta, 0.0)
+	_leap_cd = maxf(_leap_cd - delta, 0.0)
 	var dist_t := position.distance_to(target)
 	match kind:
 		"demon":
@@ -410,7 +461,7 @@ func _special_tick(delta: float) -> void:
 			if dist_t <= shoot_range + 220.0:
 				_missile_cd -= delta
 				if _missile_cd <= 0.0:
-					_missile_cd = 5.0
+					_missile_cd = 2.5
 					launch.emit("missile", position + Vector2.RIGHT.rotated(_heading + PI) * 16.0, target, damage * 0.8)
 					Sfx.play("rocket", -5.0)
 	if shield_max > 0.0:
@@ -444,10 +495,15 @@ func _do_shot() -> void:
 	var f := Vector2.RIGHT.rotated(_heading)
 	var origin := position + f * 38.0 * maxf(art_scale, 1.0)
 	match kind:
-		"heavytank", "apoctank":
+		"heavytank":
 			var side := f.orthogonal() * 9.0
 			shoot.emit(origin + side, damage)         # the double barrel fires both shells together
 			shoot.emit(origin - side, damage)
+			Sfx.play("tank_fire", -2.0)
+		"apoctank":
+			var aside := f.orthogonal() * 9.0         # twice the shell speed of a normal tank
+			launch.emit("apocshell", origin + aside, target, damage)
+			launch.emit("apocshell", origin - aside, target, damage)
 			Sfx.play("tank_fire", -2.0)
 		"golem":
 			launch.emit("rock", position + f * radius * 0.8, target, damage * (0.55 if is_small else 0.9))
@@ -539,6 +595,20 @@ func _process(delta: float) -> void:
 			_land()
 		queue_redraw()
 		return
+	if _leap_t > 0.0:                           # a Demon leaping over lava: fast, straight, ignores the ground
+		_leap_t -= delta
+		position += _leap_dir * LEAP_SPEED * delta
+		_heading = _leap_dir.angle()
+		_walk += delta * 4.0
+		if _leap_t <= 0.0:
+			_leap_t = 0.0
+			if Backdrop.liquid_at(terrain_biome, position):
+				_leap_t = 0.2                   # still over the lava: keep going
+			else:
+				_leap_cd = 0.4
+				_scale_pop = 0.15
+		queue_redraw()
+		return
 	var to_target := target - position
 	var dist := to_target.length()
 	# Tanks stop in range and shell the base until they are destroyed.
@@ -576,6 +646,11 @@ func _avoid_liquid(step: Vector2, delta: float) -> Vector2:
 	if not Backdrop.liquid_at(terrain_biome, position + step.normalized() * look):
 		_blocked_t = maxf(_blocked_t - delta * 2.0, 0.0)
 		return step
+	if kind == "demon" and not is_ally and _leap_cd <= 0.0:
+		_leap_t = LEAP_TIME
+		_leap_dir = step.normalized()
+		Sfx.play("dodge", -6.0)
+		return Vector2.ZERO
 	_blocked_t += delta
 	if _blocked_t > 3.0:
 		return step * 0.45
@@ -631,6 +706,10 @@ func take_damage(amount: float, pen: float = 0.0) -> void:
 		died.emit(self)
 		queue_free()
 		return
+	if _invuln > 0.0:                        # Apocalypse Tank shield: nothing gets through
+		Fx.spawn(par, "spark", position + Vector2(0.0, -radius * 0.4), Color(1.0, 0.9, 0.4), "", 1.2, 0.3)
+		_hit_sfx("block")
+		return
 	var armor_factor := Weapons.armor_mult(armor, pen)
 	var raw := amount * armor_factor * dmg_taken_mult
 	var absorbed := 0.0
@@ -643,6 +722,12 @@ func take_damage(amount: float, pen: float = 0.0) -> void:
 	hp -= dealt
 	var crit := _is_crit(dealt)
 	_record_chunk(hp_before, crit)
+	if kind == "apoctank" and hp > 0.0 and _invuln <= 0.0 and _inv_cd <= 0.0 and (crit or hp < max_hp * 0.3):
+		_invuln = INVULN_TIME
+		_inv_cd = INVULN_COOLDOWN
+		_scale_pop = 0.25
+		Sfx.play("weapon_up", -4.0)
+		Fx.spawn(par, "spark", position, Color(1.0, 0.9, 0.4), "", 2.2, 0.6)
 	_flash = 0.22 if crit else 0.12
 	_bar_time = 3.5 if crit else 2.5
 	_scale_pop = 0.2 if crit else 0.12

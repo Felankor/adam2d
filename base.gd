@@ -60,7 +60,7 @@ var weapon_tier: int = 0
 var damage_mult: float = 1.0
 
 const AUTO_INTERVAL_MIN := 0.9       # each auto-weapon fires at most about once per 0.9 s
-const AUTO_RATE_CAP := 1.3
+const AUTO_RATE_CAP := 2.0
 var auto_cannons: int = 0          # number of auto-weapons (built by Gunner allies)
 var auto_interval: float = 1.5
 var auto_range: float = 450.0
@@ -147,6 +147,8 @@ func hp_total() -> float:
 func spend_point(id: String) -> bool:
 	if free_points <= 0:
 		return false
+	if id == "autorate" and auto_rate_maxed():
+		return false
 	match id:
 		"damage":
 			damage_mult *= 1.01          # every point is +1% of the CURRENT value (compounding)
@@ -202,6 +204,10 @@ func reset_stat_points() -> int:
 	free_points += total
 	queue_redraw()
 	return total
+
+# True once the Auto fire rate stat has reached its cap (no more points can go into it).
+func auto_rate_maxed() -> bool:
+	return pow(1.01, float(int(stat_pts.get("autorate", 0)))) >= AUTO_RATE_CAP - 0.0001
 
 func auto_rate_factor() -> float:
 	return minf(pow(1.01, float(int(stat_pts.get("autorate", 0)))), AUTO_RATE_CAP)      # capped so auto fire cannot snowball

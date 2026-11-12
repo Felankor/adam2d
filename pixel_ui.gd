@@ -31,6 +31,56 @@ static func font() -> Font:
 		_font = ff
 	return _font
 
+# The font of the menus and windows. "soft" is Pixelify Sans, a lighter pixel font than the heavy game font.
+static func ui_font() -> Font:
+	if Settings.menu_font == "classic":
+		return font()
+	return HudFonts.get_font("pixelify")
+
+# Outline width: the soft font gets a thinner outline (a thick one is what makes text look heavy).
+static func ol(n: int) -> int:
+	if Settings.menu_font == "classic":
+		return n
+	return (n + 1) >> 1
+
+# Menu text size: the game font keeps its pixel grid, the soft font is cut to the same letter height
+# (it is narrower and lighter, so the layouts have room to spare).
+static func mfs(n: int) -> int:
+	if Settings.menu_font == "classic":
+		return fs(n)
+	return maxi(12, int(roundf(float(n) * 1.08 / 2.0)) * 2)
+
+# Called when the settings are loaded: the theme's default font follows the menu font setting.
+static func refresh_theme_font() -> void:
+	if _theme != null:
+		_theme.default_font = ui_font()
+		_theme.default_font_size = mfs(20)
+
+# Scales a window panel by the "Menu size" setting around its centre (it sits in a CenterContainer).
+static var _fitted: Array[Control] = []
+
+static func fit(c: Control) -> void:
+	_fitted.append(c)
+	c.resized.connect(_fit_one.bind(c))
+	c.visibility_changed.connect(_fit_one.bind(c))
+	_fit_one(c)
+
+static func _fit_one(c: Control) -> void:
+	if not is_instance_valid(c):
+		return
+	c.pivot_offset = c.size * 0.5
+	var s := Settings.menu_scale
+	c.scale = Vector2(s, s)
+
+# After the Menu size setting changed.
+static func refit() -> void:
+	var keep: Array[Control] = []
+	for c in _fitted:
+		if is_instance_valid(c):
+			keep.append(c)
+			_fit_one(c)
+	_fitted = keep
+
 # Snap a font size to the pixel grid so letters keep square pixels.
 static func fs(n: int) -> int:
 	if n <= 14:
@@ -41,13 +91,16 @@ static func fs(n: int) -> int:
 		return GRID * 3
 	return int(roundf(float(n) / float(GRID))) * GRID
 
+static func theme() -> Theme:
+	return _theme
+
 static func setup(tree: SceneTree) -> void:
 	var root := tree.root
 	root.canvas_item_default_texture_filter = Viewport.DEFAULT_CANVAS_ITEM_TEXTURE_FILTER_NEAREST
 	if _theme == null:
 		_theme = Theme.new()
-		_theme.default_font = font()
-		_theme.default_font_size = GRID * 2
+		_theme.default_font = ui_font()
+		_theme.default_font_size = mfs(GRID * 2)
 		for state in ["normal", "hover", "pressed", "disabled", "focus"]:
 			_theme.set_stylebox(state, "Button", _button_box(state))
 		_theme.set_stylebox("focus", "Button", StyleBoxEmpty.new())
@@ -72,7 +125,7 @@ static func setup(tree: SceneTree) -> void:
 		_theme.set_color("font_outline_color", "Label", OUTLINE)
 		_theme.set_constant("outline_size", "Label", 0)
 		_style_controls(_theme)
-	ThemeDB.fallback_font = font()
+	ThemeDB.fallback_font = ui_font()
 	root.theme = _theme
 
 # Bronze look for sliders, check buttons and drop-down lists (so no default blue widgets remain).
@@ -337,10 +390,10 @@ static func box(bg: Color, border: Color, unit: int = 3, inverted: bool = false)
 
 # Draw `text` with a hard pixel outline (no blur) on any CanvasItem.
 static func text(ci: CanvasItem, pos: Vector2, s: String, size: int, col: Color, align: int = HORIZONTAL_ALIGNMENT_LEFT, width: float = -1.0, outline: int = 0) -> void:
-	var f := font()
-	var sz := fs(size)
+	var f := ui_font()
+	var sz := mfs(size)
 	if outline > 0:
-		ci.draw_string_outline(f, pos, s, align, width, sz, outline, OUTLINE)
+		ci.draw_string_outline(f, pos, s, align, width, sz, ol(outline), OUTLINE)
 	ci.draw_string(f, pos, s, align, width, sz, col)
 
 
@@ -348,6 +401,6 @@ static func text(ci: CanvasItem, pos: Vector2, s: String, size: int, col: Color,
 static func style_title(l: Label, col: Color = GOLD) -> void:
 	l.add_theme_color_override("font_color", col)
 	l.add_theme_color_override("font_outline_color", OUTLINE)
-	l.add_theme_constant_override("outline_size", 6)
+	l.add_theme_constant_override("outline_size", ol(6))
 	l.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.5))
-	l.add_theme_constant_override("shadow_offset_y", 4)
+	l.add_theme_constant_override("shadow_offset_y", ol(4))

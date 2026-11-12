@@ -10,6 +10,7 @@ var _retry: Button
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	theme = PixelUI.theme()
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	visible = false
 
@@ -27,21 +28,17 @@ func _ready() -> void:
 	sb.set_content_margin_all(40)
 	panel.add_theme_stylebox_override("panel", sb)
 	center.add_child(panel)
+	PixelUI.fit(panel)
 
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 20)
 	panel.add_child(box)
 
-	var title := Label.new()
-	title.text = "Your castle has been destroyed!"
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", PixelUI.fs(46))
-	PixelUI.style_title(title, PixelUI.BAD)
-	box.add_child(title)
+	box.add_child(PixelTitle.make("Your castle has been destroyed!", 40, PixelUI.BAD))
 
 	_info = Label.new()
 	_info.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_info.add_theme_font_size_override("font_size", PixelUI.fs(24))
+	_info.add_theme_font_size_override("font_size", PixelUI.mfs(24))
 	box.add_child(_info)
 
 	box.add_child(HSeparator.new())
@@ -53,8 +50,8 @@ func _button(text: String, handler: Callable) -> Button:
 	var b := Button.new()
 	b.text = text
 	b.focus_mode = Control.FOCUS_NONE
-	b.custom_minimum_size = Vector2(420, 60)
-	b.add_theme_font_size_override("font_size", PixelUI.fs(26))
+	b.custom_minimum_size = Vector2(480, 68)
+	b.add_theme_font_size_override("font_size", PixelUI.mfs(30))
 	b.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	b.pressed.connect(handler)
 	return b

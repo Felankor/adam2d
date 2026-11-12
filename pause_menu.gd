@@ -5,6 +5,7 @@ extends Control
 signal resume_requested
 signal save_requested
 signal quit_requested
+signal edit_hud_requested
 
 var _main_box: VBoxContainer
 var _status: Label
@@ -15,6 +16,7 @@ var _quit_armed: bool = false
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	theme = PixelUI.theme()       # the bronze buttons and the pixel font (a Control under a CanvasLayer may not inherit it)
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	visible = false
 
@@ -32,6 +34,7 @@ func _ready() -> void:
 	sb.set_content_margin_all(32)
 	panel.add_theme_stylebox_override("panel", sb)
 	center.add_child(panel)
+	PixelUI.fit(panel)
 
 	var holder := VBoxContainer.new()
 	panel.add_child(holder)
@@ -40,13 +43,7 @@ func _ready() -> void:
 	_main_box.add_theme_constant_override("separation", 14)
 	holder.add_child(_main_box)
 
-	var title := Label.new()
-	title.text = "PAUSED"
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", PixelUI.fs(44))
-	PixelUI.style_title(title)
-	_main_box.add_child(title)
-	_main_box.add_child(HSeparator.new())
+	_main_box.add_child(PixelTitle.make("PAUSED", 50))
 
 	_main_box.add_child(_button("Resume", _on_resume))
 	_main_box.add_child(_button("Save", _on_save))
@@ -57,13 +54,15 @@ func _ready() -> void:
 
 	_status = Label.new()
 	_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_status.add_theme_font_size_override("font_size", PixelUI.fs(18))
+	_status.add_theme_font_size_override("font_size", PixelUI.mfs(20))
 	_status.add_theme_color_override("font_color", PixelUI.GOOD)
-	_status.custom_minimum_size = Vector2(440, 48)
+	_status.custom_minimum_size = Vector2(480, 56)
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_main_box.add_child(_status)
 
 	_settings = SettingsPanel.new()
+	_settings.show_edit_hud = true
+	_settings.edit_hud_pressed.connect(func() -> void: edit_hud_requested.emit())
 	_settings.visible = false
 	_settings.back_pressed.connect(_show_main)
 	holder.add_child(_settings)
@@ -77,8 +76,8 @@ func _button(text: String, handler: Callable) -> Button:
 	var b := Button.new()
 	b.text = text
 	b.focus_mode = Control.FOCUS_NONE
-	b.custom_minimum_size = Vector2(440, 62)
-	b.add_theme_font_size_override("font_size", PixelUI.fs(24))
+	b.custom_minimum_size = Vector2(480, 68)
+	b.add_theme_font_size_override("font_size", PixelUI.mfs(30))
 	b.pressed.connect(handler)
 	return b
 

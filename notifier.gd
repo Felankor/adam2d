@@ -9,6 +9,8 @@ const FADE_IN := 0.15
 const FADE_OUT := 0.5
 
 var _toasts: Array[Dictionary] = []
+var _fid: String = "game"          # HUD editor: font and text size of the pop-ups
+var _fmult: float = 1.0
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -23,6 +25,27 @@ func _ready() -> void:
 	offset_bottom = -28.0
 	grow_vertical = Control.GROW_DIRECTION_BEGIN
 	add_theme_constant_override("separation", 8)
+
+# HUD editor: shift, size and opacity of the whole pop-up stack.
+func set_shift(off: Vector2, sc: float, a: float) -> void:
+	offset_left = 28.0 + off.x
+	offset_right = 28.0 + 480.0 + off.x
+	offset_top = -28.0 + off.y
+	offset_bottom = -28.0 + off.y
+	scale = Vector2(sc, sc)
+	modulate.a = a
+
+func _style_label(l: Label) -> void:
+	l.add_theme_font_override("font", HudFonts.get_font(_fid))
+	l.add_theme_font_size_override("font_size", HudFonts.size_for(_fid, 22.0, _fmult))
+
+func set_text_style(fid: String, mult: float) -> void:
+	if fid == _fid and is_equal_approx(mult, _fmult):
+		return
+	_fid = fid
+	_fmult = mult
+	for t in _toasts:
+		_style_label(t["label"] as Label)
 
 # icon: an Icons kind ("" = none). key merges repeated messages.
 func push(text: String, icon: String = "", color: Color = Color.WHITE, key: String = "") -> void:
@@ -56,7 +79,7 @@ func push(text: String, icon: String = "", color: Color = Color.WHITE, key: Stri
 		row.add_child(ic)
 	var label := Label.new()
 	label.text = text
-	label.add_theme_font_size_override("font_size", PixelUI.fs(22))
+	_style_label(label)
 	label.add_theme_color_override("font_color", color.lerp(Color.WHITE, 0.55))
 	label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -66,6 +89,7 @@ func push(text: String, icon: String = "", color: Color = Color.WHITE, key: Stri
 	_toasts.append({"node": panel, "label": label, "age": 0.0, "key": key, "count": 1})
 
 func _process(delta: float) -> void:
+	pivot_offset = Vector2(0.0, size.y)      # scale from the bottom-left corner (HUD editor)
 	var i := 0
 	while i < _toasts.size():
 		var t := _toasts[i]

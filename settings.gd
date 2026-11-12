@@ -21,6 +21,8 @@ static var muted: bool = false
 static var music_volume: float = 0.5
 static var shake_scale: float = 1.0     # 0 = no screen shake, 1 = full
 static var flash_scale: float = 1.0     # 0 = no screen flashes, 1 = full
+static var menu_scale: float = 0.85   # size of the menu windows (castle, pause ...), 0.6 - 1.2
+static var menu_font: String = "soft"   # "soft" (Pixelify Sans, lighter) or "classic" (the heavy game font); read when a menu is built
 static var hud_scale: float = 1.0     # size of the HUD (bars, skills, minimap), 0.6 - 1.6
 static var autosave: bool = true      # save automatically at the start of every wave
 static var language: String = ""      # "en" or "tr"; empty = pick from the system language
@@ -39,16 +41,21 @@ static func load_and_apply() -> void:
 		flash_scale = clampf(float(cfg.get_value("display", "flash", 1.0)), 0.0, 1.0)
 		language = str(cfg.get_value("ui", "language", ""))
 		hud_scale = clampf(float(cfg.get_value("ui", "hud_scale", 1.0)), 0.6, 1.6)
+		menu_scale = clampf(float(cfg.get_value("ui", "menu_scale", 0.85)), 0.6, 1.2)
+		menu_font = "classic" if str(cfg.get_value("ui", "menu_font", "soft")) == "classic" else "soft"
 	Keybinds.load_from(cfg)
+	HudLayout.load_from(cfg)
 	if language == "":
 		language = "tr" if OS.get_locale_language() == "tr" else "en"
 	Loc.setup(language)
+	PixelUI.refresh_theme_font()
 	DisplayServer.window_set_title("Castle in the Sky")
 	apply_scaling()
 	apply()
 
 static func save() -> void:
 	var cfg := ConfigFile.new()
+	cfg.load(PATH)       # keeps what other parts of the game stored in the file (HUD layout slots)
 	cfg.set_value("display", "fullscreen", fullscreen)
 	cfg.set_value("audio", "volume", volume)
 	cfg.set_value("audio", "sfx_volume", sfx_volume)
@@ -59,8 +66,11 @@ static func save() -> void:
 	cfg.set_value("display", "flash", flash_scale)
 	cfg.set_value("ui", "language", language)
 	cfg.set_value("ui", "hud_scale", hud_scale)
+	cfg.set_value("ui", "menu_scale", menu_scale)
+	cfg.set_value("ui", "menu_font", menu_font)
 	for a in Keybinds.ORDER:
 		cfg.set_value("keys", a, Keybinds.get_key(a))
+	HudLayout.save_to(cfg)
 	cfg.save(PATH)
 
 static func apply_scaling() -> void:

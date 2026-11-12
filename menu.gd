@@ -55,7 +55,7 @@ func _ready() -> void:
 	var subtitle := Label.new()
 	subtitle.text = "Grow your village into an Eye of End"
 	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	subtitle.add_theme_font_size_override("font_size", PixelUI.fs(22))
+	subtitle.add_theme_font_size_override("font_size", PixelUI.mfs(22))
 	subtitle.add_theme_color_override("font_color", Color(1.0, 0.88, 0.55))
 	stack.add_child(subtitle)
 
@@ -71,11 +71,7 @@ func _ready() -> void:
 	_diff_box.add_theme_constant_override("separation", 12)
 	_diff_box.visible = false
 	stack.add_child(_diff_box)
-	var diff_title := Label.new()
-	diff_title.text = "Choose your difficulty"
-	diff_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	diff_title.add_theme_font_size_override("font_size", PixelUI.fs(28))
-	_diff_box.add_child(diff_title)
+	_diff_box.add_child(PixelTitle.make("Choose your difficulty", 30))
 	_diff_box.add_child(_button("Beginner  -  the standard experience", _pick_difficulty.bind(0)))
 	_diff_box.add_child(_button("I Hate Myself  -  denser waves, more rivals, double gold", _pick_difficulty.bind(1)))
 	_diff_box.add_child(_button("Back", _show_main))
@@ -98,7 +94,7 @@ func _ready() -> void:
 func _button(text: String, handler: Callable) -> Button:
 	var b := Button.new()
 	b.text = text
-	b.add_theme_font_size_override("font_size", PixelUI.fs(24))
+	b.add_theme_font_size_override("font_size", PixelUI.mfs(24))
 	b.custom_minimum_size = Vector2(0, 64)
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	b.alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -143,11 +139,7 @@ func _open_slots(mode: String) -> void:
 	for c in _slot_box.get_children():
 		_slot_box.remove_child(c)        # take them out at once so old rows never overlap the new list
 		c.queue_free()
-	var title := Label.new()
-	title.text = "Load which save?" if mode == "load" else "Save the new game in which slot?"
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", PixelUI.fs(28))
-	_slot_box.add_child(title)
+	_slot_box.add_child(PixelTitle.make("Load which save?" if mode == "load" else "Save the new game in which slot?", 30))
 	for i in GameState.SLOT_COUNT:
 		var info := GameState.slot_info(i)
 		var row := HBoxContainer.new()
@@ -159,7 +151,7 @@ func _open_slots(mode: String) -> void:
 		else:
 			text = Loc.t("Slot %d  -  Wave %d, %s   %s") % [i + 1, int(info["level"]), Loc.t(GameState.DIFFICULTY_NAMES[int(info["difficulty"])]), GameState.time_text(int(info["time"]))]
 		var btn := _button(text, Callable())
-		btn.add_theme_font_size_override("font_size", PixelUI.fs(22))
+		btn.add_theme_font_size_override("font_size", PixelUI.mfs(22))
 		row.add_child(btn)
 		if mode == "load":
 			btn.disabled = info.is_empty()
@@ -176,7 +168,7 @@ func _open_slots(mode: String) -> void:
 		if not info.is_empty():
 			var del := Button.new()
 			del.text = "Delete"
-			del.add_theme_font_size_override("font_size", PixelUI.fs(22))
+			del.add_theme_font_size_override("font_size", PixelUI.mfs(22))
 			del.custom_minimum_size = Vector2(180, 64)
 			var confirm := [false]
 			del.pressed.connect(func() -> void:

@@ -47,13 +47,12 @@ const SPAWN_DIST_MAX := 1550.0
 var camera: Camera2D
 var hud: Hud
 var vignette: DamageVignette
-var info_label: Label
-var detail_label: Label
 var _show_details: bool = false
 var banner: Label
 var pause_panel: PanelContainer
 var castle_menu: CastleMenu
 var pause_menu: PauseMenu
+var hud_editor: HudEditor
 var notifier: Notifier
 var gameover_menu: GameOverMenu
 var _level_snapshot: Dictionary = {}
@@ -128,23 +127,6 @@ func _ready() -> void:
 	vignette = DamageVignette.new()
 	layer.add_child(vignette)
 
-	info_label = Label.new()
-	info_label.position = Vector2(28, 20)
-	info_label.add_theme_font_size_override("font_size", PixelUI.fs(22))
-	info_label.add_theme_constant_override("outline_size", 6)
-	info_label.add_theme_color_override("font_outline_color", Color.BLACK)
-	layer.add_child(info_label)
-
-	# difficulty, enemy damage, spawn rate and PowerScore: hidden until the player presses the details key
-	detail_label = Label.new()
-	detail_label.position = Vector2(28, 168)
-	detail_label.add_theme_font_size_override("font_size", PixelUI.fs(17))
-	detail_label.add_theme_constant_override("outline_size", 5)
-	detail_label.add_theme_color_override("font_outline_color", Color.BLACK)
-	detail_label.add_theme_color_override("font_color", PixelUI.CREAM)
-	detail_label.visible = false
-	layer.add_child(detail_label)
-
 	notifier = Notifier.new()
 	layer.add_child(notifier)
 
@@ -168,6 +150,10 @@ func _ready() -> void:
 	banner.add_theme_color_override("font_outline_color", Color.BLACK)
 	banner.modulate.a = 0.0
 	layer.add_child(banner)
+
+	hud.attach("notifier", [notifier])
+	hud.attach("bosswarn", [boss_label])
+	hud.attach("banner", [banner])
 
 	pause_panel = PanelContainer.new()
 	pause_panel.position = Vector2(Settings.WORLD_SIZE.x * 0.5 - 130.0, 24)
@@ -202,6 +188,11 @@ func _ready() -> void:
 	pause_menu.quit_requested.connect(_quit_to_menu)
 	layer.add_child(pause_menu)
 
+	hud_editor = HudEditor.new()
+	hud_editor.closed.connect(_on_hud_editor_closed)
+	layer.add_child(hud_editor)
+	pause_menu.edit_hud_requested.connect(_open_hud_editor)
+
 	gameover_menu = GameOverMenu.new()
 	gameover_menu.retry_requested.connect(_retry_level)
 	gameover_menu.quit_requested.connect(_quit_to_menu)
@@ -227,6 +218,9 @@ func _apply_save(d: Dictionary) -> void:
 	stat_time = maxf(float(st.get("time", 0.0)), 0.0)
 	exchange_count = clampi(int(d.get("exchange_count", 0)), 0, 400)
 	biome = _biome_for(level)
+	if d.get("hud") is Dictionary:           # the HUD layout belongs to the saved game
+		HudLayout.load_dict(d["hud"] as Dictionary)
+		Settings.save()
 
 func _make_save_data() -> Dictionary:
 	return {
@@ -236,6 +230,7 @@ func _make_save_data() -> Dictionary:
 		"coins": coins,
 		"base": base.to_dict(),
 		"exchange_count": exchange_count,
+		"hud": HudLayout.snapshot(),
 		"stats": {"kills": stat_kills, "gold": stat_gold, "bosses": stat_bosses, "best_wave": stat_best_wave, "time": stat_time},
 	}
 
@@ -251,6 +246,29 @@ func _save_game() -> void:
 		_notify(Loc.t("Game saved"), "star", Color(1.0, 0.85, 0.3), "save")
 	else:
 		pause_menu.set_status(Loc.t("Could not save the game."))
+
+func _open_hud_editor() -> void:
+	pause_menu.close()
+	hud_editor.open(hud)
+	_update_pause()
+
+func _on_hud_editor_closed() -> void:
+	_store_hud_in_save()
+	pause_menu.open()
+	_update_pause()
+
+# After the HUD editor closes the new layout goes into the running level's snapshot and the current save slot,
+# so it is not lost if the game is closed before the next autosave.
+func _store_hud_in_save() -> void:
+	var h := HudLayout.snapshot()
+	if not _level_snapshot.is_empty():
+		_level_snapshot["hud"] = h
+	var i := GameState.current_slot
+	if i >= 0:
+		var d := GameState.read_slot(i)
+		if not d.is_empty():
+			d["hud"] = h
+			GameState.write_save(d)
 
 func _close_pause_menu() -> void:
 	pause_menu.close()
@@ -431,7 +449,7 @@ func _count_hostiles() -> int:
 	return n
 
 func _update_pause() -> void:
-	get_tree().paused = _manual_paused or castle_menu.visible or pause_menu.visible
+	get_tree().paused = _manual_paused or castle_menu.visible or pause_menu.visible or hud_editor.visible
 	if not _manual_paused:
 		pause_panel.visible = false
 
@@ -564,7 +582,16 @@ func _pick_kind() -> String:
 	var w_aegis := 0.0 if level < 9 else minf(3.0 + level * 0.4, 12.0)
 	var w_heavy := 0.0 if level < 8 else minf(3.0 + level * 0.4, 14.0)
 	var w_apoc := 0.0 if level < 14 else minf(1.5 + level * 0.2, 8.0)
-	var total := 100.0 + w_mech + w_tank + w_special + w_medic + w_aegis + w_heavy + w_apoc
+	var w_soldier := 100.0
+	if biome == 3:
+		# Hell: Apocalypse Tanks instead of Medics and Aegis, Devils instead of Mechs, half as many Soldiers, 50% more Devils
+		w_apoc += w_medic + w_aegis
+		w_medic = 0.0
+		w_aegis = 0.0
+		w_soldier = 50.0
+		w_special = (w_special + w_mech) * 1.5
+		w_mech = 0.0
+	var total := w_soldier + w_mech + w_tank + w_special + w_medic + w_aegis + w_heavy + w_apoc
 	var r := randf() * total
 	if r < w_special:
 		return special
@@ -790,7 +817,9 @@ func _on_enemy_launch(kind: String, origin: Vector2, aim: Vector2, dmg: float) -
 		"fireball":
 			_spawn_bolt(origin, aim, dmg, "fireball", 520.0, {"dest": true, "blast": 100.0})
 		"missile":
-			_spawn_bolt(origin, aim, dmg, "missile", 300.0, {"homing": 1.7})
+			_spawn_bolt(origin, aim, dmg, "missile", 600.0, {"homing": 1.7})
+		"apocshell":
+			_spawn_bolt(origin, aim, dmg, "shell", 680.0)
 		"voidorb":
 			_spawn_bolt(origin, aim, dmg, "voidorb", 250.0, {"homing": 1.1})
 
@@ -998,7 +1027,7 @@ func _recruit() -> void:
 func _input(event: InputEvent) -> void:
 	var mb := event as InputEventMouseButton
 	if mb != null and mb.pressed and (mb.button_index == MOUSE_BUTTON_WHEEL_UP or mb.button_index == MOUSE_BUTTON_WHEEL_DOWN):
-		if not (castle_menu.visible or pause_menu.visible):
+		if not (castle_menu.visible or pause_menu.visible or hud_editor.visible):
 			var step := 1.1 if mb.button_index == MOUSE_BUTTON_WHEEL_UP else 1.0 / 1.1
 			_zoom_target = clampf(_zoom_target * step, Settings.ZOOM_MIN, Settings.ZOOM_MAX)
 		return
@@ -1011,7 +1040,7 @@ func _input(event: InputEvent) -> void:
 		return
 	if event.is_action_pressed("pause_game"):
 		get_viewport().set_input_as_handled()
-		if game_over or castle_menu.visible or pause_menu.visible:
+		if game_over or castle_menu.visible or pause_menu.visible or hud_editor.visible:
 			return
 		_manual_paused = not _manual_paused
 		_update_pause()
@@ -1024,7 +1053,7 @@ func _input(event: InputEvent) -> void:
 		return
 	if event.is_action_pressed("open_shop"):
 		get_viewport().set_input_as_handled()
-		if game_over or _manual_paused or pause_menu.visible:
+		if game_over or _manual_paused or pause_menu.visible or hud_editor.visible:
 			return
 		_toggle_castle()
 		return
@@ -1065,6 +1094,9 @@ func _use_repair(slot: int) -> void:
 	_update_label()
 
 func _on_escape() -> void:
+	if hud_editor.visible:
+		hud_editor.finish(true)
+		return
 	if castle_menu.visible:
 		_close_castle()
 		return
@@ -1217,15 +1249,15 @@ func _notify(text: String, icon: String = "", color: Color = Color.WHITE, key: S
 
 func _update_label() -> void:
 	hud.coins = coins
-	# always visible: just the level, the region and the castle stage
-	var t := "%s %d   -   %s\n%s" % [Loc.t("Wave"), level, Loc.t(BIOME_NAMES[biome]), Loc.t(Base.TIER_NAMES[base.tier])]
-	if _msg != "":
-		t += "\n" + _msg
-	info_label.text = t
+	# always visible: the level, the region and the castle stage (the HUD draws them as a plaque)
+	hud.info_wave = level
+	hud.info_biome = Loc.t(BIOME_NAMES[biome])
+	hud.info_castle = Loc.t(Base.TIER_NAMES[base.tier])
+	hud.info_msg = _msg
 	# on demand (details key): the numbers behind the level
-	detail_label.visible = _show_details
+	hud.info_detail = ""
 	if _show_details:
 		var diff_name: String = GameState.DIFFICULTY_NAMES[GameState.difficulty]
 		var d := "%s   |   %s x%.2f   |   %s x%.1f" % [Loc.t(diff_name), Loc.t("Enemy damage"), 1.0 + 0.25 * (level - 1), Loc.t("Spawn rate"), _spawn_rate()]
 		d += "\n%s: %s %d   |   %s %d" % [Loc.t("Power"), Loc.t("you"), int(Power.of_base(base)), Loc.t("enemies"), int(Power.field_power(get_tree(), base.armor_points()))]
-		detail_label.text = d
+		hud.info_detail = d

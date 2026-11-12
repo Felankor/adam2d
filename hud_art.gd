@@ -29,10 +29,71 @@ const DATA := {
 }
 
 static var _tex: Dictionary = {}
+static var _img: Dictionary = {}
+
+static func img(name: String) -> Image:
+	if not _img.has(name):
+		var im := Image.new()
+		im.load_png_from_buffer(Marshalls.base64_to_raw(DATA[name]))
+		im.convert(Image.FORMAT_RGBA8)
+		_img[name] = im
+	return _img[name]
 
 static func tex(name: String) -> Texture2D:
 	if not _tex.has(name):
-		var img := Image.new()
-		img.load_png_from_buffer(Marshalls.base64_to_raw(DATA[name]))
-		_tex[name] = ImageTexture.create_from_image(img)
+		_tex[name] = ImageTexture.create_from_image(img(name))
 	return _tex[name]
+
+# ---------- stretched bars (HUD editor) ----------
+# The frame and the liquids are painted for one fixed length. To make the bars longer or shorter, columns are
+# inserted into (or removed from) a plain stretch of the art: `extra` columns at x = `at`, copied from the
+# `src_len` columns starting at `src_from`. `extra` and `src_len` stay even so the 2 px dither keeps its pattern.
+static func _stretch(src: Image, at: int, extra: int, src_from: int, src_len: int) -> Image:
+	var w := src.get_width()
+	var h := src.get_height()
+	var out := Image.create(w + extra, h, false, Image.FORMAT_RGBA8)
+	out.fill(Color(0, 0, 0, 0))
+	out.blit_rect(src, Rect2i(0, 0, at, h), Vector2i(0, 0))
+	if extra >= 0:
+		for i in extra:
+			out.blit_rect(src, Rect2i(src_from + (i % src_len), 0, 1, h), Vector2i(at + i, 0))
+		out.blit_rect(src, Rect2i(at, 0, w - at, h), Vector2i(at + extra, 0))
+	else:
+		out.blit_rect(src, Rect2i(at - extra, 0, w - at + extra, h), Vector2i(at, 0))
+	return out
+
+static var _long: Dictionary = {}
+
+# The health / mana frame and tubes with `e` extra art pixels on each side (e is even, -40 .. 120).
+static func bar_tex(name: String, e: int) -> Texture2D:
+	if e == 0:
+		return tex(name)
+	var key := "%s|%d" % [name, e]
+	if not _long.has(key):
+		if _long.size() > 60:
+			_long.clear()
+		var im := img(name)
+		match name:
+			"back":
+				im = _stretch(im, 290, e, 250, 40)
+				im = _stretch(im, 60, e, 60, 40)
+			"front":
+				im = _stretch(im, 290, e, 290, 2)
+				im = _stretch(im, 60, e, 60, 2)
+			"blue_r":
+				im = _stretch(im, 80, e, 30, 60)
+			_:
+				im = _stretch(im, 40, e, 30, 60)    # red_l, ghost_l, ice_l: the far end is on the left
+		_long[key] = ImageTexture.create_from_image(im)
+	return _long[key]
+
+# The XP tube with `e` extra art pixels in total (-60 .. 200).
+static func xp_tex(name: String, e: int) -> Texture2D:
+	if e == 0:
+		return tex(name)
+	var key := "%s|%d" % [name, e]
+	if not _long.has(key):
+		if _long.size() > 60:
+			_long.clear()
+		_long[key] = ImageTexture.create_from_image(_stretch(img(name), 100, e, 100, 2 if name == "xp_back" else 20))
+	return _long[key]
