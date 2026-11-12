@@ -18,7 +18,7 @@ func _ready() -> void:
 	var title := Label.new()
 	title.text = "SETTINGS"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 40)
+	title.add_theme_font_size_override("font_size", PixelUI.fs(40))
 	add_child(title)
 
 	# Section tabs
@@ -33,7 +33,7 @@ func _ready() -> void:
 		tb.toggle_mode = true
 		tb.focus_mode = Control.FOCUS_NONE
 		tb.custom_minimum_size = Vector2(190, 46)
-		tb.add_theme_font_size_override("font_size", 22)
+		tb.add_theme_font_size_override("font_size", PixelUI.fs(22))
 		tb.pressed.connect(_show_page.bind(i))
 		tabs.add_child(tb)
 		_tab_buttons.append(tb)
@@ -64,14 +64,14 @@ func _build_game_page() -> VBoxContainer:
 	var fs := CheckButton.new()
 	fs.text = "Fullscreen"
 	fs.focus_mode = Control.FOCUS_NONE
-	fs.add_theme_font_size_override("font_size", 22)
+	fs.add_theme_font_size_override("font_size", PixelUI.fs(22))
 	fs.button_pressed = Settings.fullscreen
 	fs.toggled.connect(_on_fullscreen)
 	page.add_child(fs)
 	var auto := CheckButton.new()
 	auto.text = "Autosave at the start of each wave"
 	auto.focus_mode = Control.FOCUS_NONE
-	auto.add_theme_font_size_override("font_size", 22)
+	auto.add_theme_font_size_override("font_size", PixelUI.fs(22))
 	auto.button_pressed = Settings.autosave
 	auto.toggled.connect(func(on: bool) -> void:
 		Settings.autosave = on
@@ -84,12 +84,12 @@ func _build_game_page() -> VBoxContainer:
 	var lang_label := Label.new()
 	lang_label.text = "Language"
 	lang_label.custom_minimum_size = Vector2(220, 0)
-	lang_label.add_theme_font_size_override("font_size", 22)
+	lang_label.add_theme_font_size_override("font_size", PixelUI.fs(22))
 	lang_row.add_child(lang_label)
 	var lang_opt := OptionButton.new()
 	lang_opt.focus_mode = Control.FOCUS_NONE
 	lang_opt.custom_minimum_size = Vector2(220, 40)
-	lang_opt.add_theme_font_size_override("font_size", 20)
+	lang_opt.add_theme_font_size_override("font_size", PixelUI.fs(20))
 	for n: String in Loc.LANG_NAMES:
 		lang_opt.add_item(n)
 	lang_opt.selected = maxi(Loc.LANGS.find(Settings.language), 0)
@@ -106,7 +106,7 @@ func _build_sound_page() -> VBoxContainer:
 	var mute := CheckButton.new()
 	mute.text = "Mute all sounds"
 	mute.focus_mode = Control.FOCUS_NONE
-	mute.add_theme_font_size_override("font_size", 22)
+	mute.add_theme_font_size_override("font_size", PixelUI.fs(22))
 	mute.button_pressed = Settings.muted
 	mute.toggled.connect(_on_mute)
 	page.add_child(mute)
@@ -122,7 +122,7 @@ func _build_controls_page() -> VBoxContainer:
 	page.custom_minimum_size = Vector2(0, 300)
 	var hint := Label.new()
 	hint.text = "Click a key, then press the new key (Esc cancels)"
-	hint.add_theme_font_size_override("font_size", 18)
+	hint.add_theme_font_size_override("font_size", PixelUI.fs(18))
 	page.add_child(hint)
 
 	for action in Keybinds.ORDER:
@@ -132,12 +132,12 @@ func _build_controls_page() -> VBoxContainer:
 		var name_label := Label.new()
 		name_label.text = Keybinds.label_of(a)
 		name_label.custom_minimum_size = Vector2(220, 0)
-		name_label.add_theme_font_size_override("font_size", 22)
+		name_label.add_theme_font_size_override("font_size", PixelUI.fs(22))
 		row.add_child(name_label)
 		var kb := Button.new()
 		kb.focus_mode = Control.FOCUS_NONE
 		kb.custom_minimum_size = Vector2(220, 40)
-		kb.add_theme_font_size_override("font_size", 20)
+		kb.add_theme_font_size_override("font_size", PixelUI.fs(20))
 		kb.pressed.connect(_on_rebind.bind(a))
 		row.add_child(kb)
 		_key_buttons[a] = kb
@@ -150,7 +150,7 @@ func _slider_row(label_text: String, value: float, handler: Callable) -> HBoxCon
 	var label := Label.new()
 	label.text = label_text
 	label.custom_minimum_size = Vector2(220, 0)
-	label.add_theme_font_size_override("font_size", 22)
+	label.add_theme_font_size_override("font_size", PixelUI.fs(22))
 	row.add_child(label)
 	var sl := HSlider.new()
 	sl.min_value = 0.0
@@ -170,7 +170,7 @@ func _button(text: String, handler: Callable) -> Button:
 	b.text = text
 	b.focus_mode = Control.FOCUS_NONE
 	b.custom_minimum_size = Vector2(380, 52)
-	b.add_theme_font_size_override("font_size", 22)
+	b.add_theme_font_size_override("font_size", PixelUI.fs(22))
 	b.pressed.connect(handler)
 	return b
 

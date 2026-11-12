@@ -8,7 +8,58 @@ const BG := Color(0.15, 0.16, 0.21)
 const METAL := Color(0.62, 0.64, 0.70)
 const DARK_METAL := Color(0.30, 0.31, 0.36)
 
+# Icons are drawn once into a small 32x32 picture (no smoothing, so every shape turns into hard pixels) and
+# then shown with nearest-neighbour scaling plus a 1-pixel dark outline: the same pixel-art look as the sprites.
+const TEX_SIZE := 32
+static var _cache: Dictionary = {}      # key -> [SubViewport, frame it was created]
+
+class IconCanvas extends Node2D:
+	var kind: String = ""
+	var bg: bool = false
+
+	func _draw() -> void:
+		Icons.draw_raw(self, kind, Vector2.ZERO, float(Icons.TEX_SIZE) / 64.0, bg)
+
+static func _icon_tex(kind: String, with_bg: bool) -> Texture2D:
+	var key := kind + ("|bg" if with_bg else "")
+	if _cache.has(key):
+		var e: Array = _cache[key]
+		if Engine.get_frames_drawn() > int(e[1]) + 2:
+			return (e[0] as SubViewport).get_texture()
+		return null
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree == null:
+		return null
+	var vp := SubViewport.new()
+	vp.size = Vector2i(TEX_SIZE, TEX_SIZE)
+	vp.transparent_bg = true
+	vp.disable_3d = true
+	vp.render_target_update_mode = SubViewport.UPDATE_ONCE
+	vp.canvas_item_default_texture_filter = Viewport.DEFAULT_CANVAS_ITEM_TEXTURE_FILTER_NEAREST
+	var c := IconCanvas.new()
+	c.kind = kind
+	c.bg = with_bg
+	vp.add_child(c)
+	tree.root.add_child.call_deferred(vp)
+	_cache[key] = [vp, Engine.get_frames_drawn()]
+	return null
+
 static func draw(ci: CanvasItem, kind: String, origin: Vector2, k: float, with_bg: bool = true) -> void:
+	if kind == "coin":
+		draw_raw(ci, kind, origin, k, with_bg)
+		return
+	var tex := _icon_tex(kind, with_bg)
+	if tex == null:
+		ci.queue_redraw.call_deferred()          # the picture is not ready yet: draw again next frame
+		return
+	var px := 2.0 * k                            # one art pixel on screen
+	var r := Rect2(origin, Vector2(64.0, 64.0) * k)
+	if not with_bg:
+		for o: Vector2 in [Vector2(px, 0), Vector2(-px, 0), Vector2(0, px), Vector2(0, -px)]:
+			ci.draw_texture_rect(tex, Rect2(r.position + o, r.size), false, Color(0.04, 0.03, 0.08, 0.9))
+	ci.draw_texture_rect(tex, r, false)
+
+static func draw_raw(ci: CanvasItem, kind: String, origin: Vector2, k: float, with_bg: bool = true) -> void:
 	ci.draw_set_transform(origin, 0.0, Vector2(k, k))
 	if with_bg:
 		ci.draw_rect(Rect2(0, 0, 64, 64), BG)

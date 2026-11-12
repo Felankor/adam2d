@@ -21,6 +21,6 @@ func _process(delta: float) -> void:
 
 func _draw() -> void:
 	var a := clampf(life / _max, 0.0, 1.0)
-	draw_line(start, finish, Color(0.3, 0.9, 1.0, 0.25 * a), 16.0 * thick)
-	draw_line(start, finish, Color(0.4, 0.95, 1.0, 0.7 * a), 7.0 * thick)
-	draw_line(start, finish, Color(1, 1, 1, a), 2.5 * thick)
+	PixelFx.line(self, start, finish, Color(0.3, 0.9, 1.0, 0.3 * a), 15.0 * thick)
+	PixelFx.line(self, start, finish, Color(0.4, 0.95, 1.0, 0.8 * a), 6.0 * thick)
+	PixelFx.line(self, start, finish, Color(1, 1, 1, a), 3.0)

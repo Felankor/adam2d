@@ -101,5 +101,5 @@ func _draw() -> void:
 		return
 	# the shadow stays on the ground and shrinks as the castle rises
 	draw_set_transform(Vector2(6.0, _drop), 0.0, Vector2(1.0, 0.28))
-	draw_circle(Vector2.ZERO, _shadow_r * 1.2 * (1.0 - _bob / (_shadow_r * 6.0)), Color(0, 0, 0, 0.22))
+	PixelFx.disc(self, Vector2.ZERO, _shadow_r * 1.2 * (1.0 - _bob / (_shadow_r * 6.0)), Color(0, 0, 0, 0.22))
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)

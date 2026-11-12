@@ -39,15 +39,11 @@ func push(text: String, icon: String = "", color: Color = Color.WHITE, key: Stri
 
 	var panel := PanelContainer.new()
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.05, 0.06, 0.09, 0.82)
-	sb.border_color = color
-	sb.border_width_left = 5
-	sb.set_corner_radius_all(8)
-	sb.content_margin_left = 12
+	var sb := PixelUI.box(Color(0.05, 0.06, 0.09, 0.88), color, 2)
+	sb.content_margin_left = 14
 	sb.content_margin_right = 16
-	sb.content_margin_top = 7
-	sb.content_margin_bottom = 7
+	sb.content_margin_top = 9
+	sb.content_margin_bottom = 9
 	panel.add_theme_stylebox_override("panel", sb)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
@@ -60,7 +56,7 @@ func push(text: String, icon: String = "", color: Color = Color.WHITE, key: Stri
 		row.add_child(ic)
 	var label := Label.new()
 	label.text = text
-	label.add_theme_font_size_override("font_size", 22)
+	label.add_theme_font_size_override("font_size", PixelUI.fs(22))
 	label.add_theme_color_override("font_color", color.lerp(Color.WHITE, 0.55))
 	label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE

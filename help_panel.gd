@@ -37,7 +37,7 @@ class Badge extends Control:
 		draw_circle(c, 13.0, Color(1.0, 0.85, 0.3))
 		draw_arc(c, 13.0, 0.0, TAU, 24, Color(0.2, 0.15, 0.0), 2.0)
 		var font := ThemeDB.fallback_font
-		draw_string(font, c + Vector2(-20, 7), str(n), HORIZONTAL_ALIGNMENT_CENTER, 40, 19, Color(0.15, 0.1, 0.0))
+		draw_string(font, c + Vector2(-20, 7), str(n), HORIZONTAL_ALIGNMENT_CENTER, 40, PixelUI.fs(19), Color(0.15, 0.1, 0.0))
 
 # A small picture of the game screen: every part of the HUD with a number.
 class HudDiagram extends Control:
@@ -50,7 +50,7 @@ class HudDiagram extends Control:
 	func _badge(pos: Vector2, n: int) -> void:
 		draw_circle(pos, 11.0, Color(1.0, 0.85, 0.3))
 		draw_arc(pos, 11.0, 0.0, TAU, 20, Color(0.2, 0.15, 0.0), 2.0)
-		draw_string(ThemeDB.fallback_font, pos + Vector2(-20, 6), str(n), HORIZONTAL_ALIGNMENT_CENTER, 40, 16, Color(0.15, 0.1, 0.0))
+		draw_string(ThemeDB.fallback_font, pos + Vector2(-20, 6), str(n), HORIZONTAL_ALIGNMENT_CENTER, 40, PixelUI.fs(16), Color(0.15, 0.1, 0.0))
 	func _draw() -> void:
 		var w := size.x
 		var h := size.y
@@ -125,7 +125,7 @@ func _ready() -> void:
 	var title := Label.new()
 	title.text = "HOW TO PLAY"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 40)
+	title.add_theme_font_size_override("font_size", PixelUI.fs(40))
 	add_child(title)
 
 	var scroll := ScrollContainer.new()
@@ -142,7 +142,7 @@ func _ready() -> void:
 	back.text = "Back"
 	back.focus_mode = Control.FOCUS_NONE
 	back.custom_minimum_size = Vector2(380, 52)
-	back.add_theme_font_size_override("font_size", 22)
+	back.add_theme_font_size_override("font_size", PixelUI.fs(22))
 	back.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	back.pressed.connect(func() -> void: back_pressed.emit())
 	add_child(back)
@@ -270,7 +270,7 @@ func refresh() -> void:
 func _heading(text: String) -> void:
 	var l := Label.new()
 	l.text = text
-	l.add_theme_font_size_override("font_size", 26)
+	l.add_theme_font_size_override("font_size", PixelUI.fs(26))
 	l.add_theme_color_override("font_color", GOLD)
 	_content.add_child(HSeparator.new())
 	_content.add_child(l)
@@ -278,7 +278,7 @@ func _heading(text: String) -> void:
 func _text(text: String) -> void:
 	var l := Label.new()
 	l.text = text
-	l.add_theme_font_size_override("font_size", 19)
+	l.add_theme_font_size_override("font_size", PixelUI.fs(19))
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	l.custom_minimum_size = Vector2(780, 0)
 	_content.add_child(l)
@@ -286,7 +286,7 @@ func _text(text: String) -> void:
 func _wrap_label(text: String, font_px: int, width: float) -> Label:
 	var l := Label.new()
 	l.text = text
-	l.add_theme_font_size_override("font_size", font_px)
+	l.add_theme_font_size_override("font_size", PixelUI.fs(font_px))
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	l.custom_minimum_size = Vector2(width, 0)
 	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -363,7 +363,7 @@ func _skill_row(icon: String, title_text: String, text: String) -> void:
 	row.add_child(col)
 	var n := Label.new()
 	n.text = title_text
-	n.add_theme_font_size_override("font_size", 21)
+	n.add_theme_font_size_override("font_size", PixelUI.fs(21))
 	n.add_theme_color_override("font_color", KEY_COL)
 	col.add_child(n)
 	col.add_child(_wrap_label(text, 18, 690))
@@ -378,7 +378,7 @@ func _weapon_row(icon: String, title_text: String, price: String, note: String) 
 	col.add_child(head)
 	var n := Label.new()
 	n.text = title_text
-	n.add_theme_font_size_override("font_size", 21)
+	n.add_theme_font_size_override("font_size", PixelUI.fs(21))
 	n.add_theme_color_override("font_color", KEY_COL)
 	head.add_child(n)
 	var coin := IconRect.new()
@@ -389,7 +389,7 @@ func _weapon_row(icon: String, title_text: String, price: String, note: String) 
 	head.add_child(coin)
 	var p := Label.new()
 	p.text = price
-	p.add_theme_font_size_override("font_size", 19)
+	p.add_theme_font_size_override("font_size", PixelUI.fs(19))
 	p.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3))
 	head.add_child(p)
 	col.add_child(_wrap_label(note, 18, 690))
@@ -399,7 +399,7 @@ func _bar_row(icon: String, title_text: String, frac: float, col: Color, value: 
 	_icon(row, icon, 36.0)
 	var n := Label.new()
 	n.text = title_text
-	n.add_theme_font_size_override("font_size", 19)
+	n.add_theme_font_size_override("font_size", PixelUI.fs(19))
 	n.custom_minimum_size = Vector2(170, 0)
 	n.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(n)
@@ -410,7 +410,7 @@ func _bar_row(icon: String, title_text: String, frac: float, col: Color, value: 
 	row.add_child(bar)
 	var v := Label.new()
 	v.text = value
-	v.add_theme_font_size_override("font_size", 19)
+	v.add_theme_font_size_override("font_size", PixelUI.fs(19))
 	v.add_theme_color_override("font_color", KEY_COL)
 	v.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(v)
@@ -433,7 +433,7 @@ func _key_row(action: String, keys: Array, icon: String = "") -> void:
 	var a := Label.new()
 	a.text = action
 	a.custom_minimum_size = Vector2(390, 0)
-	a.add_theme_font_size_override("font_size", 20)
+	a.add_theme_font_size_override("font_size", PixelUI.fs(20))
 	a.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(a)
 	for k in keys:
@@ -441,12 +441,7 @@ func _key_row(action: String, keys: Array, icon: String = "") -> void:
 
 func _keycap(text: String) -> PanelContainer:
 	var pc := PanelContainer.new()
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.2, 0.22, 0.29)
-	sb.border_color = Color(0.75, 0.78, 0.88)
-	sb.set_border_width_all(2)
-	sb.border_width_bottom = 4
-	sb.set_corner_radius_all(6)
+	var sb := PixelUI.box(Color(0.2, 0.22, 0.29), Color(0.75, 0.78, 0.88), 2)
 	sb.content_margin_left = 10.0
 	sb.content_margin_right = 10.0
 	sb.content_margin_top = 3.0
@@ -455,7 +450,7 @@ func _keycap(text: String) -> PanelContainer:
 	pc.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	var l := Label.new()
 	l.text = text
-	l.add_theme_font_size_override("font_size", 19)
+	l.add_theme_font_size_override("font_size", PixelUI.fs(19))
 	l.add_theme_color_override("font_color", KEY_COL)
 	pc.add_child(l)
 	return pc

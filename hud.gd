@@ -38,8 +38,7 @@ var show_debug: bool = false       # details key: also shows object counts (mobs
 var _hp_last: float = -1.0
 var _shards: Array = []           # health bar shards of a critical hit on the player: [pos, vel, size, life]
 var _crit_flash: float = 0.0
-var _frame_sb := StyleBoxFlat.new()
-var _fill_sb := StyleBoxFlat.new()
+var _map_tex: ImageTexture = null
 
 # A single drop of more than 25% of max health breaks that slice of the health bar into falling shards.
 func _check_crit(delta: float) -> void:
@@ -163,28 +162,29 @@ func _draw_levelup(s: Vector2) -> void:
 		var life := fposmod(t * 0.9 + float(i) * 0.173, 1.0)
 		var px := c.x + sin(float(i) * 2.7) * 220.0
 		var py := c.y + 60.0 - life * 170.0
-		draw_circle(Vector2(px, py), 4.0 * (1.0 - life) + 1.0, Color(1.0, 0.95, 0.6, 0.9 * (1.0 - life) * fade))
+		var ssz := 3.0 if life < 0.5 else 3.0
+		draw_rect(Rect2(floorf(px / 3.0) * 3.0, floorf(py / 3.0) * 3.0, ssz * (2.0 if life < 0.3 else 1.0), ssz * (2.0 if life < 0.3 else 1.0)), Color(1.0, 0.95, 0.6, 0.9 * (1.0 - life) * fade))
 	# title and subtitle
 	var font := ThemeDB.fallback_font
 	var title := Loc.t("LEVEL UP!")
 	draw_set_transform(c, 0.0, Vector2(sc, sc))
-	draw_string_outline(font, Vector2(-400.0, 24.0), title, HORIZONTAL_ALIGNMENT_CENTER, 800.0, 84, 14, Color(0.25, 0.12, 0.0, fade))
-	draw_string(font, Vector2(-400.0, 24.0), title, HORIZONTAL_ALIGNMENT_CENTER, 800.0, 84, Color(1.0, 0.85, 0.25).lerp(Color.WHITE, 0.5 + 0.5 * sin(t * 9.0)) * Color(1, 1, 1, fade))
+	draw_string_outline(font, Vector2(-400.0, 24.0), title, HORIZONTAL_ALIGNMENT_CENTER, 800.0, PixelUI.fs(84), 14, Color(0.25, 0.12, 0.0, fade))
+	draw_string(font, Vector2(-400.0, 24.0), title, HORIZONTAL_ALIGNMENT_CENTER, 800.0, PixelUI.fs(84), Color(1.0, 0.85, 0.25).lerp(Color.WHITE, 0.5 + 0.5 * sin(t * 9.0)) * Color(1, 1, 1, fade))
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	var sub := "%s %d      %s" % [Loc.t("Level"), _lvl_shown, Loc.t("+5 stat points")]
-	draw_string_outline(font, Vector2(c.x - 400.0, c.y + 66.0), sub, HORIZONTAL_ALIGNMENT_CENTER, 800.0, 32, 8, Color(0, 0, 0, fade))
-	draw_string(font, Vector2(c.x - 400.0, c.y + 66.0), sub, HORIZONTAL_ALIGNMENT_CENTER, 800.0, 32, Color(0.7, 1.0, 0.75, fade))
+	draw_string_outline(font, Vector2(c.x - 400.0, c.y + 66.0), sub, HORIZONTAL_ALIGNMENT_CENTER, 800.0, PixelUI.fs(32), 8, Color(0, 0, 0, fade))
+	draw_string(font, Vector2(c.x - 400.0, c.y + 66.0), sub, HORIZONTAL_ALIGNMENT_CENTER, 800.0, PixelUI.fs(32), Color(0.7, 1.0, 0.75, fade))
 
 func _draw_fps(s: Vector2) -> void:
 	var col := Color(0.5, 1.0, 0.5) if _fps >= 55 else (Color(1.0, 0.85, 0.3) if _fps >= 30 else Color(1.0, 0.35, 0.3))
 	var txt := "FPS %d    1%% low %d" % [_fps, _fps_low]
 	var font := ThemeDB.fallback_font
-	draw_string_outline(font, Vector2(s.x - 330.0, 28.0), txt, HORIZONTAL_ALIGNMENT_RIGHT, 316.0, 18, 4, Color.BLACK)
-	draw_string(font, Vector2(s.x - 330.0, 28.0), txt, HORIZONTAL_ALIGNMENT_RIGHT, 316.0, 18, col)
+	draw_string_outline(font, Vector2(s.x - 330.0, 28.0), txt, HORIZONTAL_ALIGNMENT_RIGHT, 316.0, PixelUI.fs(18), 4, Color.BLACK)
+	draw_string(font, Vector2(s.x - 330.0, 28.0), txt, HORIZONTAL_ALIGNMENT_RIGHT, 316.0, PixelUI.fs(18), col)
 	if show_debug:
 		var dbg := "Mobs %d  Shots %d  Fx %d  Nodes %d  Draw calls %d" % [Field.mobs().size(), Field.shots().size(), Fx.live, int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)), int(Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME))]
-		draw_string_outline(font, Vector2(s.x - 560.0, 112.0), dbg, HORIZONTAL_ALIGNMENT_RIGHT, 546.0, 16, 4, Color.BLACK)
-		draw_string(font, Vector2(s.x - 560.0, 112.0), dbg, HORIZONTAL_ALIGNMENT_RIGHT, 546.0, 16, Color(0.8, 0.9, 1.0))
+		draw_string_outline(font, Vector2(s.x - 560.0, 112.0), dbg, HORIZONTAL_ALIGNMENT_RIGHT, 546.0, PixelUI.fs(16), 4, Color.BLACK)
+		draw_string(font, Vector2(s.x - 560.0, 112.0), dbg, HORIZONTAL_ALIGNMENT_RIGHT, 546.0, PixelUI.fs(16), Color(0.8, 0.9, 1.0))
 
 func _draw() -> void:
 	if base == null:
@@ -244,7 +244,8 @@ func _draw() -> void:
 		if sx1 - sx0 > 1.0:
 			draw_rect(Rect2(sx0, bar_y, sx1 - sx0, bar_h), Color(1.0, 1.0, 0.85, 0.35))
 		# glowing tip
-		draw_circle(Vector2(fw, bar_y + bar_h * 0.5), 9.0 + 6.0 * _xp_glow, Color(1.0, 0.9, 0.4, 0.28 + 0.4 * _xp_glow))
+		draw_rect(Rect2(fw - 3.0, bar_y - 3.0, 6.0, bar_h + 6.0), Color(1.0, 0.9, 0.4, 0.28 + 0.4 * _xp_glow))
+		draw_rect(Rect2(fw - 3.0, bar_y, 3.0, bar_h), Color(1.0, 1.0, 0.8))
 	if _xp_glow > 0.02:
 		# gain animation: a bright flare and sparkles rising from the tip
 		draw_rect(Rect2(0.0, bar_y, maxf(fw, tw), bar_h), Color(1.0, 0.95, 0.6, 0.35 * _xp_glow))
@@ -252,7 +253,8 @@ func _draw() -> void:
 			var life := fposmod(_t * 1.8 + float(k) * 0.37, 1.0)
 			var spx := fw - 6.0 + sin(float(k) * 2.3) * 26.0
 			var spy := bar_y - life * 34.0
-			draw_circle(Vector2(spx, spy), 2.6 * (1.0 - life) + 0.8, Color(1.0, 0.92, 0.5, 0.9 * _xp_glow * (1.0 - life)))
+			var sq := 3.0 if life < 0.6 else 3.0
+			draw_rect(Rect2(floorf(spx / 3.0) * 3.0, floorf(spy / 3.0) * 3.0, sq, sq), Color(1.0, 0.92, 0.5, 0.9 * _xp_glow * (1.0 - life)))
 	for i in range(1, 10):
 		draw_line(Vector2(s.x * float(i) / 10.0, bar_y), Vector2(s.x * float(i) / 10.0, s.y), Color(0, 0, 0, 0.3), 1.0)
 	draw_line(Vector2(0.0, bar_y), Vector2(s.x, bar_y), Color(1.0, 0.85, 0.4, 0.5), 1.0)
@@ -262,15 +264,14 @@ func _draw() -> void:
 		draw_rect(Rect2(0.0, bar_y - 3.0, s.x, 3.0 + 6.0 * _xp_flash), Color(1.0, 0.9, 0.3, 0.6 * _xp_flash * Settings.flash_scale))
 	var xp_text := "%s %d     XP %d / %d   (%d%%)" % [Loc.t("Level"), base.xp_level, base.xp, xp_need, int(xp_frac * 100.0)]
 	var font := ThemeDB.fallback_font
-	draw_string_outline(font, Vector2(0.0, s.y - 2.5), xp_text, HORIZONTAL_ALIGNMENT_CENTER, s.x, 13, 4, Color.BLACK)
-	draw_string(font, Vector2(0.0, s.y - 2.5), xp_text, HORIZONTAL_ALIGNMENT_CENTER, s.x, 13, Color(1.0, 0.97, 0.85))
+	draw_string_outline(font, Vector2(0.0, s.y - 2.5), xp_text, HORIZONTAL_ALIGNMENT_CENTER, s.x, PixelUI.fs(13), 4, Color.BLACK)
+	draw_string(font, Vector2(0.0, s.y - 2.5), xp_text, HORIZONTAL_ALIGNMENT_CENTER, s.x, PixelUI.fs(13), Color(1.0, 0.97, 0.85))
 	if base.free_points > 0:
 		# blinking "[Tab] Stat points: N" tag above the bars
 		var blink := 0.5 + 0.5 * sin(_t * 5.0)
 		var tag := "[%s]  %s: %d" % [Keybinds.key_text("open_shop"), Loc.t("Stat points"), base.free_points]
-		_frame_sb.set_corner_radius_all(10)
-		_frame_sb.bg_color = Color(0.2, 0.85, 0.35, 0.12 + 0.30 * blink)
-		draw_style_box(_frame_sb, Rect2(x - 12.0, s.y - 222.0 + sin(_t * 6.0) * 2.0, 330.0, 38.0))
+		var tag_box := PixelUI.box(Color(0.1, 0.35, 0.16, 0.55 + 0.3 * blink), Color(0.35, 0.9, 0.5), 2)
+		draw_style_box(tag_box, Rect2(x - 12.0, s.y - 222.0 + roundf(sin(_t * 6.0) * 2.0), 330.0, 38.0))
 		_text(Vector2(x, s.y - 195.0 + sin(_t * 6.0) * 2.0), tag, 24, Color(0.55, 1.0, 0.65).lerp(Color.WHITE, blink))
 	_draw_levelup(s)
 	_draw_minimap(s)
@@ -281,16 +282,15 @@ func _draw() -> void:
 func _draw_minimap(s: Vector2) -> void:
 	var c := Vector2(s.x - 30.0 - MAP_RADIUS, s.y - 30.0 - MAP_RADIUS)
 	var k := MAP_RADIUS / MAP_RANGE
-	draw_circle(c, MAP_RADIUS, Color(0.04, 0.06, 0.09, 0.62))
-	draw_arc(c, MAP_RADIUS * 0.5, 0.0, TAU, 48, Color(1, 1, 1, 0.08), 1.5)
-	draw_line(c + Vector2(-MAP_RADIUS, 0.0), c + Vector2(MAP_RADIUS, 0.0), Color(1, 1, 1, 0.06), 1.5)
-	draw_line(c + Vector2(0.0, -MAP_RADIUS), c + Vector2(0.0, MAP_RADIUS), Color(1, 1, 1, 0.06), 1.5)
+	if _map_tex == null:
+		_build_map_tex()
+	draw_texture_rect(_map_tex, Rect2(c - Vector2(MAP_RADIUS, MAP_RADIUS), Vector2(MAP_RADIUS, MAP_RADIUS) * 2.0), false)
 	for a in Field.mobs():
 		if a.dead or not a.is_ally:
 			continue
 		var arel := (a.global_position - base.global_position) * k
 		if arel.length() <= MAP_RADIUS - 5.0:
-			draw_circle(c + arel, 2.6, Color(0.3, 1.0, 0.4))      # refugees: green
+			draw_rect(_snap(c + arel, 3.0, 6.0), Color(0.3, 1.0, 0.4))      # refugees: green
 	for e in Field.enemies():
 		if e.dead:
 			continue
@@ -303,70 +303,80 @@ func _draw_minimap(s: Vector2) -> void:
 			rel = rel / dist * (MAP_RADIUS - 6.0)         # bosses stay on the rim so you know where they are
 		if big:
 			var pulse := 0.5 + 0.5 * sin(_t * 6.0)
-			draw_circle(c + rel, 6.5 + pulse, Color(0.7, 0.3, 1.0, 0.35))
-			draw_circle(c + rel, 4.5, Color(0.7, 0.3, 1.0))
+			draw_rect(_snap(c + rel, 3.0, 15.0 if pulse > 0.5 else 12.0), Color(0.7, 0.3, 1.0, 0.35))
+			draw_rect(_snap(c + rel, 3.0, 9.0), Color(0.75, 0.35, 1.0))
 		else:
-			draw_circle(c + rel, 2.4, Color(1.0, 0.2, 0.2))
-	draw_circle(c, 5.5, Color(0, 0, 0, 0.6))
-	draw_circle(c, 4.0, Color(1.0, 0.6, 0.1))
-	draw_arc(c, MAP_RADIUS, 0.0, TAU, 64, Color(1, 1, 1, 0.55), 3.0)
+			draw_rect(_snap(c + rel, 3.0, 6.0), Color(1.0, 0.2, 0.2))
+	draw_rect(_snap(c, 3.0, 12.0), Color(0, 0, 0, 0.6))
+	draw_rect(_snap(c, 3.0, 9.0), Color(1.0, 0.6, 0.1))
+
+# a square of `size` px centred on p, snapped to the 3 px pixel grid
+func _snap(p: Vector2, unit: float, size: float) -> Rect2:
+	return Rect2(floorf((p.x - size * 0.5) / unit + 0.5) * unit, floorf((p.y - size * 0.5) / unit + 0.5) * unit, size, size)
+
+# The radar background as a small pixel image: a filled disc, a bright rim, faint cross and half ring.
+func _build_map_tex() -> void:
+	var n := int(MAP_RADIUS * 2.0 / 3.0)
+	var img := Image.create(n, n, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0, 0, 0, 0))
+	var r := float(n) * 0.5
+	for y in n:
+		for x in n:
+			var d := Vector2(float(x) + 0.5 - r, float(y) + 0.5 - r).length()
+			if d > r:
+				continue
+			var c := Color(0.04, 0.06, 0.09, 0.62)
+			if d > r - 1.2:
+				c = Color(0.9, 0.92, 1.0, 0.85)
+			elif d > r - 2.2:
+				c = Color(0.02, 0.02, 0.05, 0.85)
+			elif absf(d - r * 0.5) < 0.6 or absi(x - int(r)) == 0 or absi(y - int(r)) == 0:
+				c = Color(0.5, 0.55, 0.7, 0.35)
+			img.set_pixel(x, y, c)
+	_map_tex = ImageTexture.create_from_image(img)
 
 func _text(pos: Vector2, text: String, font_size: int, color: Color) -> void:
 	var font := ThemeDB.fallback_font
-	draw_string_outline(font, pos, text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, 5, Color.BLACK)
-	draw_string(font, pos, text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, color)
+	draw_string_outline(font, pos, text, HORIZONTAL_ALIGNMENT_LEFT, -1, PixelUI.fs(font_size), 5, Color.BLACK)
+	draw_string(font, pos, text, HORIZONTAL_ALIGNMENT_LEFT, -1, PixelUI.fs(font_size), color)
 
-# Modern bar: rounded frame, smooth fill with a gloss, a moving shine, a trailing
-# "damage" ghost, and a pulsing red glow when the value is low.
+# Pixel bar: dark outline, 3 px steps, banded fill (light top / dark bottom), a trailing "damage" ghost,
+# a blinking red frame when the value is low.
 func _bar(pos: Vector2, bar_size: Vector2, front: float, ghost: float, col: Color, col2: Color, text: String, charge: float, low: bool) -> void:
-	var rad := int(bar_size.y * 0.5)
+	var u := 3.0
 	var pulse := 0.5 + 0.5 * sin(_t * 8.0)
 	if low:
-		_frame_sb.bg_color = Color(0.9, 0.1, 0.1, 0.10 + 0.22 * pulse)
-		_frame_sb.set_corner_radius_all(rad + 6)
-		draw_style_box(_frame_sb, Rect2(pos - Vector2(6, 6), bar_size + Vector2(12, 12)))
-	_frame_sb.bg_color = Color(0.05, 0.06, 0.09, 0.88)
-	_frame_sb.set_corner_radius_all(rad + 3)
-	draw_style_box(_frame_sb, Rect2(pos - Vector2(3, 3), bar_size + Vector2(6, 6)))
-	var inner := Rect2(pos, bar_size)
-	var fw := bar_size.x * clampf(front, 0.0, 1.0)
-	var gw := bar_size.x * clampf(ghost, 0.0, 1.0)
-	_fill_sb.set_corner_radius_all(rad)
-	if gw > fw + 1.0:
-		_fill_sb.bg_color = Color(1.0, 1.0, 1.0, 0.55)
-		draw_style_box(_fill_sb, Rect2(pos, Vector2(gw, bar_size.y)))
-	if fw > 1.0:
-		var base_col := col.lerp(Color(1.0, 0.3, 0.3), 0.35 * pulse) if low else col
-		_fill_sb.bg_color = base_col.darkened(0.15)
-		draw_style_box(_fill_sb, Rect2(pos, Vector2(fw, bar_size.y)))
-		# lighter upper half (gloss)
-		_fill_sb.bg_color = col2.lerp(base_col, 0.3)
-		_fill_sb.set_corner_radius_all(rad)
-		draw_style_box(_fill_sb, Rect2(pos + Vector2(0, 2), Vector2(fw, bar_size.y * 0.45)))
-		# moving shine
-		var sx := fposmod(_t * 110.0, bar_size.x + 120.0) - 60.0
+		draw_rect(Rect2(pos - Vector2(9, 9), bar_size + Vector2(18, 18)), Color(0.9, 0.1, 0.1, (0.10 + 0.22 * pulse) * floorf(1.0 + pulse * 1.99) * 0.5))
+	draw_rect(Rect2(pos - Vector2(6, 6), bar_size + Vector2(12, 12)), PixelUI.OUTLINE)
+	draw_rect(Rect2(pos - Vector2(3, 3), bar_size + Vector2(6, 6)), col.darkened(0.55).lerp(Color(0.2, 0.2, 0.3), 0.4))
+	draw_rect(Rect2(pos, bar_size), Color(0.05, 0.05, 0.08))
+	var fw := floorf(bar_size.x * clampf(front, 0.0, 1.0) / u) * u
+	var gw := floorf(bar_size.x * clampf(ghost, 0.0, 1.0) / u) * u
+	if gw > fw:
+		draw_rect(Rect2(pos.x + fw, pos.y, gw - fw, bar_size.y), Color(1.0, 1.0, 1.0, 0.7))
+	if fw > 0.0:
+		var base_col := col.lerp(Color(1.0, 0.3, 0.3), 0.35 * floorf(pulse * 2.0)) if low else col
+		var h := bar_size.y
+		draw_rect(Rect2(pos, Vector2(fw, h)), base_col.darkened(0.25))
+		draw_rect(Rect2(pos, Vector2(fw, h - u * 2.0)), base_col)
+		draw_rect(Rect2(pos, Vector2(fw, u * 2.0)), col2.lerp(base_col, 0.25))
+		draw_rect(Rect2(pos + Vector2(0, u), Vector2(fw, u)), col2.lightened(0.25))
+		# a lit block travelling along the bar
+		var sx := floorf((fposmod(_t * 110.0, bar_size.x + 120.0) - 60.0) / u) * u
 		var x0 := clampf(pos.x + sx, pos.x, pos.x + fw)
-		var x1 := clampf(pos.x + sx + 36.0, pos.x, pos.x + fw)
+		var x1 := clampf(pos.x + sx + 4.0 * u, pos.x, pos.x + fw)
 		if x1 - x0 > 1.0:
-			draw_rect(Rect2(x0, pos.y + 2.0, x1 - x0, bar_size.y - 4.0), Color(1, 1, 1, 0.20))
-		# glowing tip
-		draw_circle(Vector2(pos.x + fw, pos.y + bar_size.y * 0.5), 6.0 + 2.0 * pulse, Color(col2.r, col2.g, col2.b, 0.35))
-		# refill sparkle: little lights run along a bar that is charging
+			draw_rect(Rect2(x0, pos.y + u, x1 - x0, h - u * 2.0), Color(1, 1, 1, 0.22))
 		if charge > 0.05:
 			for i in 3:
-				var px := pos.x + fposmod(_t * 160.0 + i * 140.0, maxf(fw, 1.0))
-				draw_circle(Vector2(px, pos.y + bar_size.y * 0.5 + sin(_t * 9.0 + i) * 4.0), 2.2, Color(1, 1, 0.8, 0.8 * charge))
-	# segment ticks
+				var px := floorf((pos.x + fposmod(_t * 160.0 + i * 140.0, maxf(fw, 1.0))) / u) * u
+				var py := pos.y + floorf((h * 0.5 + sin(_t * 9.0 + i) * 4.0) / u) * u
+				draw_rect(Rect2(px, py, u, u), Color(1, 1, 0.8, 0.9 * charge))
+	# segment ticks, one pixel column every 10%
 	for i in range(1, 10):
-		var tx := pos.x + bar_size.x * i / 10.0
-		draw_line(Vector2(tx, pos.y + 3.0), Vector2(tx, pos.y + bar_size.y - 3.0), Color(0, 0, 0, 0.22), 1.0)
-	_fill_sb.bg_color = Color(0, 0, 0, 0)
-	_fill_sb.set_border_width_all(2)
-	_fill_sb.border_color = Color(1, 1, 1, 0.55)
-	_fill_sb.set_corner_radius_all(rad)
-	draw_style_box(_fill_sb, inner)
-	_fill_sb.set_border_width_all(0)
-	_text(pos + Vector2(14, bar_size.y - 6), text, 17, Color.WHITE)
+		var tx := floorf((pos.x + bar_size.x * i / 10.0) / u) * u
+		draw_rect(Rect2(tx, pos.y, u, bar_size.y), Color(0, 0, 0, 0.28))
+	PixelUI.text(self, pos + Vector2(14, bar_size.y - 6), text, 17, Color.WHITE, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 4)
 
 func _draw_coins(s: Vector2) -> void:
 	var pos := Vector2(s.x - 230.0, 44.0)
@@ -406,7 +416,7 @@ func _draw_skills(s: Vector2) -> void:
 			border = active_col
 		elif id != "":
 			border = Color(1, 1, 1, 0.6)
-		draw_rect(r, border, false, 3.0 if active else 2.0)
+		draw_style_box(PixelUI.box(Color(0, 0, 0, 0), border.lerp(Color(0.8, 0.82, 0.9), 0.0) if id != "" else Color(0.3, 0.32, 0.4), 2), r)
 		_text(r.position + Vector2(6, 18), Keybinds.key_text("skill_%d" % (i + 1)), 16, Color(1.0, 0.9, 0.5))
 
 func _draw_skill_icon(id: String, r: Rect2) -> void:
@@ -439,7 +449,7 @@ func _draw_skill_icon(id: String, r: Rect2) -> void:
 func _draw_weapon(pos: Vector2) -> void:
 	Icons.draw(self, Weapons.id_of(base.weapon_tier), pos, 62.0 / 64.0, true)
 	var col: Color = Weapons.COLORS[base.weapon_tier]
-	draw_rect(Rect2(pos, Vector2(62, 62)), col, false, 2.0)
+	draw_style_box(PixelUI.box(Color(0, 0, 0, 0), col, 2), Rect2(pos, Vector2(62, 62)))
 
 # Helper allies as icons with counts (no profession names, just like the coin).
 func _draw_helpers() -> void:

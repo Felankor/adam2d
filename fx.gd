@@ -63,33 +63,33 @@ func _draw() -> void:
 	match kind:
 		"spark":
 			for p in _parts:
-				draw_circle(p[0], p[2] * a, Color(color.r, color.g, color.b, a))
+				PixelFx.square(self, p[0], maxf(p[2] * a, 1.0) * 1.4, Color(color.r, color.g, color.b, a))
 		"explosion":
 			var ring := 20.0 + 120.0 * power * t
-			draw_circle(Vector2.ZERO, ring * 0.7, Color(1.0, 0.55, 0.1, 0.45 * a))
-			draw_arc(Vector2.ZERO, ring, 0.0, TAU, 48, Color(1.0, 0.9, 0.5, a), 5.0 * a + 1.0)
+			PixelFx.disc(self, Vector2.ZERO, ring * 0.7, Color(1.0, 0.55, 0.1, 0.5 * a))
+			PixelFx.ring(self, Vector2.ZERO, ring, Color(1.0, 0.9, 0.5, a), 6.0 * a + 3.0)
 			for p in _parts:
-				draw_circle(p[0], p[2] * 1.6 * a, Color(1.0, 0.45 + 0.4 * t, 0.1, a))
+				PixelFx.square(self, p[0], p[2] * 1.8 * a, Color(1.0, 0.45 + 0.4 * t, 0.1, a))
 		"crit":
 			var cr := 16.0 + 80.0 * power * t
 			for i in 8:
 				var ang := TAU * float(i) / 8.0 + 0.2
 				var dirv := Vector2.RIGHT.rotated(ang)
-				draw_line(dirv * cr * 0.35, dirv * cr, Color(1.0, 0.85, 0.3, a), 5.0 * a + 1.0)
-			draw_arc(Vector2.ZERO, cr * 0.6, 0.0, TAU, 32, Color(1.0, 0.3, 0.15, a), 4.0)
-			draw_circle(Vector2.ZERO, cr * 0.3, Color(1.0, 0.95, 0.7, 0.5 * a))
+				PixelFx.line(self, dirv * cr * 0.35, dirv * cr, Color(1.0, 0.85, 0.3, a), 5.0 * a + 3.0)
+			PixelFx.ring(self, Vector2.ZERO, cr * 0.6, Color(1.0, 0.3, 0.15, a), 3.0)
+			PixelFx.disc(self, Vector2.ZERO, cr * 0.3, Color(1.0, 0.95, 0.7, 0.5 * a))
 		"void_blast":
 			var vr := 30.0 + 150.0 * power * t
-			draw_circle(Vector2.ZERO, vr * 0.8, Color(0.08, 0.0, 0.16, 0.55 * a))
-			draw_circle(Vector2.ZERO, vr * 0.45, Color(0.02, 0.0, 0.05, 0.7 * a))
-			draw_arc(Vector2.ZERO, vr, 0.0, TAU, 64, Color(0.75, 0.4, 1.0, a), 6.0 * a + 1.0)
-			draw_arc(Vector2.ZERO, vr * 0.7, 0.0, TAU, 48, Color(0.5, 0.15, 0.9, 0.8 * a), 3.0)
+			PixelFx.disc(self, Vector2.ZERO, vr * 0.8, Color(0.08, 0.0, 0.16, 0.6 * a))
+			PixelFx.disc(self, Vector2.ZERO, vr * 0.45, Color(0.02, 0.0, 0.05, 0.75 * a))
+			PixelFx.ring(self, Vector2.ZERO, vr, Color(0.75, 0.4, 1.0, a), 6.0 * a + 3.0)
+			PixelFx.ring(self, Vector2.ZERO, vr * 0.7, Color(0.5, 0.15, 0.9, 0.8 * a), 3.0)
 			for p in _parts:
-				draw_circle(p[0], p[2] * 1.5 * a, Color(0.6 + 0.3 * t, 0.2, 1.0, a))
+				PixelFx.square(self, p[0], p[2] * 1.7 * a, Color(0.6 + 0.3 * t, 0.2, 1.0, a))
 		"number":
 			var font := ThemeDB.fallback_font
 			var pos := Vector2(-40, 0)
 			var fsz := int(22.0 * clampf(power, 1.0, 2.2))
 			pos = Vector2(-60.0, 0)
-			draw_string_outline(font, pos, text, HORIZONTAL_ALIGNMENT_CENTER, 120, fsz, 6, Color(0, 0, 0, a))
-			draw_string(font, pos, text, HORIZONTAL_ALIGNMENT_CENTER, 120, fsz, Color(color.r, color.g, color.b, a))
+			draw_string_outline(font, pos, text, HORIZONTAL_ALIGNMENT_CENTER, 120, PixelUI.fs(fsz), 6, Color(0, 0, 0, a))
+			draw_string(font, pos, text, HORIZONTAL_ALIGNMENT_CENTER, 120, PixelUI.fs(fsz), Color(color.r, color.g, color.b, a))

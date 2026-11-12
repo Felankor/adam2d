@@ -186,24 +186,24 @@ func _draw() -> void:
 	var r := radius
 	var bob := sin(_anim * 1.5) * (3.0 + r * 0.05)
 	if _pix == null:
-		draw_circle(Vector2(8.0, r * 2.6), r * 1.1, Color(0, 0, 0, 0.18))
+		PixelFx.disc(self, Vector2(8.0, r * 2.6), r * 1.1, Color(0, 0, 0, 0.18))
 		draw_set_transform(Vector2(0.0, bob), sin(_anim * 1.1 + 1.0) * 0.015, Vector2.ONE)
 		BaseArt.draw_all(self, tier, r, _anim, 0.55 + 0.45 * clampf(_flash / 0.12, 0.0, 1.0))
 	else:
 		draw_set_transform(Vector2(0.0, bob), 0.0, Vector2.ONE)
 	var dir := Vector2.RIGHT.rotated(_heading)
 	var col: Color = Weapons.COLORS[weapon_tier]
-	draw_line(Vector2.ZERO, dir * (r + 14.0), Color(0.05, 0.05, 0.08, 0.8), 13.0)
-	draw_line(Vector2.ZERO, dir * (r + 12.0), col, 8.0)
+	PixelFx.line(self, Vector2.ZERO, dir * (r + 14.0), Color(0.05, 0.05, 0.08, 0.8), 13.0)
+	PixelFx.line(self, Vector2.ZERO, dir * (r + 12.0), col, 8.0)
 	if boost_time > 0.0:
-		draw_arc(Vector2.ZERO, r * 1.25, 0.0, TAU, 48, Color(1.0, 0.45, 0.15, 0.5), 4.0)
+		PixelFx.ring(self, Vector2.ZERO, r * 1.25, Color(1.0, 0.45, 0.15, 0.5), 4.0)
 	if barrier_time > 0.0:
-		draw_arc(Vector2.ZERO, r * 1.75, 0.0, TAU, 64, Color(0.5, 0.95, 1.0, 0.8), 4.0)
+		PixelFx.ring(self, Vector2.ZERO, r * 1.75, Color(0.5, 0.95, 1.0, 0.8), 4.0)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	if _beam_charge > 0.0:
 		var k := 1.0 - _beam_charge / BEAM_CHARGE
 		var to_aim := (_beam_aim - position).normalized() * 1700.0
-		draw_line(Vector2.ZERO, to_aim, Color(1.0, 0.2, 0.2, 0.15 + 0.5 * k), 1.5 + 4.0 * k)
+		PixelFx.line(self, Vector2.ZERO, to_aim, Color(1.0, 0.2, 0.2, 0.15 + 0.5 * k), 1.5 + 4.0 * k)
 	_draw_bar()
 
 func _draw_bar() -> void:
@@ -217,5 +217,5 @@ func _draw_bar() -> void:
 	_draw_armor_tag(pos + Vector2(-34.0, 3.0))
 	var font := ThemeDB.fallback_font
 	var title := "%s  (%d)" % [boss_name, int(power())]
-	draw_string_outline(font, pos + Vector2(0, -6), title, HORIZONTAL_ALIGNMENT_CENTER, w, 16, 4, Color.BLACK)
-	draw_string(font, pos + Vector2(0, -6), title, HORIZONTAL_ALIGNMENT_CENTER, w, 16, Color(1.0, 0.8, 0.8))
+	draw_string_outline(font, pos + Vector2(0, -6), title, HORIZONTAL_ALIGNMENT_CENTER, w, PixelUI.fs(16), 4, Color.BLACK)
+	draw_string(font, pos + Vector2(0, -6), title, HORIZONTAL_ALIGNMENT_CENTER, w, PixelUI.fs(16), Color(1.0, 0.8, 0.8))

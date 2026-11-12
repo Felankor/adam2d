@@ -23,11 +23,7 @@ func _ready() -> void:
 	add_child(center)
 
 	var panel := PanelContainer.new()
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.09, 0.07, 0.09, 0.97)
-	sb.border_color = Color(0.85, 0.2, 0.2)
-	sb.set_border_width_all(3)
-	sb.set_corner_radius_all(14)
+	var sb := PixelUI.box(Color(0.09, 0.07, 0.09, 0.97), Color(0.85, 0.2, 0.2))
 	sb.set_content_margin_all(40)
 	panel.add_theme_stylebox_override("panel", sb)
 	center.add_child(panel)
@@ -39,13 +35,13 @@ func _ready() -> void:
 	var title := Label.new()
 	title.text = "Your castle has been destroyed!"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 46)
+	title.add_theme_font_size_override("font_size", PixelUI.fs(46))
 	title.add_theme_color_override("font_color", Color(1.0, 0.4, 0.35))
 	box.add_child(title)
 
 	_info = Label.new()
 	_info.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_info.add_theme_font_size_override("font_size", 24)
+	_info.add_theme_font_size_override("font_size", PixelUI.fs(24))
 	box.add_child(_info)
 
 	box.add_child(HSeparator.new())
@@ -58,7 +54,7 @@ func _button(text: String, handler: Callable) -> Button:
 	b.text = text
 	b.focus_mode = Control.FOCUS_NONE
 	b.custom_minimum_size = Vector2(420, 60)
-	b.add_theme_font_size_override("font_size", 26)
+	b.add_theme_font_size_override("font_size", PixelUI.fs(26))
 	b.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	b.pressed.connect(handler)
 	return b

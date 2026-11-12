@@ -264,7 +264,7 @@ func _ready() -> void:
 # Pixel-art body (see mob_art.gd). The vector drawing below is only used when no sprite exists.
 func _make_sprite() -> void:
 	_art_key = MobArt.key_for(kind, space, is_ally)
-	if not MobArt.INFO.has(_art_key):
+	if _art_key == "" or not MobArt.INFO.has(_art_key):
 		return
 	_art = MobArt.frames(_art_key)
 	_sprite = Sprite2D.new()
@@ -276,6 +276,9 @@ func _make_sprite() -> void:
 func _update_sprite() -> void:
 	if _sprite == null:
 		return
+	if MobArt.directional(_art_key):
+		_art = MobArt.frames(_art_key, MobArt.dir_of(_heading))
+	_sprite.offset = _art["off"]
 	var n: int = _art["n"]
 	var fr := int(floorf(_walk * MobArt.frame_rate(_art_key))) % n
 	if fr < 0:
@@ -387,8 +390,8 @@ func _draw_armor_tag(origin: Vector2) -> void:
 	draw_polyline(outline, Color.WHITE, 1.5)
 	var font := ThemeDB.fallback_font
 	var txt := str(int(armor))
-	draw_string_outline(font, origin + Vector2(15, 11), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, 3, Color.BLACK)
-	draw_string(font, origin + Vector2(15, 11), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color.WHITE)
+	draw_string_outline(font, origin + Vector2(15, 11), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, PixelUI.fs(12), 3, Color.BLACK)
+	draw_string(font, origin + Vector2(15, 11), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, PixelUI.fs(12), Color.WHITE)
 
 func _process(delta: float) -> void:
 	if preview:
@@ -574,21 +577,25 @@ func _hit_sfx(normal: String) -> void:
 func _draw_marker() -> void:
 	var mr := maxf(radius, 12.0) + 5.0
 	var ring := Color(0.4, 1.0, 0.5, 0.9) if is_ally else Color(1.0, 0.25, 0.2, 0.9)
-	draw_circle(Vector2(0, 2), mr, Color(0, 0, 0, 0.42))
-	draw_arc(Vector2(0, 2), mr, 0.0, TAU, 28, ring, 2.5)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2(1.0, MobArt.GROUND_SQUASH))
+	PixelFx.disc(self, Vector2(3, 5), mr, Color(0, 0, 0, 0.36))
+	PixelFx.ring(self, Vector2(0, 2), mr, ring, 2.5)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 func _draw_overlays() -> void:
 	if kind == "medic":
-		draw_arc(Vector2.ZERO, HEAL_RADIUS, 0.0, TAU, 48, Color(0.4, 1.0, 0.5, 0.10), 2.0)
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2(1.0, MobArt.GROUND_SQUASH))
+		PixelFx.ring(self, Vector2.ZERO, HEAL_RADIUS, Color(0.4, 1.0, 0.5, 0.10), 2.0)
 		var pk := float(Time.get_ticks_msec() - _heal_ms) / 600.0
 		if pk >= 0.0 and pk < 1.0:
-			draw_arc(Vector2.ZERO, HEAL_RADIUS * pk, 0.0, TAU, 48, Color(0.4, 1.0, 0.5, 0.55 * (1.0 - pk)), 4.0)
+			PixelFx.ring(self, Vector2.ZERO, HEAL_RADIUS * pk, Color(0.4, 1.0, 0.5, 0.55 * (1.0 - pk)), 4.0)
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	elif kind == "aegis":
 		var frac := clampf(shield / maxf(shield_max, 0.001), 0.0, 1.0)
 		if frac > 0.0:
 			draw_set_transform(Vector2.ZERO, _heading, Vector2.ONE)
-			draw_arc(Vector2.ZERO, 26.0, -1.0, 1.0, 20, Color(0.35, 0.9, 1.0, 0.25 + 0.65 * frac), 6.0)
-			draw_arc(Vector2.ZERO, 26.0, -1.0, 1.0, 20, Color(0.85, 1.0, 1.0, 0.6 * frac), 2.0)
+			PixelFx.arc(self, Vector2.ZERO, 26.0, -1.0, 1.0, Color(0.35, 0.9, 1.0, 0.25 + 0.65 * frac), 6.0)
+			PixelFx.arc(self, Vector2.ZERO, 26.0, -1.0, 1.0, Color(0.85, 1.0, 1.0, 0.6 * frac), 2.0)
 			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 func _draw() -> void:

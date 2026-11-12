@@ -44,23 +44,25 @@ func _draw() -> void:
 	var dir := direction
 	match style:
 		"shell":
-			draw_line(Vector2.ZERO, -dir * 16.0, Color(1.0, 0.5, 0.1, 0.45), 6.0)
-			draw_circle(Vector2.ZERO, 9.0, Color(0.95, 0.45, 0.1))
-			draw_circle(Vector2.ZERO, 5.0, Color(1.0, 0.85, 0.3))
+			PixelFx.line(self, Vector2.ZERO, -dir * 16.0, Color(1.0, 0.5, 0.1, 0.5), 6.0)
+			PixelFx.disc(self, Vector2.ZERO, 11.0, Color(0.15, 0.05, 0.02))
+			PixelFx.disc(self, Vector2.ZERO, 9.0, Color(0.95, 0.45, 0.1))
+			PixelFx.disc(self, Vector2.ZERO, 5.0, Color(1.0, 0.85, 0.3))
 		"bullet":
-			draw_line(Vector2.ZERO, -dir * 22.0, Color(1.0, 0.35, 0.3, 0.55), 4.0)
-			draw_circle(Vector2.ZERO, 5.0, Color(1.0, 0.8, 0.5))
+			PixelFx.line(self, Vector2.ZERO, -dir * 22.0, Color(1.0, 0.35, 0.3, 0.6), 3.0)
+			PixelFx.disc(self, Vector2.ZERO, 6.0, Color(0.15, 0.03, 0.02))
+			PixelFx.disc(self, Vector2.ZERO, 5.0, Color(1.0, 0.8, 0.5))
 		"rocket":
-			draw_line(Vector2.ZERO, -dir * 26.0, Color(1.0, 0.6, 0.2, 0.5), 7.0)
-			draw_circle(Vector2.ZERO, 8.0, Color(0.85, 0.2, 0.2))
-			draw_circle(Vector2.ZERO, 4.0, Color(1.0, 0.9, 0.5))
+			PixelFx.line(self, Vector2.ZERO, -dir * 26.0, Color(1.0, 0.6, 0.2, 0.55), 7.0)
+			PixelFx.disc(self, Vector2.ZERO, 8.0, Color(0.85, 0.2, 0.2))
+			PixelFx.disc(self, Vector2.ZERO, 4.0, Color(1.0, 0.9, 0.5))
 		"void":
-			var pulse := 0.5 + 0.5 * sin(_t * 30.0)
-			draw_line(Vector2.ZERO, -dir * 30.0, Color(0.55, 0.1, 0.9, 0.5), 7.0)
-			draw_circle(Vector2.ZERO, 9.0 + 2.0 * pulse, Color(0.5, 0.1, 0.8, 0.45))
-			draw_circle(Vector2.ZERO, 5.5, Color(0.12, 0.0, 0.22))
-			draw_circle(Vector2.ZERO, 2.5, Color(0.9, 0.5, 1.0))
+			var pulse := floorf((0.5 + 0.5 * sin(_t * 30.0)) * 2.0)
+			PixelFx.line(self, Vector2.ZERO, -dir * 30.0, Color(0.55, 0.1, 0.9, 0.55), 7.0)
+			PixelFx.disc(self, Vector2.ZERO, 9.0 + 3.0 * pulse, Color(0.5, 0.1, 0.8, 0.5))
+			PixelFx.disc(self, Vector2.ZERO, 6.0, Color(0.12, 0.0, 0.22))
+			PixelFx.disc(self, Vector2.ZERO, 3.0, Color(0.9, 0.5, 1.0))
 		_:
-			draw_circle(Vector2.ZERO, 15.0, Color(0.75, 0.3, 1.0, 0.25))
-			draw_circle(Vector2.ZERO, 9.0, Color(0.75, 0.3, 1.0))
-			draw_circle(Vector2.ZERO, 4.0, Color.WHITE)
+			PixelFx.disc(self, Vector2.ZERO, 15.0, Color(0.75, 0.3, 1.0, 0.3))
+			PixelFx.disc(self, Vector2.ZERO, 9.0, Color(0.75, 0.3, 1.0))
+			PixelFx.disc(self, Vector2.ZERO, 4.0, Color.WHITE)

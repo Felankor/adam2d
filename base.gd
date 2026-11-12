@@ -580,7 +580,7 @@ func _draw() -> void:
 	if _pix == null:
 		# the shadow stays on the ground and shrinks as the castle rises
 		draw_set_transform(Vector2(6.0, drop), 0.0, Vector2(1.0, 0.28))
-		draw_circle(Vector2.ZERO, r * 1.2 * (1.0 - bob / (r * 6.0)), Color(0, 0, 0, 0.22))
+		PixelFx.disc(self, Vector2.ZERO, r * 1.2 * (1.0 - bob / (r * 6.0)), Color(0, 0, 0, 0.22))
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 		draw_set_transform(Vector2(0.0, bob), tilt, Vector2.ONE)
 		BaseArt.draw_all(self, tier, r, _anim, tint)
@@ -588,21 +588,21 @@ func _draw() -> void:
 	draw_set_transform(Vector2(0.0, bob), 0.0, Vector2.ONE)
 	if boost_time > 0.0:
 		var flick := 0.5 + 0.5 * sin(_anim * 14.0)
-		draw_arc(Vector2.ZERO, r * 1.25, 0.0, TAU, 48, Color(1.0, 0.6, 0.15, 0.35 + 0.3 * flick), 4.0)
-		draw_arc(Vector2.ZERO, r * 1.4, _anim * 3.0, _anim * 3.0 + 4.0, 24, Color(1.0, 0.85, 0.3, 0.7), 3.0)
+		PixelFx.ring(self, Vector2.ZERO, r * 1.25, Color(1.0, 0.6, 0.15, 0.35 + 0.3 * flick), 4.0)
+		PixelFx.arc(self, Vector2.ZERO, r * 1.4, _anim * 3.0, _anim * 3.0 + 4.0, Color(1.0, 0.85, 0.3, 0.7), 3.0)
 	if auto_cannons > 0:
-		draw_arc(Vector2.ZERO, auto_range, 0.0, TAU, 96, Color(1, 1, 1, 0.12), 2.0)
+		PixelFx.ring(self, Vector2.ZERO, auto_range, Color(1, 1, 1, 0.12), 2.0)
 		var auto_col: Color = Weapons.COLORS[weapon_tier]
 		for i in auto_cannons:
 			var a := TAU * i / auto_cannons
-			draw_circle(Vector2.RIGHT.rotated(a) * (r + 8.0), 7.0, auto_col)
+			PixelFx.disc(self, Vector2.RIGHT.rotated(a) * (r + 8.0), 7.0, auto_col)
 	var dir := Vector2.RIGHT.rotated(aim_angle)
 	if laser:
 		var laser_start := dir * (r + 20.0)
 		var laser_end := dir * _laser_length()
-		draw_line(laser_start, laser_end, Color(1.0, 0.1, 0.1, 0.18), 7.0)
-		draw_line(laser_start, laser_end, Color(1.0, 0.25, 0.25, 0.8), 1.8)
-		draw_circle(laser_end, 4.0, Color(1.0, 0.35, 0.35, 0.9))
+		PixelFx.line(self, laser_start, laser_end, Color(1.0, 0.1, 0.1, 0.18), 7.0)
+		PixelFx.line(self, laser_start, laser_end, Color(1.0, 0.25, 0.25, 0.8), 1.8)
+		PixelFx.disc(self, laser_end, 4.0, Color(1.0, 0.35, 0.35, 0.9))
 	_draw_barrel(dir, r)
 	_draw_energy_shield(r)
 	if barrier_time > 0.0:
@@ -610,56 +610,56 @@ func _draw() -> void:
 		if barrier_time < 1.0:
 			blink = 0.5 + 0.5 * sin(_anim * 24.0)
 		var pulse := 0.5 + 0.5 * sin(_anim * 8.0)
-		draw_circle(Vector2.ZERO, r * 1.75, Color(0.3, 0.8, 1.0, (0.16 + 0.08 * pulse) * blink))
-		draw_arc(Vector2.ZERO, r * 1.75, 0.0, TAU, 64, Color(0.5, 0.95, 1.0, 0.9 * blink), 4.0)
+		PixelFx.disc(self, Vector2.ZERO, r * 1.75, Color(0.3, 0.8, 1.0, (0.16 + 0.08 * pulse) * blink))
+		PixelFx.ring(self, Vector2.ZERO, r * 1.75, Color(0.5, 0.95, 1.0, 0.9 * blink), 4.0)
 	if _lvlfx > 0.0:
 		var k := 1.0 - _lvlfx / LEVELUP_FX
-		draw_circle(Vector2.ZERO, r * 1.3, Color(1.0, 0.9, 0.4, 0.2 * (1.0 - k)))
+		PixelFx.disc(self, Vector2.ZERO, r * 1.3, Color(1.0, 0.9, 0.4, 0.2 * (1.0 - k)))
 		for ring in 2:
 			var kk := clampf(k - 0.18 * float(ring), 0.0, 1.0)
-			draw_arc(Vector2.ZERO, r * (1.1 + 2.6 * kk), 0.0, TAU, 64, Color(1.0, 0.85, 0.3, 0.85 * (1.0 - kk)), 6.0 * (1.0 - kk) + 1.0)
+			PixelFx.ring(self, Vector2.ZERO, r * (1.1 + 2.6 * kk), Color(1.0, 0.85, 0.3, 0.85 * (1.0 - kk)), 6.0 * (1.0 - kk) + 1.0)
 		for i in 14:
 			var a := TAU * float(i) / 14.0 + k * 1.6
 			var d := r * (1.0 + 1.7 * k)
-			draw_circle(Vector2.RIGHT.rotated(a) * d - Vector2(0.0, k * 60.0), 4.0 * (1.0 - k) + 1.0, Color(1.0, 0.95, 0.55, 0.95 * (1.0 - k)))
+			PixelFx.disc(self, Vector2.RIGHT.rotated(a) * d - Vector2(0.0, k * 60.0), 4.0 * (1.0 - k) + 1.0, Color(1.0, 0.95, 0.55, 0.95 * (1.0 - k)))
 	if poison_time > 0.0:
 		# green poison bubbles rising off the castle
-		draw_circle(Vector2.ZERO, r * 1.1, Color(0.4, 0.9, 0.2, 0.12))
+		PixelFx.disc(self, Vector2.ZERO, r * 1.1, Color(0.4, 0.9, 0.2, 0.12))
 		for i in 6:
 			var ph := fmod(_anim * 0.9 + float(i) * 0.37, 1.0)
 			var bx := sin(float(i) * 2.1 + _anim) * r * 0.8
-			draw_circle(Vector2(bx, r * 0.4 - ph * r * 1.5), 3.0 + 3.0 * (1.0 - ph), Color(0.55, 1.0, 0.3, 0.7 * (1.0 - ph)))
+			PixelFx.disc(self, Vector2(bx, r * 0.4 - ph * r * 1.5), 3.0 + 3.0 * (1.0 - ph), Color(0.55, 1.0, 0.3, 0.7 * (1.0 - ph)))
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 # The manual weapon changes its look with the weapon tier.
 func _draw_barrel(dir: Vector2, r: float) -> void:
 	var tip := dir * (r + 22.0)
 	var col: Color = Weapons.COLORS[weapon_tier]
-	draw_line(Vector2.ZERO, tip, Color(0.05, 0.05, 0.08, 0.8), 13.0)
-	draw_circle(Vector2.ZERO, 10.0, Color(0.05, 0.05, 0.08, 0.8))
+	PixelFx.line(self, Vector2.ZERO, tip, Color(0.05, 0.05, 0.08, 0.8), 13.0)
+	PixelFx.disc(self, Vector2.ZERO, 10.0, Color(0.05, 0.05, 0.08, 0.8))
 	match weapon_tier:
 		0:
 			var side := dir.orthogonal() * 3.5
-			draw_line(side, tip + side, Color(0.45, 0.46, 0.5), 4.5)
-			draw_line(-side, tip - side, Color(0.45, 0.46, 0.5), 4.5)
-			draw_circle(Vector2.ZERO, 8.0, Color(0.3, 0.3, 0.34))
+			PixelFx.line(self, side, tip + side, Color(0.45, 0.46, 0.5), 4.5)
+			PixelFx.line(self, -side, tip - side, Color(0.45, 0.46, 0.5), 4.5)
+			PixelFx.disc(self, Vector2.ZERO, 8.0, Color(0.3, 0.3, 0.34))
 		1:
-			draw_line(Vector2.ZERO, tip, Color.DIM_GRAY, 9.0)
+			PixelFx.line(self, Vector2.ZERO, tip, Color.DIM_GRAY, 9.0)
 		2:
-			draw_line(Vector2.ZERO, dir * (r + 28.0), Color(0.35, 0.42, 0.3), 15.0)
-			draw_line(dir * (r + 22.0), dir * (r + 29.0), Color(0.75, 0.3, 0.2), 16.0)
+			PixelFx.line(self, Vector2.ZERO, dir * (r + 28.0), Color(0.35, 0.42, 0.3), 15.0)
+			PixelFx.line(self, dir * (r + 22.0), dir * (r + 29.0), Color(0.75, 0.3, 0.2), 16.0)
 		4:
-			draw_line(Vector2.ZERO, tip, Color(0.16, 0.1, 0.26), 10.0)
-			draw_line(Vector2.ZERO, tip, Color(0.4, 0.2, 0.65), 3.0)
-			draw_circle(tip, 7.0, Color(0.04, 0.0, 0.1))
-			draw_circle(tip, 12.0, Color(0.5, 0.15, 0.9, 0.3))
-			draw_arc(tip, 9.0, _anim * 6.0, _anim * 6.0 + 4.0, 12, Color(0.8, 0.55, 1.0, 0.9), 2.0)
+			PixelFx.line(self, Vector2.ZERO, tip, Color(0.16, 0.1, 0.26), 10.0)
+			PixelFx.line(self, Vector2.ZERO, tip, Color(0.4, 0.2, 0.65), 3.0)
+			PixelFx.disc(self, tip, 7.0, Color(0.04, 0.0, 0.1))
+			PixelFx.disc(self, tip, 12.0, Color(0.5, 0.15, 0.9, 0.3))
+			PixelFx.arc(self, tip, 9.0, _anim * 6.0, _anim * 6.0 + 4.0, Color(0.8, 0.55, 1.0, 0.9), 2.0)
 		3:
-			draw_line(Vector2.ZERO, tip, Color(0.32, 0.36, 0.5), 8.0)
-			draw_circle(tip, 6.0, Color(0.5, 0.95, 1.0, 0.9))
-			draw_circle(tip, 10.0, Color(0.3, 0.9, 1.0, 0.25))
+			PixelFx.line(self, Vector2.ZERO, tip, Color(0.32, 0.36, 0.5), 8.0)
+			PixelFx.disc(self, tip, 6.0, Color(0.5, 0.95, 1.0, 0.9))
+			PixelFx.disc(self, tip, 10.0, Color(0.3, 0.9, 1.0, 0.25))
 	if _muzzle > 0.0:
-		draw_circle(tip + dir * 6.0, 10.0 * (_muzzle / 0.07), Color(col.r, col.g, col.b, 0.9))
+		PixelFx.disc(self, tip + dir * 6.0, 10.0 * (_muzzle / 0.07), Color(col.r, col.g, col.b, 0.9))
 
 
 # ---------- Energy Shield: a glowing, slowly turning glass globe ----------
@@ -675,12 +675,12 @@ func _draw_energy_shield(r: float) -> void:
 	var R := r * 1.5
 	if _sh_break > 0.0:
 		var k := 1.0 - _sh_break
-		draw_arc(Vector2.ZERO, R * (1.0 + 0.7 * k), 0.0, TAU, 64, Color(1.0, 0.6, 0.3, 0.8 * _sh_break), 5.0 * _sh_break + 1.0)
-		draw_arc(Vector2.ZERO, R * (1.0 + 0.35 * k), 0.0, TAU, 64, Color(1.0, 0.95, 0.7, 0.6 * _sh_break), 2.0)
+		PixelFx.ring(self, Vector2.ZERO, R * (1.0 + 0.7 * k), Color(1.0, 0.6, 0.3, 0.8 * _sh_break), 5.0 * _sh_break + 1.0)
+		PixelFx.ring(self, Vector2.ZERO, R * (1.0 + 0.35 * k), Color(1.0, 0.95, 0.7, 0.6 * _sh_break), 2.0)
 		for i in 12:
 			var a := TAU * float(i) / 12.0 + 0.3
 			var d0 := R * (0.9 + 0.5 * k)
-			draw_line(Vector2.RIGHT.rotated(a) * d0, Vector2.RIGHT.rotated(a) * (d0 + R * 0.25 * _sh_break), Color(1.0, 0.8, 0.5, _sh_break), 2.5)
+			PixelFx.line(self, Vector2.RIGHT.rotated(a) * d0, Vector2.RIGHT.rotated(a) * (d0 + R * 0.25 * _sh_break), Color(1.0, 0.8, 0.5, _sh_break), 2.5)
 	if shield <= 0.5:
 		return
 	var low := sf < 0.25
@@ -695,8 +695,8 @@ func _draw_energy_shield(r: float) -> void:
 	# body: glassy fill, denser towards the edge
 	for i in 6:
 		var f := float(i) / 5.0
-		draw_circle(Vector2.ZERO, R * (0.45 + 0.55 * f), Color(base_col.r, base_col.g, base_col.b, (0.015 + 0.03 * f * f) * glow * flick))
-	draw_circle(Vector2.ZERO, R, Color(base_col.r, base_col.g, base_col.b, (0.05 + 0.18 * hit) * flick))
+		PixelFx.disc(self, Vector2.ZERO, R * (0.45 + 0.55 * f), Color(base_col.r, base_col.g, base_col.b, (0.015 + 0.03 * f * f) * glow * flick))
+	PixelFx.disc(self, Vector2.ZERO, R, Color(base_col.r, base_col.g, base_col.b, (0.05 + 0.18 * hit) * flick))
 	# turning wireframe (front half only, faded towards the sides)
 	var rot := _anim * 0.5
 	var wire_a := (0.28 + 0.2 * pulse + 0.4 * hit) * glow * flick
@@ -707,25 +707,25 @@ func _draw_energy_shield(r: float) -> void:
 		var lat := (float(lat_i) - 2.0) * 0.5
 		_shield_line(R, 0.0, lat, false, rim_col, wire_a * 0.8)
 	# rim: soft outer halo, bright edge, thin inner edge
-	draw_arc(Vector2.ZERO, R * 1.04, 0.0, TAU, 72, Color(base_col.r, base_col.g, base_col.b, (0.12 + 0.12 * pulse + 0.3 * hit) * glow * flick), 7.0)
-	draw_arc(Vector2.ZERO, R, 0.0, TAU, 72, Color(rim_col.r, rim_col.g, rim_col.b, (0.55 + 0.35 * sf + 0.2 * hit) * flick), 2.5 + 1.5 * sf)
-	draw_arc(Vector2.ZERO, R * 0.93, 0.0, TAU, 72, Color(rim_col.r, rim_col.g, rim_col.b, 0.14 * flick), 1.5)
+	PixelFx.ring(self, Vector2.ZERO, R * 1.04, Color(base_col.r, base_col.g, base_col.b, (0.12 + 0.12 * pulse + 0.3 * hit) * glow * flick), 7.0)
+	PixelFx.ring(self, Vector2.ZERO, R, Color(rim_col.r, rim_col.g, rim_col.b, (0.55 + 0.35 * sf + 0.2 * hit) * flick), 2.5 + 1.5 * sf)
+	PixelFx.ring(self, Vector2.ZERO, R * 0.93, Color(rim_col.r, rim_col.g, rim_col.b, 0.14 * flick), 1.5)
 	# recharging: a bright spot travels around the rim
 	if _shield_idle >= SHIELD_DELAY and sf < 0.999:
 		var sa := _anim * 3.0
-		draw_arc(Vector2.ZERO, R, sa, sa + 0.7, 12, Color(1.0, 1.0, 1.0, 0.8), 4.0)
+		PixelFx.arc(self, Vector2.ZERO, R, sa, sa + 0.7, Color(1.0, 1.0, 1.0, 0.8), 4.0)
 	# specular highlights (top left)
 	var hl := Vector2(-0.42, -0.5) * R
-	draw_circle(hl, R * 0.17, Color(1.0, 1.0, 1.0, 0.07 * flick))
-	draw_circle(hl, R * 0.10, Color(1.0, 1.0, 1.0, 0.10 * flick))
-	draw_arc(Vector2.ZERO, R * 0.86, PI * 1.12, PI * 1.38, 10, Color(1.0, 1.0, 1.0, 0.45 * flick), 3.0)
+	PixelFx.disc(self, hl, R * 0.17, Color(1.0, 1.0, 1.0, 0.07 * flick))
+	PixelFx.disc(self, hl, R * 0.10, Color(1.0, 1.0, 1.0, 0.10 * flick))
+	PixelFx.arc(self, Vector2.ZERO, R * 0.86, PI * 1.12, PI * 1.38, Color(1.0, 1.0, 1.0, 0.45 * flick), 3.0)
 	# ripple where the last hit landed
 	if hit > 0.0:
 		var hp_pos := Vector2.RIGHT.rotated(_sh_hit_ang) * R
 		var k2 := 1.0 - hit
-		draw_circle(hp_pos, R * 0.22 * (0.5 + k2), Color(1.0, 1.0, 1.0, 0.45 * hit))
-		draw_arc(hp_pos, R * (0.12 + 0.55 * k2), 0.0, TAU, 32, Color(rim_col.r, rim_col.g, rim_col.b, 0.9 * hit), 3.0 * hit + 1.0)
-		draw_arc(Vector2.ZERO, R, _sh_hit_ang - 0.7, _sh_hit_ang + 0.7, 16, Color(1.0, 1.0, 1.0, 0.9 * hit), 5.0)
+		PixelFx.disc(self, hp_pos, R * 0.22 * (0.5 + k2), Color(1.0, 1.0, 1.0, 0.45 * hit))
+		PixelFx.ring(self, hp_pos, R * (0.12 + 0.55 * k2), Color(rim_col.r, rim_col.g, rim_col.b, 0.9 * hit), 3.0 * hit + 1.0)
+		PixelFx.arc(self, Vector2.ZERO, R, _sh_hit_ang - 0.7, _sh_hit_ang + 0.7, Color(1.0, 1.0, 1.0, 0.9 * hit), 5.0)
 
 # One line of the globe: a meridian (lon) or a latitude (lat), drawn only where it faces us.
 func _shield_line(R: float, lon: float, lat: float, meridian: bool, col: Color, alpha: float) -> void:
@@ -752,8 +752,8 @@ func _shield_line(R: float, lon: float, lat: float, meridian: bool, col: Color, 
 			cols.append(Color(col.r, col.g, col.b, alpha * (0.25 + 0.75 * z)))
 		else:
 			if pts.size() > 1:
-				draw_polyline_colors(pts, cols, 1.5)
+				PixelFx.polyline_colors(self, pts, cols)
 			pts = PackedVector2Array()
 			cols = PackedColorArray()
 	if pts.size() > 1:
-		draw_polyline_colors(pts, cols, 1.5)
+		PixelFx.polyline_colors(self, pts, cols)

@@ -7,6 +7,7 @@ var _diff_box: VBoxContainer
 var _settings: SettingsPanel
 
 func _ready() -> void:
+	PixelUI.setup(get_tree())
 	Settings.load_and_apply()
 	Cursors.set_mode(Cursors.Mode.ARROW)
 
@@ -35,9 +36,7 @@ func _ready() -> void:
 	margin.add_child(left)
 
 	var panel := PanelContainer.new()
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.04, 0.06, 0.12, 0.62)
-	sb.set_corner_radius_all(18)
+	var sb := PixelUI.box(Color(0.04, 0.06, 0.12, 0.72), Color(0.45, 0.55, 0.8))
 	sb.set_content_margin_all(34)
 	panel.add_theme_stylebox_override("panel", sb)
 	left.add_child(panel)
@@ -46,20 +45,12 @@ func _ready() -> void:
 	stack.add_theme_constant_override("separation", 22)
 	panel.add_child(stack)
 
-	var title := Label.new()
-	title.text = "CASTLE\nIN THE SKY"
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 84)
-	title.add_theme_color_override("font_color", Color(1.0, 0.92, 0.65))
-	title.add_theme_constant_override("outline_size", 14)
-	title.add_theme_color_override("font_outline_color", Color(0.12, 0.10, 0.25))
-	title.add_theme_constant_override("line_spacing", -6)
-	stack.add_child(title)
+	stack.add_child(PixelLogo.new())
 
 	var subtitle := Label.new()
 	subtitle.text = "Grow your village into a Death Star"
 	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	subtitle.add_theme_font_size_override("font_size", 22)
+	subtitle.add_theme_font_size_override("font_size", PixelUI.fs(22))
 	subtitle.add_theme_color_override("font_color", Color(0.85, 0.9, 1.0))
 	stack.add_child(subtitle)
 
@@ -85,7 +76,7 @@ func _ready() -> void:
 	var diff_title := Label.new()
 	diff_title.text = "Choose your difficulty"
 	diff_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	diff_title.add_theme_font_size_override("font_size", 28)
+	diff_title.add_theme_font_size_override("font_size", PixelUI.fs(28))
 	_diff_box.add_child(diff_title)
 	_diff_box.add_child(_button("Beginner  -  the standard experience", _on_start.bind(0)))
 	_diff_box.add_child(_button("Seasoned  -  denser waves, tougher foes", _on_start.bind(1)))
@@ -100,7 +91,7 @@ func _ready() -> void:
 func _button(text: String, handler: Callable) -> Button:
 	var b := Button.new()
 	b.text = text
-	b.add_theme_font_size_override("font_size", 24)
+	b.add_theme_font_size_override("font_size", PixelUI.fs(24))
 	b.custom_minimum_size = Vector2(600, 64)
 	b.pressed.connect(handler)
 	return b

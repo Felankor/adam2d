@@ -50,22 +50,22 @@ func _explode() -> void:
 func _draw() -> void:
 	if _burst >= 0.0:
 		var k := clampf(_burst / 0.7, 0.0, 1.0)
-		draw_circle(Vector2.ZERO, BLAST_RADIUS * (0.6 + 0.4 * k), Color(0.55, 0.9, 0.15, 0.35 * (1.0 - k)))
-		draw_arc(Vector2.ZERO, BLAST_RADIUS, 0.0, TAU, 64, Color(0.8, 1.0, 0.3, 0.8 * (1.0 - k)), 4.0)
+		PixelFx.disc(self, Vector2.ZERO, BLAST_RADIUS * (0.6 + 0.4 * k), Color(0.55, 0.9, 0.15, 0.35 * (1.0 - k)))
+		PixelFx.ring(self, Vector2.ZERO, BLAST_RADIUS, Color(0.8, 1.0, 0.3, 0.8 * (1.0 - k)), 6.0)
 		return
 	if _t >= FLIGHT:
 		var left := clampf(1.0 - (_t - FLIGHT) / FUSE, 0.0, 1.0)
 		var pulse := 0.5 + 0.5 * sin(_t * (8.0 + 14.0 * (1.0 - left)))
-		draw_circle(Vector2.ZERO, BLAST_RADIUS, Color(0.7, 0.9, 0.1, 0.07 + 0.08 * pulse))
-		draw_arc(Vector2.ZERO, BLAST_RADIUS, 0.0, TAU, 64, Color(0.9, 0.95, 0.2, 0.55 + 0.3 * pulse), 3.0)
-		draw_arc(Vector2.ZERO, BLAST_RADIUS * (1.0 - left), 0.0, TAU, 64, Color(1.0, 0.5, 0.15, 0.7), 3.0)
+		PixelFx.disc(self, Vector2.ZERO, BLAST_RADIUS, Color(0.7, 0.9, 0.1, 0.07 + 0.08 * pulse))
+		PixelFx.ring(self, Vector2.ZERO, BLAST_RADIUS, Color(0.9, 0.95, 0.2, 0.55 + 0.3 * pulse), 3.0)
+		PixelFx.ring(self, Vector2.ZERO, BLAST_RADIUS * (1.0 - left), Color(1.0, 0.5, 0.15, 0.7), 3.0)
 	# the bomb: a honey-coloured comb with dark stripes
 	var up := 0.0
 	if _t < FLIGHT:
 		up = sin(_t / FLIGHT * PI) * 160.0
-		draw_circle(Vector2(0.0, up + 6.0), 10.0, Color(0, 0, 0, 0.25))
-	draw_circle(Vector2.ZERO, 15.0, Color(0.95, 0.72, 0.12))
-	draw_rect(Rect2(-14.0, -5.0, 28.0, 4.0), Color(0.25, 0.16, 0.05))
-	draw_rect(Rect2(-12.0, 3.0, 24.0, 4.0), Color(0.25, 0.16, 0.05))
-	draw_circle(Vector2(-5.0, -7.0), 4.0, Color(1.0, 0.92, 0.55, 0.8))
-	draw_arc(Vector2.ZERO, 15.0, 0.0, TAU, 24, Color(0.5, 0.3, 0.05), 2.0)
+		PixelFx.disc(self, Vector2(0.0, up + 6.0), 10.0, Color(0, 0, 0, 0.25))
+	PixelFx.disc(self, Vector2.ZERO, 18.0, Color(0.2, 0.12, 0.03))
+	PixelFx.disc(self, Vector2.ZERO, 15.0, Color(0.95, 0.72, 0.12))
+	draw_rect(Rect2(-12.0, -6.0, 24.0, 3.0), Color(0.25, 0.16, 0.05))
+	draw_rect(Rect2(-12.0, 3.0, 24.0, 3.0), Color(0.25, 0.16, 0.05))
+	PixelFx.disc(self, Vector2(-5.0, -7.0), 4.0, Color(1.0, 0.92, 0.55, 0.9))

@@ -10,23 +10,25 @@ static func get_texture() -> ImageTexture:
 	return _tex
 
 static func _make() -> ImageTexture:
-	var w := 32
-	var img := Image.create(w, w, false, Image.FORMAT_RGBA8)
-	for y in w:
-		for x in w:
-			var nx := (x + 0.5 - 16.0) / 15.0
-			var ny := (y + 0.5 - 16.0) / 15.5
+	# painted on a 16x16 pixel grid, shown twice as big
+	var n := 16
+	var img := Image.create(n, n, false, Image.FORMAT_RGBA8)
+	for y in n:
+		for x in n:
+			var nx := (float(x) + 0.5 - 8.0) / 7.5
+			var ny := (float(y) + 0.5 - 8.0) / 7.5
 			var r2 := nx * nx + ny * ny
 			if r2 > 1.0:
 				continue
 			var col := Color(1.0, 0.84, 0.18)
-			if r2 > 0.90:
-				col = Color(0.55, 0.33, 0.02)
-			elif r2 > 0.66:
-				col = Color(0.85, 0.58, 0.08)
-			elif absf(nx) < 0.15 and absf(ny) < 0.5:
+			if r2 > 0.80:
+				col = Color(0.30, 0.17, 0.04)
+			elif r2 > 0.58:
+				col = Color(0.85, 0.58, 0.08) if (nx + ny) > -0.3 else Color(1.0, 0.92, 0.45)
+			elif absf(nx) < 0.17 and absf(ny) < 0.45:
 				col = Color(0.85, 0.6, 0.1)
-			elif nx < -0.1 and ny < -0.1 and r2 < 0.45:
-				col = Color(1.0, 0.95, 0.55)
+			elif nx + ny < -0.45 and r2 < 0.5:
+				col = Color(1.0, 0.96, 0.62)
 			img.set_pixel(x, y, col)
+	img.resize(32, 32, Image.INTERPOLATE_NEAREST)
 	return ImageTexture.create_from_image(img)

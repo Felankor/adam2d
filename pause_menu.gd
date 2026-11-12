@@ -28,11 +28,7 @@ func _ready() -> void:
 	add_child(center)
 
 	var panel := PanelContainer.new()
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.09, 0.10, 0.14, 0.97)
-	sb.border_color = Color(0.85, 0.65, 0.2)
-	sb.set_border_width_all(3)
-	sb.set_corner_radius_all(12)
+	var sb := PixelUI.box(Color(0.09, 0.10, 0.14, 0.97), Color(0.85, 0.65, 0.2))
 	sb.set_content_margin_all(32)
 	panel.add_theme_stylebox_override("panel", sb)
 	center.add_child(panel)
@@ -47,7 +43,7 @@ func _ready() -> void:
 	var title := Label.new()
 	title.text = "PAUSED"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 44)
+	title.add_theme_font_size_override("font_size", PixelUI.fs(44))
 	_main_box.add_child(title)
 
 	_main_box.add_child(_button("Resume", _on_resume))
@@ -59,7 +55,7 @@ func _ready() -> void:
 
 	_status = Label.new()
 	_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_status.add_theme_font_size_override("font_size", 18)
+	_status.add_theme_font_size_override("font_size", PixelUI.fs(18))
 	_status.add_theme_color_override("font_color", Color(0.6, 1.0, 0.6))
 	_status.custom_minimum_size = Vector2(440, 48)
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -80,7 +76,7 @@ func _button(text: String, handler: Callable) -> Button:
 	b.text = text
 	b.focus_mode = Control.FOCUS_NONE
 	b.custom_minimum_size = Vector2(440, 62)
-	b.add_theme_font_size_override("font_size", 24)
+	b.add_theme_font_size_override("font_size", PixelUI.fs(24))
 	b.pressed.connect(handler)
 	return b
 

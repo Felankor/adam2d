@@ -74,6 +74,7 @@ var _clear_timer: float = -1.0
 var _boss_level: bool = false
 
 func _ready() -> void:
+	PixelUI.setup(get_tree())
 	# Main keeps running while the tree is paused so it can handle the pause keys.
 	# Gameplay nodes (base, enemies, projectiles) are set to pause themselves.
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -123,7 +124,7 @@ func _ready() -> void:
 
 	info_label = Label.new()
 	info_label.position = Vector2(28, 20)
-	info_label.add_theme_font_size_override("font_size", 22)
+	info_label.add_theme_font_size_override("font_size", PixelUI.fs(22))
 	info_label.add_theme_constant_override("outline_size", 6)
 	info_label.add_theme_color_override("font_outline_color", Color.BLACK)
 	layer.add_child(info_label)
@@ -131,7 +132,7 @@ func _ready() -> void:
 	# difficulty, enemy damage, spawn rate and PowerScore: hidden until the player presses the details key
 	detail_label = Label.new()
 	detail_label.position = Vector2(28, 168)
-	detail_label.add_theme_font_size_override("font_size", 17)
+	detail_label.add_theme_font_size_override("font_size", PixelUI.fs(17))
 	detail_label.add_theme_constant_override("outline_size", 5)
 	detail_label.add_theme_color_override("font_outline_color", Color.BLACK)
 	detail_label.add_theme_color_override("font_color", Color(0.85, 0.9, 1.0))
@@ -145,7 +146,7 @@ func _ready() -> void:
 	boss_label.position = Vector2(0, 92)
 	boss_label.custom_minimum_size = Vector2(Settings.WORLD_SIZE.x, 40)
 	boss_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	boss_label.add_theme_font_size_override("font_size", 30)
+	boss_label.add_theme_font_size_override("font_size", PixelUI.fs(30))
 	boss_label.add_theme_constant_override("outline_size", 8)
 	boss_label.add_theme_color_override("font_outline_color", Color.BLACK)
 	boss_label.add_theme_color_override("font_color", Color(1.0, 0.3, 0.25))
@@ -156,7 +157,7 @@ func _ready() -> void:
 	banner.position = Vector2(0, 150)
 	banner.custom_minimum_size = Vector2(Settings.WORLD_SIZE.x, 70)
 	banner.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	banner.add_theme_font_size_override("font_size", 52)
+	banner.add_theme_font_size_override("font_size", PixelUI.fs(52))
 	banner.add_theme_constant_override("outline_size", 10)
 	banner.add_theme_color_override("font_outline_color", Color.BLACK)
 	banner.modulate.a = 0.0
@@ -165,18 +166,14 @@ func _ready() -> void:
 	pause_panel = PanelContainer.new()
 	pause_panel.position = Vector2(Settings.WORLD_SIZE.x * 0.5 - 130.0, 24)
 	pause_panel.custom_minimum_size = Vector2(260, 52)
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0, 0, 0, 0.75)
-	sb.border_color = Color(1, 1, 1, 0.6)
-	sb.set_border_width_all(2)
-	sb.set_corner_radius_all(10)
-	sb.set_content_margin_all(8)
+	var sb := PixelUI.box(Color(0.02, 0.02, 0.04, 0.85), Color(0.8, 0.82, 0.9))
+	sb.set_content_margin_all(14)
 	pause_panel.add_theme_stylebox_override("panel", sb)
 	var pause_text := Label.new()
 	pause_text.text = "GAME PAUSED"
 	pause_text.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	pause_text.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	pause_text.add_theme_font_size_override("font_size", 26)
+	pause_text.add_theme_font_size_override("font_size", PixelUI.fs(26))
 	pause_panel.add_child(pause_text)
 	pause_panel.visible = false
 	layer.add_child(pause_panel)

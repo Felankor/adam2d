@@ -51,6 +51,10 @@ var _burst_left: int = 0
 var _burst_cd: float = 0.0
 var _bomb_timer: float = 3.0
 var _t: float = 0.0
+var _spr_back: Sprite2D = null       # Garden Warden: the ring of leaves, spins on its own
+var _spr_body: Sprite2D = null
+var _ov: Node2D = null               # drawn on top of the sprites (eyes, glows, bar, beam)
+var _bart: Dictionary = {}
 
 static func make_boss(lvl: int, biome: int) -> Boss:
 	var b := Boss.new()
@@ -116,6 +120,51 @@ static func make_boss(lvl: int, biome: int) -> Boss:
 	b.max_hp = b.hp
 	return b
 
+func _ready() -> void:
+	super._ready()
+	_make_boss_sprites()
+
+func _make_boss_sprites() -> void:
+	_bart = MobArt.frames(MobArt.boss_key(ability), 0)
+	if ability == "speed":
+		_spr_back = _new_layer(MobArt.frames("b_leaves"))
+	_spr_body = _new_layer(_bart)
+	_ov = Node2D.new()
+	_ov.draw.connect(_draw_over)
+	add_child(_ov)
+	_update_boss_sprites()
+
+func _new_layer(art: Dictionary) -> Sprite2D:
+	var sp := Sprite2D.new()
+	sp.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	sp.texture = (art["tex"] as Array)[0]
+	sp.set_meta("art", art)
+	add_child(sp)
+	return sp
+
+func _layer_tex(sp: Sprite2D, idx: int) -> void:
+	var art: Dictionary = sp.get_meta("art")
+	var n: int = art["n"]
+	sp.texture = (art["flash" if _flash > 0.0 else "tex"] as Array)[idx % n]
+	sp.offset = art["off"]
+
+func _update_boss_sprites() -> void:
+	if _spr_body == null:
+		return
+	var k := radius / MobArt.BOSS_R * (1.0 + _scale_pop * 2.0)
+	var idx := 0
+	if ability == "hell":
+		idx = int(fposmod(_t * 5.0, TAU) / TAU * 4.0)
+	elif ability == "void":
+		idx = 1 if _beam_charge > 0.0 else 0           # the iris turns red while the beam charges
+	if _spr_back != null:
+		_layer_tex(_spr_back, int(floorf(_t * 1.8 * 100.0 / TAU)) % 10)      # the ring of leaves spins
+		_spr_back.scale = Vector2(k, k)
+	_spr_body.set_meta("art", MobArt.frames(MobArt.boss_key(ability), MobArt.dir_of(_heading)))
+	_layer_tex(_spr_body, idx)
+	_spr_body.scale = Vector2(k, k)
+	_ov.queue_redraw()
+
 func _pick_wander() -> void:
 	var a := randf() * TAU
 	_wander_target = target + Vector2.RIGHT.rotated(a) * randf_range(330.0, 560.0)
@@ -124,6 +173,7 @@ func _pick_wander() -> void:
 func _process(delta: float) -> void:
 	_tick_common(delta)
 	_t += delta
+	_update_boss_sprites()
 	_wander_timer -= delta
 	if _wander_timer <= 0.0 or position.distance_to(_wander_target) < 30.0:
 		_pick_wander()
@@ -269,155 +319,80 @@ func _grow_phase() -> void:
 
 func _draw() -> void:
 	var s := 1.0 + _scale_pop * 2.0
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2(s, s))
-	draw_circle(Vector2(6, 8), radius + 3.0, Color(0, 0, 0, 0.35))
-	draw_arc(Vector2.ZERO, radius + 10.0, 0.0, TAU, 48, Color(0.75, 0.35, 1.0, 0.9), 4.0)      # purple boss ring
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2(s, s * MobArt.GROUND_SQUASH))       # circles on the ground look squashed in the tilted view
+	PixelFx.disc(self, Vector2(6, 8), radius + 3.0, Color(0, 0, 0, 0.35))
+	PixelFx.ring(self, Vector2.ZERO, radius + 10.0, Color(0.75, 0.35, 1.0, 0.9), 4.0)      # purple boss ring
+	_draw_under(radius)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+# parts that sit behind the pixel-art body
+func _draw_under(r: float) -> void:
+	var f := Vector2.RIGHT.rotated(_heading)
+	var side := f.orthogonal()
 	match ability:
 		"speed":
-			_draw_garden(radius)
+			for i in 4:
+				var off := side * (float(i) - 1.5) * r * 0.45
+				PixelFx.line(self, off - f * r * 0.9, off - f * r * (1.8 + 0.25 * i), Color(0.6, 1.0, 0.6, 0.35), 4.0)
 		"regen":
-			_draw_mud(radius)
+			pass
 		"titan":
-			_draw_titan(radius)
+			pass
 		"void":
-			_draw_void(radius)
+			PixelFx.disc(self, Vector2.ZERO, r * 1.38, Color(0.5, 0.2, 0.9, 0.14))
+			for i in 8:
+				var d := Vector2.RIGHT.rotated(TAU * i / 8.0 + _t * 0.8)
+				PixelFx.line(self, d * r * 0.9, d * r * (1.3 + 0.15 * sin(_t * 3.0 + i)), Color(0.55, 0.25, 0.95, 0.8), 5.0)
 		_:
-			_draw_hell(radius)
+			var dark := Color(0.45, 0.05, 0.05)
+			var tail := PackedVector2Array()
+			for i in 8:
+				var k := float(i) / 7.0
+				tail.append(-f * (r * 0.8 + r * 0.9 * k) + side * sin(_t * 3.0 + k * 3.0) * r * 0.3 * k)
+			draw_polyline(tail, _c(dark), 6.0)
+			PixelFx.disc(self, tail[7], r * 0.12, Color(1.0, 0.4, 0.1))
+
+# parts on top of the body: moving glows, the void eye, flames, the beam and the health bar
+func _draw_over() -> void:
+	var r := radius
+	var s := 1.0 + _scale_pop * 2.0
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2(s, s))
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2(s, s * MobArt.GROUND_SQUASH))
+	match ability:
+		"regen":
+			var pulse := 0.5 + 0.5 * sin(_t * 4.0)
+			PixelFx.ring(self, Vector2.ZERO, r * 1.12 + pulse * 5.0, Color(0.4, 1.0, 0.4, 0.2 + 0.3 * pulse), 4.0)
+			for i in 5:
+				var x := (float(i) - 2.0) * r * 0.3
+				var drip := 4.0 + 6.0 * absf(sin(_t * 2.0 + i))
+				PixelFx.line(self, Vector2(x, r * 0.86), Vector2(x, r * 0.86 + drip), Color(0.45, 0.30, 0.15).darkened(0.3), 5.0)
+			var cross := Color(0.4, 1.0, 0.4, 0.5 + 0.4 * pulse)
+			PixelFx.line(self, Vector2(-r * 0.12, r * 0.45), Vector2(r * 0.12, r * 0.45), cross, 5.0)
+			PixelFx.line(self, Vector2(0, r * 0.33), Vector2(0, r * 0.57), cross, 5.0)
+		"titan":
+			PixelFx.disc(self, Vector2.ZERO, r * 0.2, Color(1.0, 0.6, 0.15, 0.25 + 0.3 * sin(_t * 3.0 + phase)))
+		"void":
+			PixelFx.arc(self, Vector2.ZERO, r * 0.86, _t, _t + 3.6, Color(0.7, 0.4, 1.0, 0.85), 3.0)
+			PixelFx.arc(self, Vector2.ZERO, r * 0.62, -_t * 1.3, -_t * 1.3 + 3.0, Color(0.5, 0.3, 0.95, 0.8), 3.0)
+		"hell":
+			for i in 6:
+				var fl := Vector2.RIGHT.rotated(TAU * i / 6.0 + _t * 1.2)
+				PixelFx.disc(self, fl * r * 1.05, 5.0 + 3.0 * sin(_t * 8.0 + i), Color(1.0, 0.6, 0.1, 0.7))
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	if ability == "void":
 		_draw_beam()
 	_draw_boss_bar()
 
-func _draw_garden(r: float) -> void:
-	var f := Vector2.RIGHT.rotated(_heading)
-	var side := f.orthogonal()
-	for i in 4:
-		var off := side * (float(i) - 1.5) * r * 0.45
-		draw_line(off - f * r * 0.9, off - f * r * (1.8 + 0.25 * i), Color(0.6, 1.0, 0.6, 0.35), 4.0)
-	for i in 10:
-		var d := Vector2.RIGHT.rotated(TAU * i / 10.0 + _t * 1.8)
-		var leaf := PackedVector2Array([d.rotated(-0.3) * r * 0.8, d * r * 1.35, d.rotated(0.3) * r * 0.8])
-		draw_colored_polygon(leaf, _c(Color(0.12, 0.45, 0.16)))
-	draw_circle(Vector2.ZERO, r, _c(Color(0.20, 0.62, 0.25)))
-	for i in 6:
-		var p := Vector2.RIGHT.rotated(TAU * i / 6.0 - _t * 0.6)
-		draw_circle(p * r * 0.62, r * 0.24, _c(Color(1.0, 0.55, 0.75)))
-	draw_circle(Vector2.ZERO, r * 0.5, _c(Color(1.0, 0.88, 0.3)))
-	for sgn: float in [-1.0, 1.0]:
-		var e := f * r * 0.12 + side * sgn * r * 0.2
-		draw_circle(e, r * 0.13, Color(0.08, 0.1, 0.05))
-		draw_circle(e + f * r * 0.04, r * 0.05, Color(1.0, 0.95, 0.4))
-
-func _draw_mud(r: float) -> void:
-	var f := Vector2.RIGHT.rotated(_heading)
-	var side := f.orthogonal()
-	var mud := Color(0.45, 0.30, 0.15)
-	var pulse := 0.5 + 0.5 * sin(_t * 4.0)
-	draw_arc(Vector2.ZERO, r * 1.12 + pulse * 5.0, 0.0, TAU, 40, Color(0.4, 1.0, 0.4, 0.2 + 0.3 * pulse), 4.0)
-	for sgn: float in [-1.0, 1.0]:
-		draw_circle(side * sgn * r * 0.95 + f * r * 0.1, r * 0.42, _c(mud.darkened(0.2)))
-	draw_circle(Vector2.ZERO, r, _c(mud))
-	for i in 6:
-		var a := TAU * i / 6.0 + 0.3
-		draw_arc(Vector2.ZERO, r * 0.82, a, a + 0.7, 8, _c(Color(0.62, 0.55, 0.45)), 7.0)
-	for i in 5:
-		var x := (float(i) - 2.0) * r * 0.3
-		var drip := 4.0 + 6.0 * absf(sin(_t * 2.0 + i))
-		draw_line(Vector2(x, r * 0.78), Vector2(x, r * 0.78 + drip), mud.darkened(0.3), 5.0)
-	for sgn: float in [-1.0, 1.0]:
-		var e := f * r * 0.2 + side * sgn * r * 0.22
-		draw_circle(e, r * 0.12, Color(0.1, 0.05, 0.02))
-		draw_circle(e, r * 0.06, Color(1.0, 0.7, 0.2))
-	var cross := Color(0.4, 1.0, 0.4, 0.5 + 0.4 * pulse)
-	draw_line(Vector2(-r * 0.12, r * 0.45), Vector2(r * 0.12, r * 0.45), cross, 5.0)
-	draw_line(Vector2(0, r * 0.33), Vector2(0, r * 0.57), cross, 5.0)
-
-func _draw_titan(r: float) -> void:
-	var f := Vector2.RIGHT.rotated(_heading)
-	var side := f.orthogonal()
-	var rock := PackedVector2Array()
-	var facet := PackedVector2Array()
-	for i in 12:
-		var d := Vector2.RIGHT.rotated(TAU * i / 12.0)
-		var rr := r * (0.92 + 0.12 * sin(i * 2.7 + 1.0))
-		rock.append(d * rr)
-		facet.append(d * rr * 0.68)
-	draw_colored_polygon(rock, _c(Color(0.42, 0.44, 0.50)))
-	draw_colored_polygon(facet, _c(Color(0.53, 0.55, 0.61)))
-	var glow := Color(1.0, 0.5, 0.1, 0.3 + 0.2 * phase)
-	for i in 5:
-		var a := TAU * i / 5.0 + 0.4
-		var d := Vector2.RIGHT.rotated(a)
-		draw_polyline(PackedVector2Array([d * r * 0.2, d.rotated(0.2) * r * 0.55, d.rotated(-0.1) * r * 0.85]), glow, 3.0)
-	draw_circle(Vector2.ZERO, r * 0.2, Color(1.0, 0.6, 0.15, 0.5 + 0.4 * sin(_t * 3.0 + phase)))
-	for sgn: float in [-1.0, 1.0]:
-		var e := f * r * 0.42 + side * sgn * r * 0.22
-		draw_circle(e, r * 0.1, Color(1.0, 0.65, 0.15))
-
-func _draw_void(r: float) -> void:
-	var f := Vector2.RIGHT.rotated(_heading)
-	var charging := _beam_charge > 0.0
-	draw_circle(Vector2.ZERO, r * 1.38, Color(0.5, 0.2, 0.9, 0.14))
-	for i in 8:
-		var d := Vector2.RIGHT.rotated(TAU * i / 8.0 + _t * 0.8)
-		draw_line(d * r * 0.9, d * r * (1.3 + 0.15 * sin(_t * 3.0 + i)), Color(0.55, 0.25, 0.95, 0.8), 5.0)
-	draw_circle(Vector2.ZERO, r, _c(Color(0.14, 0.05, 0.24)))
-	draw_arc(Vector2.ZERO, r * 0.86, _t, _t + 3.6, 28, Color(0.7, 0.4, 1.0, 0.85), 3.0)
-	draw_arc(Vector2.ZERO, r * 0.62, -_t * 1.3, -_t * 1.3 + 3.0, 24, Color(0.5, 0.3, 0.95, 0.8), 3.0)
-	var eye := f * r * 0.15
-	draw_circle(eye, r * 0.42, Color(0.95, 0.92, 1.0))
-	var iris := Color(1.0, 0.2, 0.3) if charging else Color(0.6, 0.2, 0.95)
-	draw_circle(eye + f * r * 0.12, r * 0.24, iris)
-	draw_circle(eye + f * r * 0.16, r * 0.1, Color.BLACK)
-
-func _draw_hell(r: float) -> void:
-	# The devil always faces the player (not rotated with its heading).
-	var flap := sin(_t * 5.0) * 0.25
-	var dark := Color(0.45, 0.05, 0.05)
-	for sgn: float in [-1.0, 1.0]:
-		var wing := PackedVector2Array([
-			Vector2(sgn * r * 0.6, -r * 0.2),
-			Vector2(sgn * r * 1.9, -r * (0.95 + flap)),
-			Vector2(sgn * r * 1.6, -r * 0.2),
-			Vector2(sgn * r * 1.95, r * 0.35),
-			Vector2(sgn * r * 1.2, r * 0.2),
-			Vector2(sgn * r * 0.75, r * 0.55),
-		])
-		draw_colored_polygon(wing, _c(dark))
-	# tail
-	var tail := PackedVector2Array()
-	for i in 8:
-		var k := float(i) / 7.0
-		tail.append(Vector2(sin(_t * 3.0 + k * 3.0) * r * 0.25 * k + r * 0.35 * k, r * 0.8 + r * 0.7 * k))
-	draw_polyline(tail, _c(dark), 6.0)
-	draw_circle(tail[7], r * 0.12, Color(1.0, 0.4, 0.1))
-	draw_circle(Vector2.ZERO, r, _c(Color(0.80, 0.12, 0.08)))
-	draw_circle(Vector2(0, r * 0.25), r * 0.62, _c(Color(0.92, 0.28, 0.14)))
-	var bone := Color(0.95, 0.9, 0.75)
-	for sgn: float in [-1.0, 1.0]:
-		var horn := PackedVector2Array([Vector2(sgn * r * 0.3, -r * 0.8), Vector2(sgn * r * 0.85, -r * 1.35), Vector2(sgn * r * 0.62, -r * 0.5)])
-		draw_colored_polygon(horn, _c(bone))
-		var eye := Vector2(sgn * r * 0.3, -r * 0.18)
-		var slit := PackedVector2Array([eye + Vector2(-r * 0.16 * sgn, -r * 0.08), eye + Vector2(r * 0.16 * sgn, r * 0.02), eye + Vector2(-r * 0.04 * sgn, r * 0.12)])
-		draw_colored_polygon(slit, Color(1.0, 0.9, 0.2))
-	draw_line(Vector2(-r * 0.4, r * 0.35), Vector2(r * 0.4, r * 0.35), Color(0.1, 0.0, 0.0), 6.0)
-	for i in 5:
-		var tx := (float(i) - 2.0) * r * 0.16
-		draw_colored_polygon(PackedVector2Array([Vector2(tx - 5, r * 0.35), Vector2(tx + 5, r * 0.35), Vector2(tx, r * 0.5)]), bone)
-	for i in 6:
-		var fl := Vector2.RIGHT.rotated(TAU * i / 6.0 + _t * 1.2)
-		draw_circle(fl * r * 1.05, 5.0 + 3.0 * sin(_t * 8.0 + i), Color(1.0, 0.6, 0.1, 0.7))
-
 func _draw_beam() -> void:
 	var to_base := (_beam_aim - position).normalized() * 1900.0
 	if _beam_charge > 0.0:
 		var k := 1.0 - _beam_charge / BEAM_CHARGE_TIME
-		draw_line(Vector2.ZERO, to_base, Color(1.0, 0.2, 0.3, 0.2 + 0.5 * k), 2.0 + 6.0 * k)
-		draw_circle(Vector2.ZERO, radius * (0.4 + 0.6 * k), Color(1.0, 0.3, 0.6, 0.25 + 0.3 * k))
+		PixelFx.line(self, Vector2.ZERO, to_base, Color(1.0, 0.2, 0.3, 0.2 + 0.5 * k), 2.0 + 6.0 * k)
+		PixelFx.disc(self, Vector2.ZERO, radius * (0.4 + 0.6 * k), Color(1.0, 0.3, 0.6, 0.25 + 0.3 * k))
 	if _beam_flash > 0.0:
 		var a := _beam_flash / BEAM_FLASH_TIME
-		draw_line(Vector2.ZERO, to_base, Color(0.8, 0.3, 1.0, 0.35 * a), 56.0 * a + 6.0)
-		draw_line(Vector2.ZERO, to_base, Color(1.0, 0.8, 1.0, 0.9 * a), 22.0 * a + 3.0)
+		PixelFx.line(self, Vector2.ZERO, to_base, Color(0.8, 0.3, 1.0, 0.35 * a), 56.0 * a + 6.0)
+		PixelFx.line(self, Vector2.ZERO, to_base, Color(1.0, 0.8, 1.0, 0.9 * a), 22.0 * a + 3.0)
 
 func _draw_boss_bar() -> void:
 	var w := maxf(240.0, radius * 2.4)
@@ -435,7 +410,7 @@ func _draw_boss_bar() -> void:
 	var title := boss_name
 	if ability == "titan":
 		title = Loc.t("%s  -  Phase %d/3") % [boss_name, phase]
-	draw_string_outline(font, pos + Vector2(0, 15), value, HORIZONTAL_ALIGNMENT_CENTER, w, 15, 4, Color.BLACK)
-	draw_string(font, pos + Vector2(0, 15), value, HORIZONTAL_ALIGNMENT_CENTER, w, 15, Color.WHITE)
-	draw_string_outline(font, pos + Vector2(0, -6), title, HORIZONTAL_ALIGNMENT_CENTER, w, 16, 4, Color.BLACK)
-	draw_string(font, pos + Vector2(0, -6), title, HORIZONTAL_ALIGNMENT_CENTER, w, 16, Color(0.9, 0.75, 1.0))
+	draw_string_outline(font, pos + Vector2(0, 15), value, HORIZONTAL_ALIGNMENT_CENTER, w, PixelUI.fs(15), 4, Color.BLACK)
+	draw_string(font, pos + Vector2(0, 15), value, HORIZONTAL_ALIGNMENT_CENTER, w, PixelUI.fs(15), Color.WHITE)
+	draw_string_outline(font, pos + Vector2(0, -6), title, HORIZONTAL_ALIGNMENT_CENTER, w, PixelUI.fs(16), 4, Color.BLACK)
+	draw_string(font, pos + Vector2(0, -6), title, HORIZONTAL_ALIGNMENT_CENTER, w, PixelUI.fs(16), Color(0.9, 0.75, 1.0))

@@ -25,56 +25,51 @@ static func set_mode(mode: int) -> void:
 		_:
 			Input.set_custom_mouse_cursor(null, Input.CURSOR_ARROW)
 
-static func _seg_dist(p: Vector2, a: Vector2, b: Vector2) -> float:
-	var ab := b - a
-	var t := clampf((p - a).dot(ab) / ab.length_squared(), 0.0, 1.0)
-	return p.distance_to(a + ab * t)
+# Pixel cursors: painted on a small grid and shown at 2x, with a dark outline.
+static func _blit(img: Image, x: int, y: int, col: Color, s: int) -> void:
+	for j in s:
+		for i in s:
+			var xx := x * s + i
+			var yy := y * s + j
+			if xx >= 0 and yy >= 0 and xx < img.get_width() and yy < img.get_height():
+				img.set_pixel(xx, yy, col)
+
+static func _paint(grid: Array, n: int, s: int, fill: Color) -> ImageTexture:
+	# grid = list of Vector2i pixels; every filled pixel gets a dark ring around it
+	var img := Image.create(n * s, n * s, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0, 0, 0, 0))
+	var dark := Color(0.04, 0.03, 0.08, 0.95)
+	for p: Vector2i in grid:
+		for d: Vector2i in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1), Vector2i(1, 1), Vector2i(-1, -1), Vector2i(1, -1), Vector2i(-1, 1)]:
+			_blit(img, p.x + d.x, p.y + d.y, dark, s)
+	for p: Vector2i in grid:
+		_blit(img, p.x, p.y, fill, s)
+	return ImageTexture.create_from_image(img)
 
 static func _make_crosshair() -> ImageTexture:
-	var size := 32
-	var img := Image.create(size, size, false, Image.FORMAT_RGBA8)
-	var c := Vector2(15.5, 15.5)
-	var segs: Array = [
-		[Vector2(2.5, 15.5), Vector2(11.0, 15.5)],
-		[Vector2(20.0, 15.5), Vector2(28.5, 15.5)],
-		[Vector2(15.5, 2.5), Vector2(15.5, 11.0)],
-		[Vector2(15.5, 20.0), Vector2(15.5, 28.5)],
-	]
-	for y in size:
-		for x in size:
-			var p := Vector2(x + 0.5, y + 0.5)
-			var d := p.distance_to(c) - 1.4
-			for seg in segs:
-				d = minf(d, _seg_dist(p, seg[0], seg[1]) - 0.5)
-			if d <= 0.9:
-				img.set_pixel(x, y, Color(0.85, 1.0, 0.85))
-			elif d <= 2.0:
-				img.set_pixel(x, y, Color(0, 0, 0, 0.85))
-	return ImageTexture.create_from_image(img)
+	var px: Array = []
+	var c := 8
+	for i in range(1, 4):
+		px.append(Vector2i(c - 2 - i, c))
+		px.append(Vector2i(c + 2 + i, c))
+		px.append(Vector2i(c, c - 2 - i))
+		px.append(Vector2i(c, c + 2 + i))
+	px.append(Vector2i(c, c))
+	return _paint(px, 16, 2, Color(0.85, 1.0, 0.85))
 
 static func _make_aggressive() -> ImageTexture:
-	var size := 48
-	var img := Image.create(size, size, false, Image.FORMAT_RGBA8)
-	var c := Vector2(23.5, 23.5)
-	var segs: Array = [
-		[c + Vector2(0, -8), c + Vector2(0, -22)],
-		[c + Vector2(0, 8), c + Vector2(0, 22)],
-		[c + Vector2(-8, 0), c + Vector2(-22, 0)],
-		[c + Vector2(8, 0), c + Vector2(22, 0)],
-		[c + Vector2(-13, -13), c + Vector2(-19, -19)],
-		[c + Vector2(13, -13), c + Vector2(19, -19)],
-		[c + Vector2(-13, 13), c + Vector2(-19, 19)],
-		[c + Vector2(13, 13), c + Vector2(19, 19)],
-	]
-	for y in size:
-		for x in size:
-			var p := Vector2(x + 0.5, y + 0.5)
-			var d := absf(p.distance_to(c) - 14.0) - 0.6
-			d = minf(d, p.distance_to(c) - 2.4)
-			for seg in segs:
-				d = minf(d, _seg_dist(p, seg[0], seg[1]) - 0.8)
-			if d <= 0.9:
-				img.set_pixel(x, y, Color(1.0, 0.15, 0.1))
-			elif d <= 2.2:
-				img.set_pixel(x, y, Color(0, 0, 0, 0.85))
-	return ImageTexture.create_from_image(img)
+	var px: Array = []
+	var c := 12
+	for a in 48:
+		var ang := TAU * float(a) / 48.0
+		px.append(Vector2i(c + roundi(cos(ang) * 7.0), c + roundi(sin(ang) * 7.0)))
+	for i in range(3, 6):
+		px.append(Vector2i(c, c - 4 - i))
+		px.append(Vector2i(c, c + 4 + i))
+		px.append(Vector2i(c - 4 - i, c))
+		px.append(Vector2i(c + 4 + i, c))
+	px.append(Vector2i(c, c))
+	px.append(Vector2i(c + 1, c))
+	px.append(Vector2i(c, c + 1))
+	px.append(Vector2i(c + 1, c + 1))
+	return _paint(px, 24, 2, Color(1.0, 0.2, 0.12))
