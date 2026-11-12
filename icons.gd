@@ -65,6 +65,8 @@ static func draw(ci: CanvasItem, kind: String, origin: Vector2, k: float, with_b
 			_hit(ci)
 		"shield":
 			_shield(ci)
+		"eshield":
+			_eshield(ci)
 		"ally":
 			_ally(ci)
 		"skull":
@@ -322,6 +324,17 @@ static func _shield(ci: CanvasItem) -> void:
 	var outline := pts.duplicate()
 	outline.append(pts[0])
 	ci.draw_polyline(outline, Color.WHITE, 3.0)
+
+# Energy Shield: a glowing bubble with a lightning bolt.
+static func _eshield(ci: CanvasItem) -> void:
+	ci.draw_circle(Vector2(32, 32), 25.0, Color(0.2, 0.6, 1.0, 0.25))
+	ci.draw_arc(Vector2(32, 32), 25.0, 0.0, TAU, 40, Color(0.55, 0.95, 1.0), 3.5)
+	ci.draw_arc(Vector2(32, 32), 19.0, 0.0, TAU, 32, Color(0.4, 0.8, 1.0, 0.5), 1.5)
+	var bolt := PackedVector2Array([Vector2(36, 12), Vector2(22, 35), Vector2(31, 35), Vector2(27, 53), Vector2(43, 28), Vector2(33, 28)])
+	ci.draw_colored_polygon(bolt, Color(1.0, 0.95, 0.5))
+	var ol := bolt.duplicate()
+	ol.append(bolt[0])
+	ci.draw_polyline(ol, Color.WHITE, 1.5)
 
 static func _ally(ci: CanvasItem) -> void:
 	ci.draw_circle(Vector2(32, 32), 17.0, Color(0.9, 0.72, 0.55))

@@ -1,8 +1,8 @@
 class_name BackdropGrid
 extends Node2D
 
-# An endless battlefield: 3x3 mirrored copies of one Backdrop that follow the
-# camera. Mirroring every other tile keeps the colors and edges seamless.
+# An endless battlefield: 3x3 copies of one Backdrop that follow the camera. The picture repeats
+# seamlessly (no mirroring, so the light and shadows always fall the same way).
 const TILE_SCALE := 1.5
 
 var _tiles: Array[Backdrop] = []
@@ -18,9 +18,16 @@ func _ready() -> void:
 	add_to_group("backdrops")
 
 func setup(biome: int) -> void:
+	Backdrop.request(biome)
 	for t in _tiles:
 		t.biome = biome
 		t.queue_redraw()
+
+# The terrain is built on a background thread; show it as soon as it is ready.
+func _process(_delta: float) -> void:
+	Backdrop.poll()
+	for t in _tiles:
+		t.refresh()
 
 func follow(cam: Vector2) -> void:
 	var size := Backdrop.SIZE * TILE_SCALE
@@ -31,11 +38,7 @@ func follow(cam: Vector2) -> void:
 	var i := 0
 	for dy in range(-1, 2):
 		for dx in range(-1, 2):
-			var cx := cell.x + dx
-			var cy := cell.y + dy
-			var sx := -1.0 if (cx & 1) != 0 else 1.0
-			var sy := -1.0 if (cy & 1) != 0 else 1.0
 			var t := _tiles[i]
 			i += 1
-			t.scale = Vector2(sx, sy) * TILE_SCALE
-			t.position = Vector2(float(cx) * size.x + (size.x if sx < 0.0 else 0.0), float(cy) * size.y + (size.y if sy < 0.0 else 0.0))
+			t.scale = Vector2(TILE_SCALE, TILE_SCALE)
+			t.position = Vector2(float(cell.x + dx) * size.x, float(cell.y + dy) * size.y)

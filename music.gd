@@ -1,22 +1,32 @@
 class_name Music
 extends Node
 
-# Background music, composed and synthesised in code (like the sound effects, so there are no audio
-# files to import). Every biome has its own looping track, and boss waves get a faster, darker version.
+# Background music in an arcade run-and-gun style (think Metal Slug), composed and synthesised in
+# code, so there are no audio files to import: a distorted guitar riff, a driving bass, punchy
+# drums (kick, snare, hats, crash, tom fills) and a bright lead that answers the riff.
+# Every biome has its own key, tempo and riff; boss waves get a faster, heavier, double-kick version.
 # Tracks are built on a background thread the first time they are needed, then cached.
-# Greenland: bright and pastoral   Mudland: slow and swampy   Rocky Mountain: heavy, with a beat
-# Hell: fast, distorted, relentless   Space: wide, slow and echoing
+# Greenland: heroic and fast   Mudland: slow, heavy stomp   Rocky Mountain: marching rock
+# Hell: relentless double-kick gallop   Space: arpeggios over a steady beat
 
-const RATE := 11025
+const RATE := 22050
+const BARS := 8
+const NONE := -99                    # a rest in a lead motif
 
-# bpm, root note (MIDI), four chords (semitones above the root), echo time/feedback,
-# pad detune, distortion drive, drum style (0 none, 1 kick, 2 kick + hats)
+# bpm, root note (MIDI), the riff root per two bars (semitones above the root), lead motif (16 steps,
+# semitones above the riff root, NONE = rest), guitar style (0 palm-muted 8ths, 1 gallop, 2 arpeggio),
+# distortion, drums (0 rock, 1 double kick, 2 half-time stomp), lead wave (1 saw, 2 square), echo seconds
 const TRACKS := [
-	{"bpm": 84.0, "root": 48, "chords": [[0, 4, 7], [-3, 0, 4], [-7, -3, 0], [-5, -1, 2]], "echo": 0.28, "fb": 0.30, "detune": 0.0, "drive": 0.0, "drums": 0},
-	{"bpm": 68.0, "root": 50, "chords": [[0, 3, 7], [-2, 2, 5], [-4, 0, 3], [-2, 2, 5]], "echo": 0.40, "fb": 0.35, "detune": 0.006, "drive": 0.0, "drums": 0},
-	{"bpm": 90.0, "root": 48, "chords": [[0, 3, 7], [-4, 0, 3], [-2, 2, 5], [-5, -1, 2]], "echo": 0.20, "fb": 0.25, "detune": 0.0, "drive": 0.4, "drums": 1},
-	{"bpm": 104.0, "root": 52, "chords": [[0, 3, 7], [1, 5, 8], [0, 3, 7], [-2, 2, 5]], "echo": 0.18, "fb": 0.25, "detune": 0.003, "drive": 1.2, "drums": 2},
-	{"bpm": 60.0, "root": 45, "chords": [[0, 4, 7], [2, 6, 9], [7, 11, 14], [-3, 1, 4]], "echo": 0.50, "fb": 0.45, "detune": 0.004, "drive": 0.0, "drums": 0},
+	{"bpm": 150.0, "root": 45, "prog": [0, -2, -4, -2], "lead": [12, NONE, 12, NONE, 15, NONE, 12, 10, 12, NONE, NONE, NONE, 7, NONE, 10, NONE],
+		"gtr": 0, "drive": 1.0, "drums": 0, "wave": 2, "echo": 0.20},
+	{"bpm": 108.0, "root": 40, "prog": [0, -4, -2, -5], "lead": [12, NONE, NONE, 10, NONE, NONE, 7, NONE, 10, NONE, NONE, 12, NONE, NONE, NONE, NONE],
+		"gtr": 0, "drive": 1.6, "drums": 2, "wave": 1, "echo": 0.28},
+	{"bpm": 134.0, "root": 43, "prog": [0, -2, 3, -2], "lead": [12, NONE, 15, NONE, 14, 12, NONE, 10, 12, NONE, NONE, NONE, 10, NONE, 7, NONE],
+		"gtr": 0, "drive": 1.3, "drums": 0, "wave": 1, "echo": 0.18},
+	{"bpm": 172.0, "root": 41, "prog": [0, 1, 0, -2], "lead": [12, 13, NONE, 12, NONE, 8, NONE, NONE, 12, 13, NONE, 15, 13, NONE, 12, NONE],
+		"gtr": 1, "drive": 2.2, "drums": 1, "wave": 1, "echo": 0.14},
+	{"bpm": 126.0, "root": 47, "prog": [0, 5, 3, 7], "lead": [19, NONE, NONE, NONE, 16, NONE, NONE, NONE, 14, NONE, 16, NONE, 12, NONE, NONE, NONE],
+		"gtr": 2, "drive": 0.4, "drums": 0, "wave": 2, "echo": 0.36},
 ]
 const MUSIC_DB_OFFSET := -12.0      # music sits well below the sound effects
 
@@ -111,65 +121,110 @@ func _switch_to(key: String) -> void:
 
 static func build(biome: int, boss: bool) -> AudioStreamWAV:
 	var t: Dictionary = TRACKS[clampi(biome, 0, TRACKS.size() - 1)]
-	var bpm := float(t["bpm"]) * (1.3 if boss else 1.0)
-	var beat := 60.0 / bpm
-	var n := int(beat * 16.0 * float(RATE))          # 4 chords x 4 beats
-	var buf := PackedFloat32Array()
-	buf.resize(n)
-	var chords: Array = t["chords"]
+	var bpm := float(t["bpm"]) * (1.15 if boss else 1.0)
+	var step := 60.0 / bpm / 4.0                      # one sixteenth note, in seconds
+	var n := int(step * 16.0 * float(BARS) * float(RATE))
+	var gtr := PackedFloat32Array()
+	var bass := PackedFloat32Array()
+	var lead := PackedFloat32Array()
+	var drum := PackedFloat32Array()
+	gtr.resize(n)
+	bass.resize(n)
+	lead.resize(n)
+	drum.resize(n)
 	var root := int(t["root"])
-	var detune := float(t["detune"])
-	var drums := int(t["drums"])
-	if boss:
-		drums = maxi(drums, 1)
-	for c in 4:
-		var ch: Array = chords[c]
-		var cstart := int(beat * 4.0 * float(c) * float(RATE))
-		var clen := int(beat * 4.0 * float(RATE))
-		var tones: Array[float] = []
-		for k in 3:
-			var semis := int(ch[k])
-			if boss and k == 1 and semis - int(ch[0]) == 4:
-				semis -= 1                           # boss waves: darker, minor chords
-			tones.append(_hz(root + semis))
-		for f in tones:
-			_sustain(buf, cstart, clen, f, 0.10, 1, 0.3, 0.35)
-			if detune > 0.0:
-				_sustain(buf, cstart, clen, f * (1.0 + detune), 0.07, 0, 0.3, 0.35)
-		var bass_f := tones[0] * 0.5
-		for b in 4:
-			_pluck(buf, cstart + int(beat * float(b) * float(RATE)), int(beat * 0.9 * float(RATE)), bass_f, 0.24, 7.0)
-		var steps := 16 if (boss or drums == 2) else 8
-		var step_len := beat * 4.0 / float(steps)
-		var pattern := [0, 1, 2, 1]
-		for s in steps:
-			if biome == 4 and s % 2 == 1 and not boss:
-				continue                              # space: a sparse, floating arpeggio
-			var f2: float = tones[int(pattern[s % 4])] * 2.0
-			_pluck(buf, cstart + int(step_len * float(s) * float(RATE)), int(step_len * 3.0 * float(RATE)), f2, 0.07, 5.0)
-	if drums >= 1:
-		for b in 16:
-			_kick(buf, int(beat * float(b) * float(RATE)))
-	if drums >= 2 or boss:
-		for b in 16:
-			_hat(buf, int(beat * (float(b) + 0.5) * float(RATE)))
-	var drive := float(t["drive"]) + (0.5 if boss else 0.0)
-	if drive > 0.0:
-		for i in n:
-			buf[i] = tanh(buf[i] * (1.0 + drive * 2.5))
+	var prog: Array = t["prog"]
+	var motif: Array = t["lead"]
+	var style := int(t["gtr"])
+	var kit := 1 if boss else int(t["drums"])
+	var hat16 := boss or biome == 3
+	var wave := int(t["wave"])
+	var sl := int(step * float(RATE))                 # samples per step
+	for bar in BARS:
+		var r := root + int(prog[(bar >> 1) % 4])
+		for s in 16:
+			var at := (bar * 16 + s) * sl
+			var last_bar := bar == BARS - 1
+			var in_fill := last_bar and s >= 12
+			# --- guitar ---
+			if style == 2:
+				var arp := [0, 7, 12, 7]
+				_voice(gtr, at, int(sl * 1.6), _hz(r + 12 + int(arp[s % 4])), 0.30, 2, 9.0, 0.0)
+			else:
+				var hit := false
+				var accent := false
+				if style == 1:
+					hit = s % 4 != 1
+					accent = s == 0 or s == 8
+				else:
+					hit = s % 2 == 0
+					accent = s == 0 or s == 6 or s == 10
+				if hit and not in_fill:
+					var nlen := int(sl * (3.2 if accent else 1.5))
+					var dec := 6.0 if accent else 22.0
+					for k in [0, 7, 12]:
+						_voice(gtr, at, nlen, _hz(r + int(k)), 0.26, 1, dec, 0.0)
+			# --- bass ---
+			if s % 2 == 0 and not in_fill:
+				var bm := r - 12
+				if style != 2 and (s == 6 or s == 14):
+					bm += 12
+				_voice(bass, at, int(sl * 1.9), _hz(bm), 0.30, 2, 8.0, 0.0)
+				_voice(bass, at, int(sl * 1.9), _hz(bm), 0.22, 0, 8.0, 0.0)
+			# --- lead ---
+			var v := int(motif[s])
+			if v != NONE and not in_fill:
+				var note := r + 12 + v + (12 if (bar >= 4 or boss) else 0)
+				var gap := 1
+				while s + gap < 16 and int(motif[s + gap]) == NONE:
+					gap += 1
+				_voice(lead, at, int(sl * minf(float(gap), 3.0) * 0.95), _hz(note), 0.15, wave, 3.0, 0.004)
+			# --- drums ---
+			var kick := false
+			var snare := false
+			match kit:
+				1:
+					kick = s == 0 or s == 2 or s == 6 or s == 8 or s == 10 or s == 14
+					snare = s == 4 or s == 12
+				2:
+					kick = s == 0 or s == 10 or (s == 6 and bar % 2 == 1)
+					snare = s == 8
+				_:
+					kick = s == 0 or s == 8 or (s == 10 and bar % 2 == 1)
+					snare = s == 4 or s == 12
+			if in_fill:
+				snare = true
+				kick = false
+				_snare(drum, at, 0.30 + 0.07 * float(s - 12))
+				_tom(drum, at, 150.0 - 18.0 * float(s - 12))
+			elif snare:
+				_snare(drum, at, 0.45)
+			if kick:
+				_kick(drum, at)
+			if hat16:
+				_hat(drum, at, 0.10 if s % 2 == 0 else 0.05)
+			elif s % 2 == 0:
+				_hat(drum, at, 0.11)
+			if s == 0 and (bar % 4 == 0 or boss):
+				_crash(drum, at)
+	# --- mix ---
+	var drive := float(t["drive"]) + (0.8 if boss else 0.0)
+	for i in n:
+		gtr[i] = tanh(gtr[i] * (2.0 + drive * 3.0)) * 0.5      # the crunch
 	var d := int(float(t["echo"]) * float(RATE))
-	var fb := float(t["fb"])
 	if d > 0 and d < n:
 		for i in n:
-			buf[i] += buf[(i - d + n) % n] * fb
+			lead[i] += lead[(i - d + n) % n] * 0.30
 	var peak := 0.001
 	for i in n:
-		peak = maxf(peak, absf(buf[i]))
-	var gain := 0.8 / peak
+		var x := tanh((gtr[i] * 0.9 + bass[i] + lead[i] + drum[i]) * 1.4)
+		gtr[i] = x                                            # reuse the guitar buffer as the mix
+		peak = maxf(peak, absf(x))
+	var gain := 0.85 / peak
 	var bytes := PackedByteArray()
 	bytes.resize(n * 2)
 	for i in n:
-		bytes.encode_s16(i * 2, int(clampf(buf[i] * gain, -1.0, 1.0) * 32000.0))
+		bytes.encode_s16(i * 2, int(clampf(gtr[i] * gain, -1.0, 1.0) * 32000.0))
 	var wav := AudioStreamWAV.new()
 	wav.format = AudioStreamWAV.FORMAT_16_BITS
 	wav.mix_rate = RATE
@@ -183,43 +238,67 @@ static func build(biome: int, boss: bool) -> AudioStreamWAV:
 static func _hz(midi: int) -> float:
 	return 440.0 * pow(2.0, float(midi - 69) / 12.0)
 
-# A held tone with a linear attack and release (pads). Writes wrap around the loop end.
-static func _sustain(buf: PackedFloat32Array, start: int, length: int, freq: float, amp: float, shape: int, atk: float, rel: float) -> void:
-	var n := buf.size()
-	var ph := 0.0
-	var inc := freq / float(RATE)
-	for i in length:
-		var x := float(i) / float(length)
-		var env := minf(x / atk, 1.0) * minf((1.0 - x) / rel, 1.0)
-		var s := sin(TAU * ph)
-		if shape == 1:
-			s += 0.35 * sin(TAU * ph * 2.0) + 0.15 * sin(TAU * ph * 3.0)
-		buf[(start + i) % n] += s * env * amp
-		ph += inc
+static func _osc(ph: float, wave: int) -> float:
+	var f := ph - floorf(ph)
+	if wave == 1:
+		return 2.0 * f - 1.0                    # saw
+	if wave == 2:
+		return 1.0 if f < 0.5 else -1.0         # square
+	return sin(TAU * ph)
 
-# A plucked note: quick attack, exponential decay (bass and arpeggio).
-static func _pluck(buf: PackedFloat32Array, start: int, length: int, freq: float, amp: float, decay: float) -> void:
+# One synth note: quick attack, exponential decay, short release. Writes wrap around the loop end.
+static func _voice(buf: PackedFloat32Array, start: int, length: int, freq: float, amp: float, wave: int, decay: float, vib: float) -> void:
 	var n := buf.size()
 	var ph := 0.0
-	var inc := freq / float(RATE)
-	var atk := 0.004 * float(RATE)
+	var atk := 0.003 * float(RATE)
+	var rel := 0.012 * float(RATE)
 	for i in length:
-		var t := float(i) / float(RATE)
-		var env := minf(float(i) / atk, 1.0) * exp(-decay * t)
-		var s := sin(TAU * ph) + 0.4 * sin(TAU * ph * 2.0) + 0.15 * sin(TAU * ph * 3.0)
-		buf[(start + i) % n] += s * env * amp
-		ph += inc
+		var tt := float(i) / float(RATE)
+		var env := minf(float(i) / atk, 1.0) * minf(float(length - i) / rel, 1.0) * exp(-decay * tt)
+		var f := freq
+		if vib > 0.0:
+			f = freq * (1.0 + vib * sin(tt * 38.0))
+		ph += f / float(RATE)
+		buf[(start + i) % n] += _osc(ph, wave) * env * amp
 
 static func _kick(buf: PackedFloat32Array, start: int) -> void:
 	var n := buf.size()
 	var ph := 0.0
-	for i in int(0.2 * float(RATE)):
-		var t := float(i) / float(RATE)
-		ph += (45.0 + 90.0 * exp(-t * 25.0)) / float(RATE)
-		buf[(start + i) % n] += sin(TAU * ph) * exp(-t * 14.0) * 0.4
+	for i in int(0.22 * float(RATE)):
+		var tt := float(i) / float(RATE)
+		ph += (48.0 + 110.0 * exp(-tt * 30.0)) / float(RATE)
+		buf[(start + i) % n] += sin(TAU * ph) * exp(-tt * 13.0) * 0.55
 
-static func _hat(buf: PackedFloat32Array, start: int) -> void:
+static func _snare(buf: PackedFloat32Array, start: int, amp: float) -> void:
 	var n := buf.size()
-	for i in int(0.04 * float(RATE)):
-		var t := float(i) / float(RATE)
-		buf[(start + i) % n] += (randf() * 2.0 - 1.0) * exp(-t * 90.0) * 0.06
+	for i in int(0.2 * float(RATE)):
+		var tt := float(i) / float(RATE)
+		var noise := randf() * 2.0 - 1.0
+		var tone := sin(TAU * 190.0 * tt) * exp(-tt * 32.0)
+		buf[(start + i) % n] += (noise * exp(-tt * 20.0) * 0.55 + tone * 0.45) * amp
+
+static func _tom(buf: PackedFloat32Array, start: int, freq: float) -> void:
+	var n := buf.size()
+	var ph := 0.0
+	for i in int(0.16 * float(RATE)):
+		var tt := float(i) / float(RATE)
+		ph += (freq * (1.0 + 0.5 * exp(-tt * 18.0))) / float(RATE)
+		buf[(start + i) % n] += sin(TAU * ph) * exp(-tt * 16.0) * 0.30
+
+static func _hat(buf: PackedFloat32Array, start: int, amp: float) -> void:
+	var n := buf.size()
+	var prev := 0.0
+	for i in int(0.05 * float(RATE)):
+		var tt := float(i) / float(RATE)
+		var x := randf() * 2.0 - 1.0
+		buf[(start + i) % n] += (x - prev) * 0.5 * exp(-tt * 85.0) * amp * 2.0
+		prev = x
+
+static func _crash(buf: PackedFloat32Array, start: int) -> void:
+	var n := buf.size()
+	var prev := 0.0
+	for i in int(0.9 * float(RATE)):
+		var tt := float(i) / float(RATE)
+		var x := randf() * 2.0 - 1.0
+		buf[(start + i) % n] += (x - prev) * 0.5 * exp(-tt * 4.5) * 0.28
+		prev = x

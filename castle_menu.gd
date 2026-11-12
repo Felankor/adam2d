@@ -3,14 +3,15 @@ extends Control
 
 # The Castle window (Tab key): every stat of the castle on the left, and on the right
 # the stat points you spend. Each level gives 5 points; each point is +1% over the default.
-# It replaces the old shop. Number keys 1-8 spend a point on the matching row.
+# It replaces the old shop. Number keys 1-9 spend a point on the matching row.
 signal spend(id: String, count: int)
 signal weapon_upgrade
+signal reset_pressed
 signal exchange_pressed(count: int)
 signal laser_toggled(on: bool)
 signal continue_pressed
 
-const EXCHANGE_GOLD := 1000          # Exchange: this much gold...
+const EXCHANGE_GOLD := 10            # Exchange: this much gold...
 const EXCHANGE_POINTS := 5           # ...buys this many stat points
 const EXCHANGE_RISE := 1.10          # every purchase makes the next one 10% more expensive
 const EXCHANGE_IDX := 100            # "held button" id of the exchange button
@@ -28,6 +29,7 @@ const STATS := [
 	{"id": "speed", "name": "Move speed", "icon": "speed"},
 	{"id": "autorate", "name": "Auto fire rate", "icon": "autorate"},
 	{"id": "armor", "name": "Armor", "icon": "shield"},
+	{"id": "eshield", "name": "Energy Shield", "icon": "eshield"},
 ]
 
 var base: Base
@@ -41,6 +43,8 @@ var _stat_buttons: Array[Button] = []
 var _weapon_label: Label
 var _weapon_button: Button
 var _exchange_button: Button
+var _reset_button: Button
+var _reset_armed: bool = false
 var _ex_price: Label
 var _ex_points: Label
 var _exchange_ok: bool = false
@@ -116,7 +120,18 @@ func _ready() -> void:
 	_points = Label.new()
 	_points.add_theme_font_size_override("font_size", 28)
 	_points.add_theme_color_override("font_color", Color(0.5, 1.0, 0.6))
-	right.add_child(_points)
+	_points.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var points_row := HBoxContainer.new()
+	points_row.add_theme_constant_override("separation", 12)
+	right.add_child(points_row)
+	points_row.add_child(_points)
+	_reset_button = Button.new()
+	_reset_button.focus_mode = Control.FOCUS_NONE
+	_reset_button.custom_minimum_size = Vector2(190, 36)
+	_reset_button.text = Loc.t("Reset points")
+	_reset_button.tooltip_text = Loc.t("Takes back all spent stat points so you can spend them again. Click twice to confirm.")
+	_reset_button.pressed.connect(_on_reset_pressed)
+	points_row.add_child(_reset_button)
 	var note := Label.new()
 	note.text = Loc.t("Default -> current value, and points spent") + "   |   " + Loc.t("Hold + to spend faster")
 	note.add_theme_font_size_override("font_size", 16)
@@ -285,6 +300,21 @@ func _process(delta: float) -> void:
 		return
 	_stat_buttons[_held_idx].text = "x%d" % amount if amount > 1 else "+"
 
+# Two clicks (so a stray click cannot wipe the build): the first arms the button for 3 seconds.
+func _on_reset_pressed() -> void:
+	if not _reset_armed:
+		_reset_armed = true
+		_reset_button.text = Loc.t("Click again to confirm")
+		get_tree().create_timer(3.0, true).timeout.connect(_disarm_reset)
+		return
+	_disarm_reset()
+	reset_pressed.emit()
+
+func _disarm_reset() -> void:
+	_reset_armed = false
+	if _reset_button != null:
+		_reset_button.text = Loc.t("Reset points")
+
 func _row(label: String, value: String) -> void:
 	var a := Label.new()
 	a.text = Loc.t(label)
@@ -318,14 +348,15 @@ func refresh(coins: int, ctx: Dictionary) -> void:
 	_row("Mana regen", "%.1f / s" % b.energy_regen)
 	_row("Weapon", Loc.t(Weapons.name_of(w)))
 	_row("Damage per shot", "%.1f" % dmg)
-	_row("Armor penetration", "%d" % int(Weapons.PEN[w]))
+	_row("Armor penetration", Loc.t("True damage") if Weapons.is_true(float(Weapons.PEN[w])) else "%d" % int(Weapons.PEN[w]))
 	_row("Armor", "%.1f  (-%d%% damage taken)" % [b.armor_points(), roundi((1.0 - Weapons.armor_mult(b.armor_points())) * 100.0)])
+	_row("Energy Shield", "%d / %d" % [ceili(maxf(b.shield, 0.0)), ceili(b.shield_cap())])
 	_row("Shots per second", "%.1f" % shots)
 	_row("Mana per shot", "%d" % int(Weapons.ENERGY_COST[w]))
 	_row("Move speed", "%d" % int(b.move_speed * b.move_mult))
 	_row("Auto-weapons", "%d  (%.1f s, %d)" % [b.auto_cannons, b.auto_interval / maxf(float(b.auto_cannons), 1.0), int(b.auto_range)])
 	_row("Helpers", "%s %d   %s %d   %s %d   %s %d" % [Loc.t("Gunners"), b.gunners, Loc.t("Scientists"), b.scientists, Loc.t("Engineers"), b.engineers, Loc.t("Mechanics"), b.mechanics])
-	_row("Skills", "%s %.0f s   %s %.0f s   %s %.0f s" % [Loc.t("Barrier"), Base.BARRIER_COOLDOWN, Loc.t("Overcharge"), Base.BOOST_COOLDOWN, Loc.t("Repair"), Base.REPAIR_COOLDOWN])
+	_row("Skills", "%s %.0f s   %s %.0f s" % [Loc.t("Overcharge"), Base.BOOST_COOLDOWN, Loc.t("Repair"), Base.REPAIR_COOLDOWN])
 	_row("Repair cost", "%d" % b.repair_cost())
 	_row("Gold", "%d" % coins)
 	_row("Wave", "%d  -  %s" % [int(ctx.get("wave", 1)), str(ctx.get("region", ""))])
@@ -334,6 +365,10 @@ func refresh(coins: int, ctx: Dictionary) -> void:
 	_row("Power", "%d" % int(ctx.get("power", 0)))
 
 	_points.text = "%s: %d" % [Loc.t("Stat points"), b.free_points]
+	var spent_total := 0
+	for k in b.stat_pts.keys():
+		spent_total += int(b.stat_pts[k])
+	_reset_button.disabled = spent_total <= 0
 	for i in STATS.size():
 		var id := str(STATS[i]["id"])
 		var pts := int(b.stat_pts.get(id, 0))
@@ -355,6 +390,8 @@ func refresh(coins: int, ctx: Dictionary) -> void:
 				bv = "%.1f -> %.1f" % [3.0 * float(b.tier), b.armor_points()]
 			"autorate":
 				bv = "100%% -> %d%%" % roundi(b.auto_rate_factor() * 100.0)
+			"eshield":
+				bv = "%d -> %d" % [int(b.max_hp * Base.SHIELD_BASE), int(b.shield_cap())]
 		var parts := bv.split(" -> ")
 		_stat_defaults[i].text = parts[0]
 		_stat_values[i].text = "-> " + parts[1]

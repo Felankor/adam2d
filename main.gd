@@ -26,10 +26,15 @@ var base: Base
 var backdrop: BackdropGrid
 var weather: Weather
 var _mini_pending: bool = false
-const MINI_CAPS := [2, 4, 10, 20, 50]     # most Rogue Castles alive at once, per biome
-var _mini_single: bool = false
-const MINI_AFTER_LEVEL := 8          # Rogue Castles start spawning on level 9
-const MINI_INTERVAL := 8.0         # one Rogue Castle every 8 seconds while normal mobs are still around
+# Rogue Castle spawning. Never on boss waves. The first one waits MINI_FIRST_DELAY so the wave gets going.
+const MINI_CAPS := [1, 2, 3, 4, 5]        # most Rogue Castles alive at once, per biome
+const MINI_FIRST_LEVEL := 5               # Beginner: from level 5 (a chance per level, never two levels in a row)
+const MINI_SEASONED_LEVEL := 6            # Seasoned: from level 6 (a few per level)
+const MINI_FIRST_DELAY := 15.0
+const MINI_INTERVAL_SLOW := 30.0          # seconds between castles of one wave: 30 s early ...
+const MINI_INTERVAL_FAST := 14.0          # ... down to 14 s at level 30+
+var _mini_budget: int = 0                 # castles still to come on this level
+var _mini_last_level: int = -10           # last level that had one (Beginner gets a breather after it)
 const COIN_MULT := 10              # every gold reward is multiplied by this
 var _mini_timer: float = 0.0
 var _power_timer: float = 0.0
@@ -88,6 +93,7 @@ func _ready() -> void:
 	base.critical.connect(_on_player_crit)
 	base.damaged.connect(_on_base_damaged)
 	base.blocked.connect(_on_base_blocked)
+	base.shield_broken.connect(_on_base_shield_broken)
 	base.poisoned.connect(_on_base_poisoned)
 
 	camera = Camera2D.new()
@@ -179,6 +185,7 @@ func _ready() -> void:
 	castle_menu.base = base
 	castle_menu.spend.connect(_on_castle_spend)
 	castle_menu.weapon_upgrade.connect(_on_castle_weapon)
+	castle_menu.reset_pressed.connect(_on_castle_reset)
 	castle_menu.laser_toggled.connect(_on_castle_laser)
 	castle_menu.exchange_pressed.connect(_on_castle_exchange)
 	castle_menu.continue_pressed.connect(_close_castle)
@@ -273,6 +280,7 @@ func _start_level() -> void:
 	var title := Loc.t("Wave %d  -  %s") % [level, Loc.t(BIOME_NAMES[biome])]
 	_boss_level = level % LEVELS_PER_BIOME == 0
 	Enemy.space_mode = biome == SPACE_BIOME
+	Enemy.terrain_biome = biome
 	var count := int((3 + level * 2) * GameState.count_mult() * 3.0)
 	if biome == SPACE_BIOME:
 		count *= 3                      # the space biome throws 3x as many hostiles at you
@@ -284,14 +292,13 @@ func _start_level() -> void:
 		boss_label.text = Loc.t("!!  %s BOSS WAVE  !!") % Loc.t(BIOME_NAMES[biome]).to_upper()
 	boss_label.visible = _boss_level
 	Music.play(biome, _boss_level)
-	_mini_single = GameState.difficulty == 0
-	if _mini_single:
-		# Beginner: just a chance of ONE Rogue Castle per level (0% before level 5, 20% on level 5, +10% per level)
-		_mini_pending = randf() < _mini_chance(level)
-	else:
-		# Seasoned: the full rules (one every 8 s with biome caps) after level 8
-		_mini_pending = level > MINI_AFTER_LEVEL
-	_mini_timer = MINI_INTERVAL
+	if level % LEVELS_PER_BIOME == LEVELS_PER_BIOME - 2:
+		Backdrop.request(mini(biome + 1, BIOME_NAMES.size() - 1))      # build the next biome's terrain in the background
+	_mini_budget = _mini_count(level)
+	_mini_pending = _mini_budget > 0
+	if _mini_budget > 0:
+		_mini_last_level = level
+	_mini_timer = MINI_FIRST_DELAY
 	to_spawn = count
 	spawn_timer = 1.5
 	_clear_timer = -1.0
@@ -376,14 +383,16 @@ func _process(delta: float) -> void:
 			if _normal_mobs_left():
 				if _minis_alive() < int(MINI_CAPS[clampi(biome, 0, MINI_CAPS.size() - 1)]):
 					_spawn_mini_boss()
-					if _mini_single:
-						_mini_pending = false          # Beginner: only the one castle
-				_mini_timer = MINI_INTERVAL
+					_mini_budget -= 1
+					if _mini_budget <= 0:
+						_mini_pending = false
+				_mini_timer = lerpf(MINI_INTERVAL_SLOW, MINI_INTERVAL_FAST, Power.level_t(level))
 			else:
 				_mini_pending = false      # no normal mobs standing: no more Rogue Castles this level
 	_power_timer -= delta
 	if _power_timer <= 0.0:
 		_power_timer = 0.5
+		alive = _count_hostiles()        # the running counter can drift; the real count is the truth
 		_update_label()
 	if to_spawn > 0:
 		spawn_timer -= delta
@@ -391,7 +400,7 @@ func _process(delta: float) -> void:
 			_spawn_mob()
 			to_spawn -= 1
 			spawn_timer = maxf(0.08, maxf(0.35, 2.0 - level * 0.1) / _spawn_rate()) * GameState.interval_mult()
-	elif alive == 0 and not boss_pending:
+	elif not boss_pending and _count_hostiles() == 0:
 		if _clear_timer < 0.0:
 			_clear_timer = 0.8
 		_clear_timer -= delta
@@ -400,6 +409,16 @@ func _process(delta: float) -> void:
 			_level_cleared()
 	else:
 		_clear_timer = -1.0
+
+# The real number of hostile mobs standing right now (bosses and Rogue Castles included).
+# The wave is cleared and spawning is capped from this, never from a counter that can drift.
+func _count_hostiles() -> int:
+	var n := 0
+	for node in get_tree().get_nodes_in_group("enemies"):
+		var e := node as Enemy
+		if e != null and not e.dead and not e.is_queued_for_deletion():
+			n += 1
+	return n
 
 func _update_pause() -> void:
 	get_tree().paused = _manual_paused or castle_menu.visible or pause_menu.visible
@@ -452,7 +471,12 @@ func _on_base_damaged(amount: float) -> void:
 
 func _on_base_blocked() -> void:
 	Sfx.play("block")
-	_notify(Loc.t("Blocked by the Barrier!"), "shield", Color(0.4, 0.85, 1.0), "block")
+	_notify(Loc.t("Absorbed by the Energy Shield!"), "eshield", Color(0.4, 0.85, 1.0), "block")
+
+func _on_base_shield_broken() -> void:
+	Sfx.play("boss_phase", -6.0)
+	_add_shake(10.0)
+	_notify(Loc.t("Energy Shield down!"), "eshield", Color(1.0, 0.55, 0.3), "eshield")
 
 # ---------- Wave cleared / XP ----------
 
@@ -486,6 +510,15 @@ func _gain_xp(amount: int) -> void:
 # A point at a fixed distance (min..max) from the castle, in a random direction.
 func _edge_spawn_pos() -> Vector2:
 	return base.position + Vector2.RIGHT.rotated(randf() * TAU) * randf_range(SPAWN_DIST_MIN, SPAWN_DIST_MAX)
+
+# A spawn point that is not in water or lava (walking units start on dry land).
+func _ground_spawn_pos() -> Vector2:
+	var p := _edge_spawn_pos()
+	for i in 12:
+		if not Backdrop.liquid_at(biome, p):
+			break
+		p = _edge_spawn_pos()
+	return p
 
 const BIOME_ENEMY_NOTES := [
 	"",
@@ -558,7 +591,7 @@ func _spawn_mob() -> void:
 			return
 		e = Enemy.make(k, level)
 		alive += 1
-	e.position = _edge_spawn_pos()
+	e.position = _ground_spawn_pos()
 	e.target = base.position
 	e.reach = base.body_radius()
 	_register_mob(e)
@@ -645,7 +678,7 @@ func _on_boss_announce(text: String, icon: String) -> void:
 	_notify(text, icon, Color(0.85, 0.5, 1.0))
 
 # A straight, unguided shot: it flies toward where the target WAS when fired.
-const BOLT_PEN := {"bullet": 0.0, "shell": 10.0, "rocket": 12.0, "orb": 20.0, "void": 30.0}   # armor penetration of enemy shots by style
+const BOLT_PEN := {"bullet": 0.0, "shell": 10.0, "rocket": 12.0, "orb": 20.0, "void": Weapons.TRUE_PEN}   # armor penetration of enemy shots by style
 
 func _spawn_bolt(origin: Vector2, aim: Vector2, dmg: float, style: String, spd: float) -> void:
 	var pen := float(BOLT_PEN.get(style, 0.0))
@@ -669,7 +702,7 @@ func _beam_hit_check(origin: Vector2, aim: Vector2, dmg: float, width: float, pe
 
 func _on_boss_beam(dmg: float, origin: Vector2, aim: Vector2) -> void:
 	_add_shake(16.0)
-	_beam_hit_check(origin, aim, dmg, 30.0)    # cannot be shot down - only the Barrier or moving away stops it
+	_beam_hit_check(origin, aim, dmg, 30.0, Weapons.TRUE_PEN)    # TRUE DAMAGE: ignores armor and Energy Shield; cannot be shot down - only moving away stops it
 
 func _on_void_fire(origin: Vector2, aim: Vector2, dmg: float) -> void:
 	_spawn_bolt(origin, aim, dmg, "void", 560.0)
@@ -682,11 +715,22 @@ func _on_tank_shoot(origin: Vector2, dmg: float) -> void:
 
 # ---------- Mini boss (a rival castle) ----------
 
-# Beginner difficulty: chance that one Rogue Castle shows up on this level.
-func _mini_chance(lv: int) -> float:
-	if lv < 5:
-		return 0.0
-	return clampf(0.2 + 0.1 * float(lv - 5), 0.0, 1.0)
+# How many Rogue Castles this level gets.
+#  Beginner: from level 5, a 25% chance (+5% per level, at most 60%) of ONE castle, and never on
+#            two levels in a row, so there is always a breather.
+#  Seasoned: from level 6, one castle, plus one more every 5 levels (never more than the biome's cap).
+#  Boss waves have none: the boss is the fight.
+func _mini_count(lv: int) -> int:
+	if _boss_level:
+		return 0
+	if GameState.difficulty == 0:
+		if lv < MINI_FIRST_LEVEL or lv - _mini_last_level <= 1:
+			return 0
+		var chance := clampf(0.25 + 0.05 * float(lv - MINI_FIRST_LEVEL), 0.0, 0.6)
+		return 1 if randf() < chance else 0
+	if lv < MINI_SEASONED_LEVEL:
+		return 0
+	return mini(1 + floori(float(lv - MINI_SEASONED_LEVEL) / 5.0), int(MINI_CAPS[clampi(biome, 0, MINI_CAPS.size() - 1)]))
 
 func _minis_alive() -> int:
 	var n := 0
@@ -707,7 +751,7 @@ func _normal_mobs_left() -> bool:
 	return false
 
 func _spawn_mini_boss() -> void:
-	var m := MiniBoss.make_from(base)
+	var m := MiniBoss.make_from(base, level)
 	m.reward = 25 + level * 5
 	m.position = _edge_spawn_pos()
 	m.target = base.position
@@ -862,9 +906,6 @@ func _input(event: InputEvent) -> void:
 					if used == "overcharge":
 						Sfx.play("weapon_up")
 						_notify(Loc.t("Overcharge!  Weapon damage +30%% for %d s") % int(Base.BOOST_DURATION), "damage", Color(1.0, 0.6, 0.2), "boost")
-					else:
-						Sfx.play("barrier")
-						_notify(Loc.t("Barrier up!  Invincible for %d s") % int(Base.BARRIER_DURATION), "shield", Color(0.4, 0.85, 1.0), "barrier")
 			return
 	if castle_menu.visible:
 		var idx := int(key.keycode) - int(KEY_1)
@@ -946,6 +987,17 @@ func _on_castle_spend(id: String, count: int = 1) -> void:
 	if spent == 0:
 		return
 	Sfx.play("powerup", -4.0)
+	_update_label()
+	_refresh_castle()
+
+func _on_castle_reset() -> void:
+	if game_over:
+		return
+	var n := base.reset_stat_points()
+	if n <= 0:
+		return
+	Sfx.play("weapon_up", -4.0)
+	_notify(Loc.t("Stat points reset: %d refunded") % n, "star", Color(1.0, 0.9, 0.4))
 	_update_label()
 	_refresh_castle()
 
@@ -1033,5 +1085,5 @@ func _update_label() -> void:
 	if _show_details:
 		var diff_name: String = GameState.DIFFICULTY_NAMES[GameState.difficulty]
 		var d := "%s   |   %s x%.2f   |   %s x%.1f" % [Loc.t(diff_name), Loc.t("Enemy damage"), 1.0 + 0.25 * (level - 1), Loc.t("Spawn rate"), _spawn_rate()]
-		d += "\n%s: %s %d   |   %s %d" % [Loc.t("Power"), Loc.t("you"), int(Power.of_base(base)), Loc.t("enemies"), int(Power.field_power(get_tree()))]
+		d += "\n%s: %s %d   |   %s %d" % [Loc.t("Power"), Loc.t("you"), int(Power.of_base(base)), Loc.t("enemies"), int(Power.field_power(get_tree(), base.armor_points()))]
 		detail_label.text = d

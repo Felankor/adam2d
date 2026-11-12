@@ -171,9 +171,9 @@ func refresh() -> void:
 	_legend(2, Loc.t("Your helpers (gunners, scientists, engineers, mechanics) and how many you have."))
 	_legend(3, Loc.t("Gold, and the FPS counter with the 1% low."))
 	_legend(4, Loc.t("Minimap: you are orange, enemies red, bosses purple, refugees green."))
-	_legend(5, Loc.t("Health (red, top) and Mana (blue, bottom)."))
+	_legend(5, Loc.t("Health (red, top) and Mana (blue, bottom). The thin cyan bar above your health is the Energy Shield."))
 	_legend(6, Loc.t("Your current weapon."))
-	_legend(7, Loc.t("Skills: Barrier, Overcharge, Repair."))
+	_legend(7, Loc.t("Skills: Overcharge, Repair."))
 	_legend(8, Loc.t("XP bar. When it fills you gain a level."))
 	_legend(9, Loc.t("Blinks when you have unspent stat points."))
 
@@ -186,12 +186,12 @@ func refresh() -> void:
 	_key_row("Pause game", [Keybinds.key_text("pause_game")])
 	_key_row("Castle window", [Keybinds.key_text("open_shop")])
 	_key_row("Show details", [Keybinds.key_text("toggle_info")])
-	_key_row("Skill slot 1 (Barrier)", [Keybinds.key_text("skill_1")], "shield")
+	_key_row("Skill slot 1", [Keybinds.key_text("skill_1")])
 	_key_row("Skill slot 2 (Overcharge)", [Keybinds.key_text("skill_2")], "damage")
 	_key_row("Skill slot 3 (Repair: costs gold)", [Keybinds.key_text("skill_3")], "repair")
 	_key_row("Skill slot 4", [Keybinds.key_text("skill_4")])
 	_key_row("Pause menu / go back", ["Esc"])
-	_key_row("Spend a stat point", [Loc.t("Number keys 1-8 or click")])
+	_key_row("Spend a stat point", [Loc.t("Number keys 1-9 or click")])
 	_text(Loc.t("You can change these keys in Settings > Controls."))
 
 	# ---------------- weapons ----------------
@@ -203,7 +203,7 @@ func refresh() -> void:
 		Loc.t("Solid all-round shell."),
 		Loc.t("Explodes: damages everything around the target."),
 		Loc.t("Instant beam that pierces every mob on its line."),
-		Loc.t("Dark orb with a huge blast. Cuts through any armor."),
+		Loc.t("Dark orb with a huge blast. TRUE DAMAGE: ignores armor and shields."),
 	]
 	for i in ids.size():
 		var price_text := Loc.t("Start") if i == 0 else "%d" % int(Weapons.UPGRADE_PRICE[i - 1])
@@ -218,21 +218,23 @@ func refresh() -> void:
 		_bar_row(str(ids[i]), Loc.t(Weapons.name_of(i)), m, bar_cols[i], "%d%%" % roundi(m * 100.0))
 	_text(Loc.t("Your castle has armor too (it grows with the castle stage and the Armor stat). Enemy shells and beams have their own penetration."))
 
+	_icon_row("eshield", Loc.t("Energy Shield: a cyan barrier that soaks damage (after armor) before your health, from physical and energy weapons alike. It recharges when you have not been hit for a few seconds. Void Gun shots are TRUE DAMAGE: they ignore both armor and the Energy Shield. Spend points on the Energy Shield stat to make it bigger."), 40)
+
 	_heading("Critical hits")
 	_icon_row("damage", Loc.t("A single hit that removes more than 25% of a target's max health is a CRITICAL HIT: a bigger number, a burst effect, and its health bar shatters. It works on you too - watch your own bar!"), 40)
 
 	# ---------------- leveling ----------------
 	_heading("Leveling")
 	_text(Loc.t("Every kill gives XP (bosses and Rogue Castles give a lot). Each new level gives you 5 stat points. Open the Castle window and spend them: every point adds +1% to the CURRENT value of a stat, so points build on each other."))
-	var stat_ids := [["damage", "Weapon damage"], ["atkspeed", "Attack speed"], ["regen", "Mana regen"], ["energy", "Max mana"], ["walls", "Max health"], ["speed", "Move speed"], ["autorate", "Auto fire rate"], ["shield", "Armor"]]
+	var stat_ids := [["damage", "Weapon damage"], ["atkspeed", "Attack speed"], ["regen", "Mana regen"], ["energy", "Max mana"], ["walls", "Max health"], ["speed", "Move speed"], ["autorate", "Auto fire rate"], ["shield", "Armor"], ["eshield", "Energy Shield"]]
 	for s in stat_ids:
 		_icon_row(str(s[0]), Loc.t(str(s[1])), 36)
+	_text(Loc.t("Wrong click? The Reset points button (click twice) gives every spent point back."))
 	_text(Loc.t("Tip: hold the left mouse button on a + to spend points faster. The amount doubles every second (1, 2, 4, 8, 16, 32)."))
 	_icon_row("coin", Loc.t("Exchange: trade gold for stat points in the Castle window - %d gold for %d points to start, and every purchase makes the next one 10%% more expensive. Hold the button to buy faster.") % [CastleMenu.EXCHANGE_GOLD, CastleMenu.EXCHANGE_POINTS], 40)
 
 	# ---------------- skills ----------------
 	_heading("Skills")
-	_skill_row("shield", Loc.t("Barrier"), Loc.t("Invincible for %d s. Ordinary mobs that touch it are destroyed (gold and XP count). Bosses and Rogue Castles are only blocked. Cooldown %d s.") % [int(Base.BARRIER_DURATION), int(Base.BARRIER_COOLDOWN)])
 	_skill_row("damage", Loc.t("Overcharge"), Loc.t("Weapon damage +30%% for %d s. Cooldown %d s.") % [int(Base.BOOST_DURATION), int(Base.BOOST_COOLDOWN)])
 	_skill_row("repair", Loc.t("Repair"), Loc.t("Costs gold, heals 50% of your max health. 1 s cooldown."))
 
@@ -260,8 +262,8 @@ func refresh() -> void:
 	_enemy_row(["soldier", "tank", "mech"], Loc.t("In the Space biome soldiers become kamikaze drones, tanks become starships and mechanized vehicles become space corvettes. They are faster and dodge shots."), true)
 
 	_heading("Bosses and Rogue Castles")
-	_icon_row("skull", Loc.t("Each biome ends with a boss: heavily armored, with a huge amount of health. It moves, dodges and summons soldiers. Shoot down its energy orbs. If the Void Overlord charges its beam, use your Barrier!"), 40)
-	_icon_row("skull", Loc.t("Rogue Castles are rival castles that fly in and fight with your kind of weapon. They are much tougher than normal mobs and give a lot of XP and gold."), 40)
+	_icon_row("skull", Loc.t("Each biome ends with a boss: heavily armored, with a huge amount of health. It moves, dodges and summons soldiers. Shoot down its energy orbs. If the Void Overlord charges its beam, keep moving: it is TRUE DAMAGE and ignores armor and shield!"), 40)
+	_icon_row("skull", Loc.t("Rogue Castles are rival castles that fly in and fight with your kind of weapon. They are much tougher than normal mobs and give a lot of XP and gold. They start around level 5-6, show up a little later in each wave, and never join boss waves."), 40)
 
 # ---------- building blocks ----------
 

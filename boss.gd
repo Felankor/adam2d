@@ -181,7 +181,7 @@ func _process_void(delta: float) -> void:
 		if _beam_charge <= 0.0:
 			_beam_charge = 0.0
 			_beam_flash = BEAM_FLASH_TIME
-			beam.emit(damage * 3.0, position, _beam_aim)   # fires at the LOCKED spot; only the Barrier or moving away stops it
+			beam.emit(damage * 3.0, position, _beam_aim)   # fires at the LOCKED spot; only moving away stops it
 			Sfx.play("beam")
 	if _beam_flash > 0.0:
 		_beam_flash = maxf(_beam_flash - delta, 0.0)
@@ -212,7 +212,7 @@ func _process_void(delta: float) -> void:
 func _start_beam() -> void:
 	_beam_charge = BEAM_CHARGE_TIME
 	_beam_aim = target
-	announce.emit(Loc.t("Void beam charging!  Move or use your Barrier!"), "shield")
+	announce.emit(Loc.t("Void beam charging!  Move!"), "shield")
 	Sfx.play("beam_charge")
 
 func _lessers_alive() -> bool:

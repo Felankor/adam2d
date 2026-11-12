@@ -22,10 +22,33 @@ const SPEED_REF := 150.0
 static func score(ehp: float, offense: float) -> float:
 	return SCALE * sqrt(maxf(ehp, 1.0) * maxf(offense, 0.05))
 
-static func of_enemy(e: Enemy) -> float:
+# Fraction of damage that gets through armor after penetration.
+static func armor_mult(armor: float, pen: float) -> float:
+	return Weapons.armor_mult(armor, pen)
+
+# Threat limits for a rival castle, as a share of the TARGET's health, so stacked stat
+# points can never turn a rival into a one-shot machine. Both grow slowly with the level.
+const SHOT_FRAC_MIN := 0.02       # one hit: 2% of the target's max health at level 1 ...
+const SHOT_FRAC_MAX := 0.06       # ... up to 6% (well under the 25% critical-hit line)
+const DPS_FRAC_MIN := 0.025       # sustained: the target survives at least 40 s at level 1 ...
+const DPS_FRAC_MAX := 0.08        # ... and at least 12.5 s at high levels
+
+static func level_t(level: int) -> float:
+	return clampf(float(level - 1) / 29.0, 0.0, 1.0)
+
+static func shot_cap(target_hp: float, level: int) -> float:
+	return target_hp * lerpf(SHOT_FRAC_MIN, SHOT_FRAC_MAX, level_t(level))
+
+static func dps_cap(target_hp: float, level: int) -> float:
+	return target_hp * lerpf(DPS_FRAC_MIN, DPS_FRAC_MAX, level_t(level))
+
+# vs_armor > 0: the offense is measured against a target with that much armor.
+static func of_enemy(e: Enemy, vs_armor: float = 0.0) -> float:
 	var ehp := (e.hp + e.shield_max) * (Weapons.ARMOR_K + e.armor) / Weapons.ARMOR_K / maxf(e.dmg_taken_mult, 0.1)
 	ehp *= 1.0 + 0.6 * e.dodge_chance
 	var offense := e.damage * (3.0 if e.shoots else 1.0) * (1.0 + e.speed / SPEED_REF) * e.power_mult
+	if vs_armor > 0.0:
+		offense *= armor_mult(vs_armor, e.armor_pen)
 	return score(ehp, offense)
 
 # Damage per second of a castle with these stats (energy limits the fire rate).
@@ -40,12 +63,12 @@ static func castle_dps(weapon_tier: int, energy_regen: float, dmg_mult: float, a
 		dps += float(autos) * adm / auto_interval * atk
 	return dps * dmg_mult
 
-static func castle_ehp(max_hp: float) -> float:
-	return max_hp * 1.3      # the Barrier skill makes the castle ~30% tougher
+static func castle_ehp(max_hp: float, shield: float = 0.0) -> float:
+	return max_hp + shield   # the Energy Shield is a second health bar (the Barrier skill is gone)
 
 static func of_base(b: Base) -> float:
 	var dps := castle_dps(b.weapon_tier, b.energy_regen, b.damage_mult, b.auto_cannons, b.auto_interval, b.attack_speed)
-	return score(castle_ehp(b.max_hp), dps)
+	return score(castle_ehp(b.max_hp, b.shield_cap()), dps)
 
 # Power of one freshly made enemy of this kind (handy for building wave budgets).
 static func of_kind(kind: String, level: int) -> float:
@@ -55,12 +78,12 @@ static func of_kind(kind: String, level: int) -> float:
 	return p
 
 # Total power of everything hostile that is alive right now.
-static func field_power(tree: SceneTree) -> float:
+static func field_power(tree: SceneTree, vs_armor: float = 0.0) -> float:
 	var total := 0.0
 	for node in tree.get_nodes_in_group("enemies"):
 		var e := node as Enemy
 		if e != null and not e.dead:
-			total += of_enemy(e)
+			total += of_enemy(e, vs_armor)
 	return total
 
 static func kinds_for_biome(biome: int) -> Array[String]:

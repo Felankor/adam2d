@@ -1,10 +1,9 @@
 class_name MiniBoss
 extends Enemy
 
-# A rival castle. It copies the player's base stage, weapon, energy, skills and
-# movement, but has 30% less POWER (see Power): 70% of the health and 70% of the
-# damage. It hovers around the player, shoots straight shots at the place the
-# player was when it fired (never guided), uses Barrier and Overcharge, and its
+# A rival castle. It copies the player's base stage, weapon and movement, with 70% of the
+# health, but its damage is budgeted (see make_from and Power) so it can never one-shot the player. It hovers around the player, shoots straight shots at the place the
+# player was when it fired (never guided), uses Overcharge, and its
 # Laser Gun locks its target before it fires - so keep moving!
 signal fire(origin: Vector2, aim: Vector2, dmg: float, style: String)
 signal beam_fire(origin: Vector2, aim: Vector2, dmg: float)
@@ -15,6 +14,8 @@ const SPEED_RATIO := 0.75           # move speed: 25% slower than the player
 const ATTACK_RATIO := 0.8           # attack speed: 20% slower than the player
 const DAMAGE_RATIO := 0.8           # damage: 20% lower than the player
 const HP_MULT := 10.0                # Rogue Castles are 10x tougher than the plain 70% copy
+const ATTACK_MAX := 2.5            # attack speed ceiling (stat points can push the player far higher)
+const SCALE_MIN := 0.3             # damage multiplier floor
 const BEAM_CHARGE := 0.7
 const STYLES := ["bullet", "shell", "rocket", "bullet", "void"]
 const SPEEDS := [700.0, 340.0, 380.0, 700.0, 520.0]
@@ -24,7 +25,7 @@ var weapon_tier: int = 0
 var energy: float = 100.0
 var max_energy: float = 100.0
 var energy_regen: float = 20.0
-var weapon_scale: float = 1.0       # damage multiplier (player's x 0.7)
+var weapon_scale: float = 1.0       # damage multiplier (budgeted, see make_from)
 var attack_speed: float = 1.0
 var barrier_time: float = 0.0
 var boost_time: float = 0.0
@@ -48,7 +49,12 @@ func _ready() -> void:
 		_pix = PixelCastle.new()
 		add_child(_pix)
 
-static func make_from(b: Base) -> MiniBoss:
+# Stats come from a THREAT BUDGET, not from copying the player's stat points (those compound
+# and would make the rival one-shot the player). Health, speed and weapon tier follow the player;
+# damage is damped (square root of the player's multiplier) and then limited so that, after the
+# player's armor, one hit never exceeds a small share of the player's health and the sustained
+# damage per second never kills the player faster than Power.dps_cap allows.
+static func make_from(b: Base, level: int = 1) -> MiniBoss:
 	var m := MiniBoss.new()
 	m.kind = "minicastle"
 	m.tier = b.tier
@@ -57,11 +63,23 @@ static func make_from(b: Base) -> MiniBoss:
 	m.armor_pen = float(Weapons.PEN[b.weapon_tier])
 	m.max_hp = b.max_hp * HP_RATIO * HP_MULT
 	m.hp = m.max_hp
-	m.max_energy = b.max_energy
-	m.energy = b.max_energy
-	m.energy_regen = b.energy_regen
-	m.attack_speed = b.attack_speed * ATTACK_RATIO
-	m.weapon_scale = b.damage_mult * DAMAGE_RATIO
+	var wt := b.weapon_tier
+	var cost: float = Weapons.ENERGY_COST[wt]
+	var interval: float = Weapons.INTERVAL[wt]
+	m.attack_speed = minf(b.attack_speed * ATTACK_RATIO, ATTACK_MAX)
+	# only as much energy as it needs to keep firing at its own rate
+	var need := cost * m.attack_speed / interval
+	m.energy_regen = minf(b.energy_regen, need * 1.1)
+	m.max_energy = minf(b.max_energy, cost * 20.0)
+	m.energy = m.max_energy
+	var scale := maxf(pow(maxf(b.damage_mult, 0.01), 0.5) * DAMAGE_RATIO, SCALE_MIN)
+	# what actually reaches the player: armor and the rival's penetration, plus Overcharge
+	var through := Power.armor_mult(b.armor_points(), m.armor_pen) * Base.BOOST_MULT
+	var raw: float = Weapons.DAMAGE[wt]
+	var shot_scale := Power.shot_cap(b.max_hp, level) / maxf(raw * through, 0.001)
+	var dps_one := Power.castle_dps(wt, m.energy_regen, 1.0, 0, 1.5, m.attack_speed) * through
+	var dps_scale := Power.dps_cap(b.max_hp, level) / maxf(dps_one, 0.001)
+	m.weapon_scale = minf(scale, minf(shot_scale, dps_scale))
 	m.speed = b.move_speed * b.move_mult * SPEED_RATIO
 	m.radius = b.body_radius()
 	m.damage = 3.0 * DAMAGE_RATIO
@@ -104,12 +122,6 @@ func _move(delta: float) -> void:
 	position += _vel * delta
 
 func _skills() -> void:
-	if _barrier_cd <= 0.0 and barrier_time <= 0.0:
-		var in_danger := hp < max_hp * 0.6 and _incoming_shot() != null
-		if in_danger or hp < max_hp * 0.25:
-			barrier_time = Base.BARRIER_DURATION
-			_barrier_cd = Base.BARRIER_COOLDOWN
-			Sfx.play("barrier", -6.0)
 	if _boost_cd <= 0.0 and energy >= max_energy * 0.5 and position.distance_to(target) < 1100.0:
 		boost_time = Base.BOOST_DURATION
 		_boost_cd = Base.BOOST_COOLDOWN

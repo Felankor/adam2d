@@ -52,6 +52,9 @@ var _shoot_cd: float = 0.8
 
 # Dodging (mechs and bosses): sidestep shots that fly straight at us.
 var dodge_chance: float = 0.0
+static var terrain_biome: int = 0      # which backdrop is under the battlefield (ground units avoid its water and lava)
+var _blocked_t: float = 0.0
+var _side: float = 1.0
 var dodge_cd_time: float = 1.2
 var dodge_dash: float = 450.0
 var _dodge_cd: float = 0.0
@@ -64,6 +67,9 @@ var _bar_time: float = 0.0
 var _walk: float = 0.0
 var _scale_pop: float = 0.0
 var _heading: float = 0.0
+var _sprite: Sprite2D = null
+var _art: Dictionary = {}
+var _art_key: String = ""
 var _push: Vector2 = Vector2.ZERO   # knockback velocity, decays smoothly
 var _slow_time: float = 0.0         # while > 0 the enemy moves slower after a hit
 
@@ -243,6 +249,7 @@ static func make_ally() -> Enemy:
 	return e
 
 func _ready() -> void:
+	_make_sprite()
 	if preview:
 		process_mode = Node.PROCESS_MODE_ALWAYS
 		return
@@ -254,7 +261,40 @@ func _ready() -> void:
 	if kind == "void":
 		add_to_group("void_lessers")
 
+# Pixel-art body (see mob_art.gd). The vector drawing below is only used when no sprite exists.
+func _make_sprite() -> void:
+	_art_key = MobArt.key_for(kind, space, is_ally)
+	if not MobArt.INFO.has(_art_key):
+		return
+	_art = MobArt.frames(_art_key)
+	_sprite = Sprite2D.new()
+	_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	_sprite.texture = (_art["tex"] as Array)[0]
+	add_child(_sprite)
+	_update_sprite()
+
+func _update_sprite() -> void:
+	if _sprite == null:
+		return
+	var n: int = _art["n"]
+	var fr := int(floorf(_walk * MobArt.frame_rate(_art_key))) % n
+	if fr < 0:
+		fr += n
+	_sprite.texture = (_art["flash" if _flash > 0.0 else "tex"] as Array)[fr]
+	var k := MobArt.PX * MobArt.scale_for(_art_key)
+	if is_small:
+		k *= 0.6
+	elif kind == "void":
+		k *= clampf(radius / 21.0, 0.4, 1.6)
+	k *= 1.0 + _scale_pop * 2.0
+	_sprite.scale = Vector2(k, k)
+	if MobArt.rotates(_art_key):
+		_sprite.rotation = _heading
+	elif MobArt.flips(_art_key):
+		_sprite.flip_h = cos(_heading) < 0.0
+
 func _tick_common(delta: float) -> void:
+	_update_sprite()
 	_flash = maxf(_flash - delta, 0.0)
 	_bar_time = maxf(_bar_time - delta, 0.0)
 	_scale_pop = maxf(_scale_pop - delta, 0.0)
@@ -353,6 +393,7 @@ func _draw_armor_tag(origin: Vector2) -> void:
 func _process(delta: float) -> void:
 	if preview:
 		_walk += delta * 3.0
+		_update_sprite()
 		queue_redraw()
 		return
 	_tick_common(delta)
@@ -378,9 +419,32 @@ func _process(delta: float) -> void:
 	var dir := to_target / dist
 	_heading = dir.angle()
 	var spd := _move_speed()
-	position += (dir * spd + _update_dodge(delta)) * delta
+	var step := (dir * spd + _update_dodge(delta)) * delta
+	if kind != "bee":
+		step = _avoid_liquid(step, delta)
+	position += step
 	_walk += delta * spd * 0.12
 	queue_redraw()
+
+# Walking units do not cross ponds and lava: they slide along the bank, and only wade through
+# (slowly) when they have been stuck for a few seconds, so a wave can never get stuck for good.
+func _avoid_liquid(step: Vector2, delta: float) -> Vector2:
+	if step == Vector2.ZERO:
+		return step
+	var look := radius * 0.5 + 18.0
+	if not Backdrop.liquid_at(terrain_biome, position + step.normalized() * look):
+		_blocked_t = maxf(_blocked_t - delta * 2.0, 0.0)
+		return step
+	_blocked_t += delta
+	if _blocked_t > 3.0:
+		return step * 0.45
+	if _side == 1.0 and randf() < 0.5:
+		_side = -1.0
+	for a in [0.7, -0.7, 1.4, -1.4]:
+		var d2 := step.rotated(float(a) * _side)
+		if not Backdrop.liquid_at(terrain_biome, position + d2.normalized() * look):
+			return d2
+	return Vector2.ZERO
 
 # Finds one of our shots flying straight at us (used for dodging).
 func _incoming_shot() -> Projectile:
@@ -429,7 +493,7 @@ func take_damage(amount: float, pen: float = 0.0) -> void:
 	var armor_factor := Weapons.armor_mult(armor, pen)
 	var raw := amount * armor_factor * dmg_taken_mult
 	var absorbed := 0.0
-	if shield > 0.0:
+	if shield > 0.0 and not Weapons.is_true(pen):
 		absorbed = minf(shield, raw)
 		shield -= absorbed
 		_shield_idle = 0.0
@@ -513,8 +577,26 @@ func _draw_marker() -> void:
 	draw_circle(Vector2(0, 2), mr, Color(0, 0, 0, 0.42))
 	draw_arc(Vector2(0, 2), mr, 0.0, TAU, 28, ring, 2.5)
 
+func _draw_overlays() -> void:
+	if kind == "medic":
+		draw_arc(Vector2.ZERO, HEAL_RADIUS, 0.0, TAU, 48, Color(0.4, 1.0, 0.5, 0.10), 2.0)
+		var pk := float(Time.get_ticks_msec() - _heal_ms) / 600.0
+		if pk >= 0.0 and pk < 1.0:
+			draw_arc(Vector2.ZERO, HEAL_RADIUS * pk, 0.0, TAU, 48, Color(0.4, 1.0, 0.5, 0.55 * (1.0 - pk)), 4.0)
+	elif kind == "aegis":
+		var frac := clampf(shield / maxf(shield_max, 0.001), 0.0, 1.0)
+		if frac > 0.0:
+			draw_set_transform(Vector2.ZERO, _heading, Vector2.ONE)
+			draw_arc(Vector2.ZERO, 26.0, -1.0, 1.0, 20, Color(0.35, 0.9, 1.0, 0.25 + 0.65 * frac), 6.0)
+			draw_arc(Vector2.ZERO, 26.0, -1.0, 1.0, 20, Color(0.85, 1.0, 1.0, 0.6 * frac), 2.0)
+			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
 func _draw() -> void:
 	_draw_marker()
+	if _sprite != null:
+		_draw_overlays()
+		_draw_bar()
+		return
 	var sgn := -1.0 if cos(_heading) < 0.0 else 1.0
 	var s := 1.0 + _scale_pop * 2.0
 	match kind:

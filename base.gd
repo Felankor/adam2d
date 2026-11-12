@@ -5,6 +5,7 @@ signal destroyed
 signal damaged(amount: float)
 signal critical(amount: float)
 signal blocked
+signal shield_broken
 signal poisoned
 
 const TIER_NAMES := ["Hoverin Village", "High Town", "Flyin City", "Fortress of the Wind", "Capital", "Battlestation", "Juggernaut", "Dreadnaught", "Galactus", "Death Star"]
@@ -26,6 +27,9 @@ const RANGE_STEP := 40.0
 const MAX_RANGE := 1000.0
 const BARRIER_DURATION := 3.0
 const BARRIER_COOLDOWN := 10.0
+const SHIELD_BASE := 0.25          # Energy Shield capacity: 25% of max health, +1% per Energy Shield point
+const SHIELD_DELAY := 4.0          # seconds without damage before it recharges
+const SHIELD_RECHARGE := 0.2       # then it refills 20% of its capacity per second
 const BOOST_DURATION := 5.0        # Overcharge skill: +30% weapon damage for 5 s
 const BOOST_COOLDOWN := 15.0
 const BOOST_MULT := 1.3
@@ -60,10 +64,15 @@ var engineers: int = 0
 var mechanics: int = 0
 
 # Active skills: 4 slots, triggered with the skill keybinds (V, B, N, M by default).
-var skill_slots: Array[String] = ["barrier", "overcharge", "repair", ""]
+var skill_slots: Array[String] = ["", "overcharge", "repair", ""]     # slot 1 (Barrier) is removed for now
 var skill_cd: Array[float] = [0.0, 0.0, 0.0, 0.0]
 var skill_cd_max: Array[float] = [BARRIER_COOLDOWN, BOOST_COOLDOWN, REPAIR_COOLDOWN, 1.0]
-var barrier_time: float = 0.0
+var barrier_time: float = 0.0       # the Barrier skill is switched off for now (kept so it can come back)
+var shield: float = -1.0            # Energy Shield; -1 = fill up on the first frame
+var _shield_idle: float = 0.0
+var _sh_hit: float = 0.0           # 1 -> 0 after the shield absorbs a hit (ripple + flash)
+var _sh_hit_ang: float = 0.0
+var _sh_break: float = 0.0         # 1 -> 0 after the shield breaks (shatter ring)
 var boost_time: float = 0.0
 var move_speed: float = 280.0
 var move_mult: float = 1.0          # Thrusters perk: +5% per reward pick
@@ -139,11 +148,41 @@ func spend_point(id: String) -> bool:
 			move_mult *= 1.01
 		"autorate", "armor":
 			pass
+		"eshield":
+			var old_cap := shield_cap()
+			stat_pts["eshield"] = int(stat_pts.get("eshield", 0)) + 1
+			shield += shield_cap() - old_cap
+			free_points -= 1
+			return true
 		_:
 			return false
 	stat_pts[id] = int(stat_pts.get(id, 0)) + 1
 	free_points -= 1
 	return true
+
+# Energy Shield capacity. Compounds like every other stat: +1% per point.
+func shield_cap() -> float:
+	return max_hp * SHIELD_BASE * pow(1.01, float(int(stat_pts.get("eshield", 0))))
+
+# Takes back EVERY spent stat point (for wrong clicks) and returns how many were refunded.
+func reset_stat_points() -> int:
+	var total := 0
+	for id in stat_pts.keys():
+		total += int(stat_pts[id])
+	if total <= 0:
+		return 0
+	damage_mult /= pow(1.01, float(int(stat_pts.get("damage", 0))))
+	attack_speed /= pow(1.01, float(int(stat_pts.get("attack", 0))))
+	energy_regen /= pow(1.01, float(int(stat_pts.get("regen", 0))))
+	max_energy /= pow(1.01, float(int(stat_pts.get("energy", 0))))
+	move_mult /= pow(1.01, float(int(stat_pts.get("speed", 0))))
+	energy = minf(energy, max_energy)
+	stat_pts.clear()
+	max_hp = hp_total()
+	hp = minf(hp, max_hp)
+	free_points += total
+	queue_redraw()
+	return total
 
 func auto_rate_factor() -> float:
 	return pow(1.01, float(int(stat_pts.get("autorate", 0))))
@@ -183,10 +222,28 @@ func armor_points() -> float:
 
 # pen = armor penetration of the attacker. Poison ignores armor.
 func take_damage(amount: float, pen: float = 0.0) -> void:
-	if barrier_time > 0.0:
-		blocked.emit()
+	if hp <= 0.0:
 		return
-	var dealt := amount * Weapons.armor_mult(armor_points(), pen)
+	var dealt := amount
+	var absorbed := 0.0
+	if not Weapons.is_true(pen):
+		# armor first, then the Energy Shield; Void Gun hits (true damage) skip both
+		dealt = amount * Weapons.armor_mult(armor_points(), pen)
+		_shield_idle = 0.0
+		if shield > 0.0:
+			absorbed = minf(shield, dealt)
+			shield -= absorbed
+			dealt -= absorbed
+			_sh_hit = 1.0
+			_sh_hit_ang = randf() * TAU
+			if shield <= 0.0:
+				shield = 0.0
+				_sh_break = 1.0
+				shield_broken.emit()
+	if dealt <= 0.0:
+		if absorbed > 0.0:
+			blocked.emit()
+		return
 	var was_crit := max_hp > 0.0 and dealt >= 0.25 * max_hp      # a single hit over 25% of max health
 	hp = maxf(hp - dealt, 0.0)
 	_hurt = 0.25
@@ -197,7 +254,7 @@ func take_damage(amount: float, pen: float = 0.0) -> void:
 		set_process(false)
 		destroyed.emit()
 
-# Poison (Petek Bomb clouds and bee stings): HP loss every second. The Barrier blocks it.
+# Poison (Petek Bomb clouds and bee stings): HP loss every second. It ignores armor and the Energy Shield.
 func apply_poison(dps: float, seconds: float) -> void:
 	if barrier_time > 0.0 or hp <= 0.0:
 		blocked.emit()
@@ -327,17 +384,25 @@ func from_dict(d: Dictionary) -> void:
 	mechanics = int(d.get("mechanics", d.get("medics", 0)))
 	var saved: Array = d.get("skills", [])
 	for i in skill_slots.size():
-		if i < saved.size() and str(saved[i]) != "":
+		if i < saved.size() and str(saved[i]) != "" and str(saved[i]) != "barrier":
 			skill_slots[i] = str(saved[i])
 	queue_redraw()
 
 func _process(delta: float) -> void:
 	_anim += delta
 	_hurt = maxf(_hurt - delta, 0.0)
+	_sh_hit = maxf(_sh_hit - delta * 3.0, 0.0)
+	_sh_break = maxf(_sh_break - delta * 1.6, 0.0)
 	_muzzle = maxf(_muzzle - delta, 0.0)
 	_lvlfx = maxf(_lvlfx - delta, 0.0)
 	energy = minf(energy + energy_regen * delta, max_energy)
 	_fire_cd -= delta
+	var cap := shield_cap()
+	if shield < 0.0 or shield > cap:
+		shield = cap if shield < 0.0 else minf(shield, cap)
+	_shield_idle += delta
+	if _shield_idle >= SHIELD_DELAY and shield < cap:
+		shield = minf(shield + cap * SHIELD_RECHARGE * delta, cap)
 	if poison_time > 0.0:
 		poison_time = maxf(poison_time - delta, 0.0)
 		_poison_acc += delta
@@ -539,6 +604,7 @@ func _draw() -> void:
 		draw_line(laser_start, laser_end, Color(1.0, 0.25, 0.25, 0.8), 1.8)
 		draw_circle(laser_end, 4.0, Color(1.0, 0.35, 0.35, 0.9))
 	_draw_barrel(dir, r)
+	_draw_energy_shield(r)
 	if barrier_time > 0.0:
 		var blink := 1.0
 		if barrier_time < 1.0:
@@ -594,3 +660,100 @@ func _draw_barrel(dir: Vector2, r: float) -> void:
 			draw_circle(tip, 10.0, Color(0.3, 0.9, 1.0, 0.25))
 	if _muzzle > 0.0:
 		draw_circle(tip + dir * 6.0, 10.0 * (_muzzle / 0.07), Color(col.r, col.g, col.b, 0.9))
+
+
+# ---------- Energy Shield: a glowing, slowly turning glass globe ----------
+# Drawn as a sphere seen from slightly above: a rim that glows brighter at the edge (fresnel), a
+# turning wireframe of meridians and latitudes (only the front half), a specular highlight, a
+# ripple where it was hit, a flicker when it is nearly gone and a shatter ring when it breaks.
+
+const SHIELD_TILT := 0.45
+
+func _draw_energy_shield(r: float) -> void:
+	var cap := shield_cap()
+	var sf := clampf(shield / cap, 0.0, 1.0) if cap > 0.0 else 0.0
+	var R := r * 1.5
+	if _sh_break > 0.0:
+		var k := 1.0 - _sh_break
+		draw_arc(Vector2.ZERO, R * (1.0 + 0.7 * k), 0.0, TAU, 64, Color(1.0, 0.6, 0.3, 0.8 * _sh_break), 5.0 * _sh_break + 1.0)
+		draw_arc(Vector2.ZERO, R * (1.0 + 0.35 * k), 0.0, TAU, 64, Color(1.0, 0.95, 0.7, 0.6 * _sh_break), 2.0)
+		for i in 12:
+			var a := TAU * float(i) / 12.0 + 0.3
+			var d0 := R * (0.9 + 0.5 * k)
+			draw_line(Vector2.RIGHT.rotated(a) * d0, Vector2.RIGHT.rotated(a) * (d0 + R * 0.25 * _sh_break), Color(1.0, 0.8, 0.5, _sh_break), 2.5)
+	if shield <= 0.5:
+		return
+	var low := sf < 0.25
+	var base_col := Color(0.3, 0.8, 1.0).lerp(Color(1.0, 0.6, 0.25), 1.0 - clampf(sf * 4.0, 0.0, 1.0))
+	var rim_col := base_col.lightened(0.45)
+	var flick := 1.0
+	if low:
+		flick = 0.55 + 0.45 * sin(_anim * 22.0)
+	var pulse := 0.5 + 0.5 * sin(_anim * 2.6)
+	var glow := 0.35 + 0.65 * sf
+	var hit := _sh_hit
+	# body: glassy fill, denser towards the edge
+	for i in 6:
+		var f := float(i) / 5.0
+		draw_circle(Vector2.ZERO, R * (0.45 + 0.55 * f), Color(base_col.r, base_col.g, base_col.b, (0.015 + 0.03 * f * f) * glow * flick))
+	draw_circle(Vector2.ZERO, R, Color(base_col.r, base_col.g, base_col.b, (0.05 + 0.18 * hit) * flick))
+	# turning wireframe (front half only, faded towards the sides)
+	var rot := _anim * 0.5
+	var wire_a := (0.28 + 0.2 * pulse + 0.4 * hit) * glow * flick
+	for m in 8:
+		var lon := rot + PI * float(m) / 8.0 * 2.0
+		_shield_line(R, lon, -1.0, true, rim_col, wire_a)
+	for lat_i in 5:
+		var lat := (float(lat_i) - 2.0) * 0.5
+		_shield_line(R, 0.0, lat, false, rim_col, wire_a * 0.8)
+	# rim: soft outer halo, bright edge, thin inner edge
+	draw_arc(Vector2.ZERO, R * 1.04, 0.0, TAU, 72, Color(base_col.r, base_col.g, base_col.b, (0.12 + 0.12 * pulse + 0.3 * hit) * glow * flick), 7.0)
+	draw_arc(Vector2.ZERO, R, 0.0, TAU, 72, Color(rim_col.r, rim_col.g, rim_col.b, (0.55 + 0.35 * sf + 0.2 * hit) * flick), 2.5 + 1.5 * sf)
+	draw_arc(Vector2.ZERO, R * 0.93, 0.0, TAU, 72, Color(rim_col.r, rim_col.g, rim_col.b, 0.14 * flick), 1.5)
+	# recharging: a bright spot travels around the rim
+	if _shield_idle >= SHIELD_DELAY and sf < 0.999:
+		var sa := _anim * 3.0
+		draw_arc(Vector2.ZERO, R, sa, sa + 0.7, 12, Color(1.0, 1.0, 1.0, 0.8), 4.0)
+	# specular highlights (top left)
+	var hl := Vector2(-0.42, -0.5) * R
+	draw_circle(hl, R * 0.17, Color(1.0, 1.0, 1.0, 0.07 * flick))
+	draw_circle(hl, R * 0.10, Color(1.0, 1.0, 1.0, 0.10 * flick))
+	draw_arc(Vector2.ZERO, R * 0.86, PI * 1.12, PI * 1.38, 10, Color(1.0, 1.0, 1.0, 0.45 * flick), 3.0)
+	# ripple where the last hit landed
+	if hit > 0.0:
+		var hp_pos := Vector2.RIGHT.rotated(_sh_hit_ang) * R
+		var k2 := 1.0 - hit
+		draw_circle(hp_pos, R * 0.22 * (0.5 + k2), Color(1.0, 1.0, 1.0, 0.45 * hit))
+		draw_arc(hp_pos, R * (0.12 + 0.55 * k2), 0.0, TAU, 32, Color(rim_col.r, rim_col.g, rim_col.b, 0.9 * hit), 3.0 * hit + 1.0)
+		draw_arc(Vector2.ZERO, R, _sh_hit_ang - 0.7, _sh_hit_ang + 0.7, 16, Color(1.0, 1.0, 1.0, 0.9 * hit), 5.0)
+
+# One line of the globe: a meridian (lon) or a latitude (lat), drawn only where it faces us.
+func _shield_line(R: float, lon: float, lat: float, meridian: bool, col: Color, alpha: float) -> void:
+	var pts := PackedVector2Array()
+	var cols := PackedColorArray()
+	var steps := 20 if meridian else 32
+	var ct := cos(SHIELD_TILT)
+	var st := sin(SHIELD_TILT)
+	for i in steps + 1:
+		var u := float(i) / float(steps)
+		var phi := lat
+		var lam := lon
+		if meridian:
+			phi = -PI * 0.5 + PI * u
+		else:
+			lam = TAU * u
+		var x := cos(phi) * sin(lam)
+		var y0 := sin(phi)
+		var z0 := cos(phi) * cos(lam)
+		var y := -(y0 * ct - z0 * st)       # tilt the globe towards the viewer
+		var z := y0 * st + z0 * ct
+		if z > 0.0:
+			pts.append(Vector2(x, y) * R)
+			cols.append(Color(col.r, col.g, col.b, alpha * (0.25 + 0.75 * z)))
+		else:
+			if pts.size() > 1:
+				draw_polyline_colors(pts, cols, 1.5)
+			pts = PackedVector2Array()
+			cols = PackedColorArray()
+	if pts.size() > 1:
+		draw_polyline_colors(pts, cols, 1.5)

@@ -31,12 +31,17 @@ const COLORS := [
 # 50 armor halves a hit, 25 armor takes a third off. Armor penetration cancels armor point for point.
 const ARMOR_K := 50.0
 # Armor penetration of each weapon: the Machinegun is useless against heavy armor, the Laser and Void Guns cut through it.
-const PEN := [0.0, 5.0, 12.0, 25.0, 40.0]
+# TRUE_PEN (the Void Gun) is TRUE DAMAGE: it ignores armor and Energy Shields completely.
+const TRUE_PEN := 1000.0
+const PEN := [0.0, 5.0, 12.0, 25.0, TRUE_PEN]
 # Void Gun: splash radius of its blast (the Rocket Launcher has 110)
 const VOID_SPLASH := 200.0
 
 static func armor_mult(armor: float, pen: float = 0.0) -> float:
 	return ARMOR_K / (ARMOR_K + maxf(armor - pen, 0.0))
+
+static func is_true(pen: float) -> bool:
+	return pen >= TRUE_PEN
 
 static func name_of(tier: int) -> String:
 	return NAMES[clampi(tier, 0, MAX_TIER)]

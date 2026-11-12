@@ -202,6 +202,14 @@ func _draw() -> void:
 	_bar(Vector2(x, s.y - 126.0), Vector2(w, h), _en_front, _en_front, Color(0.16, 0.42, 0.95), Color(0.5, 0.78, 1.0), en_text, _en_gain, er < 0.2)
 	var hp_col := Color(0.86, 0.1, 0.14)       # health is always red
 	_bar(Vector2(x, s.y - 160.0), Vector2(w, h), _hp_front, _hp_ghost, hp_col, hp_col.lightened(0.3), hp_text, 0.0, hr < 0.3)
+	var sh_max := base.shield_cap()
+	if sh_max > 0.0 and base.shield > 0.0:
+		var sr := clampf(base.shield / sh_max, 0.0, 1.0)
+		var sy := s.y - 160.0 - 12.0
+		draw_rect(Rect2(x, sy, w, 8.0), Color(0.05, 0.06, 0.09, 0.85))
+		draw_rect(Rect2(x, sy, w * sr, 8.0), Color(0.3, 0.8, 1.0))
+		draw_rect(Rect2(x, sy, w * sr, 3.0), Color(0.75, 0.95, 1.0, 0.8))
+		_text(Vector2(x + w + 10.0, sy + 9.0), "%d" % ceili(base.shield), 15, Color(0.6, 0.9, 1.0))
 	if _crit_flash > 0.01:
 		var cf := Rect2(Vector2(x - 6.0, s.y - 166.0), Vector2(w + 12.0, h + 12.0))
 		draw_rect(cf, Color(1.0, 0.25, 0.1, 0.8 * _crit_flash * Settings.flash_scale), false, 4.0)
@@ -374,9 +382,7 @@ func _draw_skills(s: Vector2) -> void:
 		var id := base.skill_slots[i]
 		var active_time := 0.0
 		var active_col := Color(0.3, 1.0, 1.0)
-		if id == "barrier":
-			active_time = base.barrier_time
-		elif id == "overcharge":
+		if id == "overcharge":
 			active_time = base.boost_time
 			active_col = Color(1.0, 0.65, 0.2)
 		var active := active_time > 0.0
