@@ -23,7 +23,7 @@ static func score(ehp: float, offense: float) -> float:
 	return SCALE * sqrt(maxf(ehp, 1.0) * maxf(offense, 0.05))
 
 static func of_enemy(e: Enemy) -> float:
-	var ehp := e.hp * (Weapons.ARMOR_K + e.armor) / Weapons.ARMOR_K / maxf(e.dmg_taken_mult, 0.1)
+	var ehp := (e.hp + e.shield_max) * (Weapons.ARMOR_K + e.armor) / Weapons.ARMOR_K / maxf(e.dmg_taken_mult, 0.1)
 	ehp *= 1.0 + 0.6 * e.dodge_chance
 	var offense := e.damage * (3.0 if e.shoots else 1.0) * (1.0 + e.speed / SPEED_REF) * e.power_mult
 	return score(ehp, offense)

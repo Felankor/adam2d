@@ -29,6 +29,20 @@ var target: Vector2 = Vector2.ZERO
 var reach: float = 40.0
 var radius: float = 15.0
 var dead: bool = false
+var preview: bool = false         # drawn inside the How to Play page: no groups, no AI, just the animation
+var shield: float = 0.0           # energy shield (Aegis): absorbs damage before health, recharges when left alone
+var shield_max: float = 0.0
+var heal_aura: bool = false       # Medic: heals nearby enemies
+var _shield_idle: float = 0.0
+var _heal_cd: float = 1.0
+var _heal_ms: int = -10000
+var _chunk_from: float = 1.0      # health bar "chunk" that breaks off after a hit (League style)
+var _chunk_to: float = 1.0
+var _chunk_start_ms: int = -10000
+var _chunk_crit: bool = false
+const CRIT_FRAC := 0.25           # a single hit that removes more than this share of max health is critical
+const HEAL_RADIUS := 260.0
+const HEAL_PERCENT := 0.08
 var dmg_taken_mult: float = 1.0   # < 1 means this enemy absorbs part of every hit
 
 # Ranged enemies (tanks) stop at shoot_range and fire at the base.
@@ -120,6 +134,23 @@ static func make(k: String, level: int) -> Enemy:
 			e.reward = 3 + int(level * 0.4)
 			e.radius = 20.0
 			e.space = true
+		"medic":      # heals the enemies around it: kill it first
+			e.hp = (14.0 + lvl * 2.0) * GameState.hp_mult()
+			e.speed = minf(55.0 + lvl * 2.0, 120.0) * GameState.speed_mult()
+			e.damage = 0.8 * dmg_mult
+			e.heal_aura = true
+			e.power_mult = 1.4
+			e.reward = 3 + int(level * 0.4)
+			e.radius = 16.0
+		"aegis":      # energy shield soaks damage first, recharges if you stop hitting it
+			e.hp = (24.0 + lvl * 3.5) * GameState.hp_mult()
+			e.speed = minf(45.0 + lvl * 1.5, 90.0) * GameState.speed_mult()
+			e.damage = 1.8 * dmg_mult
+			e.armor = 10.0
+			e.shield_max = e.hp * 0.8
+			e.shield = e.shield_max
+			e.reward = 4 + int(level * 0.5)
+			e.radius = 20.0
 		_:
 			e.kind = "soldier"
 			e.hp = (10.0 + lvl * 4.0) * GameState.hp_mult()
@@ -212,6 +243,9 @@ static func make_ally() -> Enemy:
 	return e
 
 func _ready() -> void:
+	if preview:
+		process_mode = Node.PROCESS_MODE_ALWAYS
+		return
 	process_mode = Node.PROCESS_MODE_PAUSABLE
 	add_to_group("mobs")
 	add_to_group("allies" if is_ally else "enemies")
@@ -240,8 +274,89 @@ func _hit_reaction(from_dir: Vector2, strength: float) -> void:
 	_push = from_dir * strength
 	_slow_time = 0.4
 
+# Medic healing pulse and Aegis shield recharge.
+func _special_tick(delta: float) -> void:
+	if shield_max > 0.0:
+		_shield_idle += delta
+		if _shield_idle > 3.0 and shield < shield_max:
+			shield = minf(shield + shield_max * 0.15 * delta, shield_max)
+	if heal_aura:
+		_heal_cd -= delta
+		if _heal_cd <= 0.0:
+			_heal_cd = 1.5
+			_heal_ms = Time.get_ticks_msec()
+			for e in Field.near(position, HEAL_RADIUS):
+				if e == self or e.is_ally or e.dead or e.kind == "boss" or e.kind == "minicastle":
+					continue
+				if e.hp < e.max_hp and position.distance_to(e.position) <= HEAL_RADIUS:
+					e.hp = minf(e.hp + e.max_hp * HEAL_PERCENT, e.max_hp)
+					e._bar_time = maxf(e._bar_time, 1.2)
+					Fx.spawn(get_parent(), "spark", e.position + Vector2(0.0, -e.radius), Color(0.4, 1.0, 0.5), "", 0.6, 0.35)
+
+# Critical hit: one strike that removes more than 25% of max health.
+func _is_crit(dealt: float) -> bool:
+	return max_hp > 0.0 and dealt >= CRIT_FRAC * max_hp
+
+# Remembers the slice of the health bar that was just lost, so it can break off.
+func _record_chunk(hp_before: float, crit: bool) -> void:
+	_chunk_from = clampf(hp_before / maxf(max_hp, 0.001), 0.0, 1.0)
+	_chunk_to = clampf(hp / maxf(max_hp, 0.001), 0.0, 1.0)
+	_chunk_start_ms = Time.get_ticks_msec()
+	_chunk_crit = crit
+
+func _crit_effects(par: Node, scale_k: float) -> void:
+	Fx.spawn(par, "crit", position, Color(1.0, 0.8, 0.3), "", scale_k, 0.45)
+	Fx.spawn(par, "spark", position, Color(1.0, 0.55, 0.2), "", 1.8, 0.5)
+	Sfx.play("crit", -2.0)
+
+# Draws the lost part of a health bar: a white slice that fades, or (critical) a hot slice that
+# shatters into shards and falls.
+func _draw_chunk(x: float, y: float, w: float, h: float, a: float) -> void:
+	var life := 0.9 if _chunk_crit else 0.55
+	var age := float(Time.get_ticks_msec() - _chunk_start_ms) / 1000.0
+	if age < 0.0 or age > life or _chunk_from <= _chunk_to:
+		return
+	var k := age / life
+	var x0 := x + w * _chunk_to
+	var x1 := x + w * _chunk_from
+	if not _chunk_crit:
+		draw_rect(Rect2(x0, y, x1 - x0, h), Color(1, 1, 1, 0.9 * (1.0 - k) * a))
+		return
+	if k < 0.2:
+		draw_rect(Rect2(x0, y, x1 - x0, h), Color(1.0, 0.95, 0.7, a))
+		draw_rect(Rect2(x0 - 1.0, y - 2.0, x1 - x0 + 2.0, h + 4.0), Color(1.0, 0.6, 0.2, 0.5 * a), false, 2.0)
+		return
+	var kk := (k - 0.2) / 0.8
+	var n := 5
+	for i in n:
+		var sw := (x1 - x0) / float(n)
+		var sx := x0 + sw * float(i) + (float(i) - 2.0) * 14.0 * kk
+		var fall := 10.0 * kk + 80.0 * kk * kk * (1.0 + 0.35 * float(i % 3))
+		draw_rect(Rect2(sx, y + fall, sw * (1.0 - 0.3 * kk), h * (1.0 - 0.45 * kk)), Color(1.0, 0.3 + 0.3 * kk, 0.15, (1.0 - kk) * a))
+
+# Small shield badge with the armor value next to a health bar.
+func _draw_armor_tag(origin: Vector2) -> void:
+	if armor < 5.0:
+		return
+	var pts := PackedVector2Array([Vector2(0, 0), Vector2(11, 0), Vector2(11, 7), Vector2(5.5, 13), Vector2(0, 7)])
+	for i in pts.size():
+		pts[i] += origin
+	draw_colored_polygon(pts, Color(0.55, 0.75, 0.95, 0.95))
+	var outline := pts.duplicate()
+	outline.append(pts[0])
+	draw_polyline(outline, Color.WHITE, 1.5)
+	var font := ThemeDB.fallback_font
+	var txt := str(int(armor))
+	draw_string_outline(font, origin + Vector2(15, 11), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, 3, Color.BLACK)
+	draw_string(font, origin + Vector2(15, 11), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color.WHITE)
+
 func _process(delta: float) -> void:
+	if preview:
+		_walk += delta * 3.0
+		queue_redraw()
+		return
 	_tick_common(delta)
+	_special_tick(delta)
 	var to_target := target - position
 	var dist := to_target.length()
 	# Tanks stop in range and shell the base until they are destroyed.
@@ -312,28 +427,50 @@ func take_damage(amount: float, pen: float = 0.0) -> void:
 		queue_free()
 		return
 	var armor_factor := Weapons.armor_mult(armor, pen)
-	var dealt := amount * armor_factor * dmg_taken_mult
+	var raw := amount * armor_factor * dmg_taken_mult
+	var absorbed := 0.0
+	if shield > 0.0:
+		absorbed = minf(shield, raw)
+		shield -= absorbed
+		_shield_idle = 0.0
+	var dealt := raw - absorbed
+	var hp_before := hp
 	hp -= dealt
-	_flash = 0.12
-	_bar_time = 2.5
-	_scale_pop = 0.12
+	var crit := _is_crit(dealt)
+	_record_chunk(hp_before, crit)
+	_flash = 0.22 if crit else 0.12
+	_bar_time = 3.5 if crit else 2.5
+	_scale_pop = 0.2 if crit else 0.12
+	var kick := 1.6 if crit else 1.0
 	var back := -Vector2.RIGHT.rotated(_heading)
 	match kind:
 		"tank", "golem", "demon":
-			_hit_reaction(back, 35.0 if kind == "tank" else 20.0)    # heavy: barely moves
+			_hit_reaction(back, (35.0 if kind == "tank" else 20.0) * kick)    # heavy: barely moves
 		"worm":
-			_hit_reaction(back, 300.0)
+			_hit_reaction(back, 300.0 * kick)
 		"mech":
-			_hit_reaction(back, 260.0)   # light: gets thrown back
+			_hit_reaction(back, 260.0 * kick)   # light: gets thrown back
 		_:
-			_hit_reaction(back, 170.0)
-	if armor_factor < 0.85:      # armor soaks a noticeable part of the hit: metallic ping
+			_hit_reaction(back, 170.0 * kick)
+	var num_col := Color.WHITE
+	if absorbed > 0.0 and dealt <= 0.0:
+		num_col = Color(0.4, 0.9, 1.0)
+		Fx.spawn(par, "spark", position, Color(0.4, 0.9, 1.0), "", 1.0, 0.3)
+		_hit_sfx("block")
+	elif crit:
+		num_col = Color(1.0, 0.35, 0.12)
+		_crit_effects(par, maxf(radius / 25.0, 1.0))
+	elif armor_factor < 0.85:      # armor soaks a noticeable part of the hit: metallic ping
+		num_col = Color(0.7, 0.82, 1.0)
 		Fx.spawn(par, "spark", position, Color(0.8, 0.85, 0.95), "", 0.9, 0.3)
 		_hit_sfx("block")
 	else:
 		Fx.spawn(par, "spark", position, Color(1.0, 0.85, 0.3), "", 1.0, 0.35)
 		_hit_sfx("hit")
-	Fx.spawn(par, "number", position + Vector2(0, -radius - 12.0), Color.WHITE, str(int(ceil(dealt))), 1.0, 0.7)
+	var shown := str(int(ceil(dealt + absorbed)))
+	if crit:
+		shown += "!"
+	Fx.spawn(par, "number", position + Vector2(0, -radius - 12.0), num_col, shown, 1.8 if crit else 1.0, 1.0 if crit else 0.7)
 	if hp <= 0.0:
 		dead = true
 		if kind == "mech" or kind == "golem" or kind == "demon":
@@ -403,6 +540,10 @@ func _draw() -> void:
 			_draw_void_lesser(s)
 		"bee":
 			_draw_bee(s)
+		"medic":
+			_draw_medic(s)
+		"aegis":
+			_draw_aegis(s)
 		_:
 			if space:
 				_draw_drone(s)
@@ -420,7 +561,45 @@ func _draw_bar() -> void:
 	var frac := clampf(hp / max_hp, 0.0, 1.0)
 	draw_rect(Rect2(-w * 0.5, y, w, 7.0), Color(0, 0, 0, 0.7 * a))
 	draw_rect(Rect2(-w * 0.5, y, w * frac, 7.0), Color(0.9, 0.2, 0.2, a))
+	_draw_chunk(-w * 0.5, y, w, 7.0, a)
 	draw_rect(Rect2(-w * 0.5, y, w, 7.0), Color(1, 1, 1, 0.6 * a), false, 1.0)
+	if shield_max > 0.0:
+		draw_rect(Rect2(-w * 0.5, y - 5.0, w, 4.0), Color(0, 0, 0, 0.7 * a))
+		draw_rect(Rect2(-w * 0.5, y - 5.0, w * clampf(shield / shield_max, 0.0, 1.0), 4.0), Color(0.35, 0.85, 1.0, a))
+	_draw_armor_tag(Vector2(-w * 0.5 - 30.0, y - 3.0))
+
+func _draw_medic(s: float) -> void:
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2(s, s))
+	var swing := sin(_walk) * 5.0
+	var coat := _c(Color(0.92, 0.95, 0.92))
+	var skin := _c(Color(0.9, 0.72, 0.55))
+	var pants := _c(Color(0.3, 0.38, 0.3))
+	# faint healing aura, with a pulse that expands each time it heals
+	draw_arc(Vector2.ZERO, HEAL_RADIUS, 0.0, TAU, 48, Color(0.4, 1.0, 0.5, 0.10), 2.0)
+	var pk := float(Time.get_ticks_msec() - _heal_ms) / 600.0
+	if pk >= 0.0 and pk < 1.0:
+		draw_arc(Vector2.ZERO, HEAL_RADIUS * pk, 0.0, TAU, 48, Color(0.4, 1.0, 0.5, 0.55 * (1.0 - pk)), 4.0)
+	draw_line(Vector2(-4, 8), Vector2(-4 + swing, 20), pants, 4.0)
+	draw_line(Vector2(4, 8), Vector2(4 - swing, 20), pants, 4.0)
+	draw_rect(Rect2(-9, -8, 18, 18), coat)
+	draw_circle(Vector2(0, -14), 7.0, skin)
+	draw_rect(Rect2(-8, -24, 16, 7), coat)
+	draw_rect(Rect2(-2, -4, 4, 12), _c(Color(0.2, 0.8, 0.3)))
+	draw_rect(Rect2(-6, 0, 12, 4), _c(Color(0.2, 0.8, 0.3)))
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+func _draw_aegis(s: float) -> void:
+	draw_set_transform(Vector2.ZERO, _heading, Vector2(s, s))
+	var frac := clampf(shield / maxf(shield_max, 0.001), 0.0, 1.0)
+	var steel := _c(Color(0.42, 0.46, 0.55))
+	draw_circle(Vector2.ZERO, 15.0, steel)
+	draw_circle(Vector2(-3, 0), 9.0, _c(Color(0.28, 0.3, 0.38)))
+	draw_circle(Vector2(5, 0), 6.0, _c(Color(0.9, 0.75, 0.3)))
+	# energy shield: a bright arc in front of it that fades as the shield is used up
+	if frac > 0.0:
+		draw_arc(Vector2.ZERO, 26.0, -1.0, 1.0, 20, Color(0.35, 0.9, 1.0, 0.25 + 0.65 * frac), 6.0)
+		draw_arc(Vector2.ZERO, 26.0, -1.0, 1.0, 20, Color(0.85, 1.0, 1.0, 0.6 * frac), 2.0)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 func _draw_soldier(sgn: float, s: float) -> void:
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2(sgn * s, s))

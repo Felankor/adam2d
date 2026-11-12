@@ -63,6 +63,7 @@ var stat_gold: int = 0
 var stat_bosses: int = 0
 var stat_best_wave: int = 1
 var stat_time: float = 0.0
+var exchange_count: int = 0          # gold -> stat points exchanges so far (each one makes the next 10% dearer)
 var _zoom_target: float = Settings.VIEW_ZOOM
 var _clear_timer: float = -1.0
 var _boss_level: bool = false
@@ -84,6 +85,7 @@ func _ready() -> void:
 	add_child(backdrop)
 	add_child(base)
 	base.destroyed.connect(_on_base_destroyed)
+	base.critical.connect(_on_player_crit)
 	base.damaged.connect(_on_base_damaged)
 	base.blocked.connect(_on_base_blocked)
 	base.poisoned.connect(_on_base_poisoned)
@@ -196,6 +198,7 @@ func _ready() -> void:
 	_start_level()
 
 func _exit_tree() -> void:
+	Music.stop()
 	Cursors.set_mode(Cursors.Mode.ARROW)
 
 # ---------- Save / load ----------
@@ -210,6 +213,7 @@ func _apply_save(d: Dictionary) -> void:
 	stat_bosses = maxi(int(st.get("bosses", 0)), 0)
 	stat_best_wave = maxi(int(st.get("best_wave", level)), level)
 	stat_time = maxf(float(st.get("time", 0.0)), 0.0)
+	exchange_count = clampi(int(d.get("exchange_count", 0)), 0, 400)
 	biome = _biome_for(level)
 
 func _make_save_data() -> Dictionary:
@@ -219,6 +223,7 @@ func _make_save_data() -> Dictionary:
 		"level": level,
 		"coins": coins,
 		"base": base.to_dict(),
+		"exchange_count": exchange_count,
 		"stats": {"kills": stat_kills, "gold": stat_gold, "bosses": stat_bosses, "best_wave": stat_best_wave, "time": stat_time},
 	}
 
@@ -278,6 +283,7 @@ func _start_level() -> void:
 		title = Loc.t("Wave %d  -  %s Boss Wave") % [level, Loc.t(BIOME_NAMES[biome])]
 		boss_label.text = Loc.t("!!  %s BOSS WAVE  !!") % Loc.t(BIOME_NAMES[biome]).to_upper()
 	boss_label.visible = _boss_level
+	Music.play(biome, _boss_level)
 	_mini_single = GameState.difficulty == 0
 	if _mini_single:
 		# Beginner: just a chance of ONE Rogue Castle per level (0% before level 5, 20% on level 5, +10% per level)
@@ -427,7 +433,7 @@ func _update_camera(delta: float) -> void:
 		(node as BackdropGrid).follow(camera.position)
 
 func _add_shake(amount: float) -> void:
-	_shake = maxf(_shake, amount)
+	_shake = maxf(_shake, amount * Settings.shake_scale)
 
 func _update_shake(delta: float) -> void:
 	if _shake > 0.1:
@@ -511,15 +517,24 @@ func _pick_kind() -> String:
 			w_special = 14.0
 	var w_mech := 0.0 if level < 2 else minf(18.0 + level * 1.5, 40.0)
 	var w_tank := 0.0 if level < 3 else minf(10.0 + level * 1.5, 30.0)
-	var total := 100.0 + w_mech + w_tank + w_special
+	var w_medic := 0.0 if level < 6 else minf(4.0 + level * 0.5, 12.0)
+	var w_aegis := 0.0 if level < 9 else minf(3.0 + level * 0.4, 12.0)
+	var total := 100.0 + w_mech + w_tank + w_special + w_medic + w_aegis
 	var r := randf() * total
 	if r < w_special:
 		return special
 	r -= w_special
 	if r < w_tank:
 		return "tank"
-	if r < w_tank + w_mech:
+	r -= w_tank
+	if r < w_mech:
 		return "mech"
+	r -= w_mech
+	if r < w_medic:
+		return "medic"
+	r -= w_medic
+	if r < w_aegis:
+		return "aegis"
 	return "soldier"
 
 func _register_mob(e: Enemy, deferred: bool = false) -> void:
@@ -916,6 +931,7 @@ func _refresh_castle() -> void:
 		"region": Loc.t(BIOME_NAMES[biome]),
 		"difficulty": Loc.t(diff_name),
 		"power": Power.of_base(base),
+		"exchange_price": CastleMenu.exchange_price(exchange_count),
 		"stats": "%s: %d   %s: %s" % [Loc.t("Kills"), stat_kills, Loc.t("Time"), _fmt_time(stat_time)],
 	})
 
@@ -947,13 +963,24 @@ func _on_castle_weapon() -> void:
 	_update_label()
 	_refresh_castle()
 
-func _on_castle_exchange() -> void:
-	if game_over or coins < CastleMenu.EXCHANGE_GOLD:
+func _on_castle_exchange(count: int = 1) -> void:
+	if game_over:
 		return
-	coins -= CastleMenu.EXCHANGE_GOLD
-	base.free_points += CastleMenu.EXCHANGE_POINTS
-	Sfx.play("weapon_up")
-	_notify(Loc.t("Exchanged %d gold for %d stat points") % [CastleMenu.EXCHANGE_GOLD, CastleMenu.EXCHANGE_POINTS], "coin", Color(0.5, 1.0, 0.6))
+	var bought := 0
+	var spent := 0
+	for i in count:
+		var price := CastleMenu.exchange_price(exchange_count)
+		if coins < price:
+			break
+		coins -= price
+		spent += price
+		exchange_count += 1
+		base.free_points += CastleMenu.EXCHANGE_POINTS
+		bought += 1
+	if bought == 0:
+		return
+	Sfx.play("powerup", -4.0)
+	_notify(Loc.t("Exchanged %d gold for %d stat points") % [spent, bought * CastleMenu.EXCHANGE_POINTS], "coin", Color(0.5, 1.0, 0.6), "exchange")
 	_update_label()
 	_refresh_castle()
 
@@ -964,6 +991,11 @@ func _on_castle_laser(on: bool) -> void:
 
 func _on_base_poisoned() -> void:
 	_notify(Loc.t("Poisoned!  -2 HP per second"), "skull", Color(0.55, 1.0, 0.3), "poison")
+
+func _on_player_crit(_amount: float) -> void:
+	_add_shake(20.0)
+	Sfx.play("crit")
+	_notify(Loc.t("CRITICAL HIT!"), "hit", Color(1.0, 0.35, 0.2), "crit")
 
 func _on_base_destroyed() -> void:
 	if game_over:

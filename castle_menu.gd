@@ -6,12 +6,18 @@ extends Control
 # It replaces the old shop. Number keys 1-8 spend a point on the matching row.
 signal spend(id: String, count: int)
 signal weapon_upgrade
-signal exchange_pressed
+signal exchange_pressed(count: int)
 signal laser_toggled(on: bool)
 signal continue_pressed
 
 const EXCHANGE_GOLD := 1000          # Exchange: this much gold...
 const EXCHANGE_POINTS := 5           # ...buys this many stat points
+const EXCHANGE_RISE := 1.10          # every purchase makes the next one 10% more expensive
+const EXCHANGE_IDX := 100            # "held button" id of the exchange button
+
+# Price of the next exchange after n purchases so far.
+static func exchange_price(n: int) -> int:
+	return int(round(float(EXCHANGE_GOLD) * pow(EXCHANGE_RISE, float(n))))
 
 const STATS := [
 	{"id": "damage", "name": "Weapon damage", "icon": "damage"},
@@ -35,6 +41,9 @@ var _stat_buttons: Array[Button] = []
 var _weapon_label: Label
 var _weapon_button: Button
 var _exchange_button: Button
+var _ex_price: Label
+var _ex_points: Label
+var _exchange_ok: bool = false
 var _laser: CheckButton
 var _close: Button
 var _awaiting: bool = false
@@ -173,12 +182,45 @@ func _ready() -> void:
 	_weapon_button.pressed.connect(func() -> void: weapon_upgrade.emit())
 	right.add_child(_weapon_button)
 	right.add_child(HSeparator.new())
+	# compact exchange row:  [coin] price  ->  [star] +5            [Exchange]  (hold to buy faster)
+	var ex := HBoxContainer.new()
+	ex.add_theme_constant_override("separation", 8)
+	right.add_child(ex)
+	var coin := IconRect.new()
+	coin.custom_minimum_size = Vector2(30, 30)
+	coin.with_bg = false
+	coin.kind = "coin"
+	coin.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	ex.add_child(coin)
+	_ex_price = Label.new()
+	_ex_price.add_theme_font_size_override("font_size", 22)
+	_ex_price.add_theme_color_override("font_color", Color(1.0, 0.9, 0.3))
+	ex.add_child(_ex_price)
+	var arrow := Label.new()
+	arrow.text = "->"
+	arrow.add_theme_font_size_override("font_size", 22)
+	ex.add_child(arrow)
+	var star := IconRect.new()
+	star.custom_minimum_size = Vector2(30, 30)
+	star.with_bg = false
+	star.kind = "star"
+	star.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	ex.add_child(star)
+	_ex_points = Label.new()
+	_ex_points.add_theme_font_size_override("font_size", 22)
+	_ex_points.add_theme_color_override("font_color", Color(0.5, 1.0, 0.6))
+	ex.add_child(_ex_points)
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ex.add_child(spacer)
 	_exchange_button = Button.new()
 	_exchange_button.focus_mode = Control.FOCUS_NONE
-	_exchange_button.custom_minimum_size = Vector2(0, 44)
-	_exchange_button.icon = CoinTex.get_texture()
-	_exchange_button.pressed.connect(func() -> void: exchange_pressed.emit())
-	right.add_child(_exchange_button)
+	_exchange_button.custom_minimum_size = Vector2(140, 36)
+	_exchange_button.text = "Exchange"
+	_exchange_button.tooltip_text = Loc.t("Each exchange makes the next one 10% more expensive. Hold to buy faster.")
+	_exchange_button.button_down.connect(_on_hold_start.bind(EXCHANGE_IDX))
+	_exchange_button.button_up.connect(_on_hold_end)
+	ex.add_child(_exchange_button)
 	_laser = CheckButton.new()
 	_laser.text = "Laser sight (aim line)"
 	_laser.focus_mode = Control.FOCUS_NONE
@@ -202,10 +244,15 @@ func _on_hold_start(idx: int) -> void:
 	_held_idx = idx
 	_held_time = 0.0
 	_held_tick = HOLD_DELAY
-	spend.emit(str(STATS[idx]["id"]), 1)
+	if idx == EXCHANGE_IDX:
+		exchange_pressed.emit(1)
+	else:
+		spend.emit(str(STATS[idx]["id"]), 1)
 
 func _on_hold_end() -> void:
-	if _held_idx >= 0:
+	if _held_idx == EXCHANGE_IDX:
+		_exchange_button.text = Loc.t("Exchange")
+	elif _held_idx >= 0:
 		_stat_buttons[_held_idx].text = "+"
 	_held_idx = -1
 
@@ -223,7 +270,16 @@ func _process(delta: float) -> void:
 	var amount := _hold_amount()
 	if _held_tick <= 0.0:
 		_held_tick = HOLD_STEP_TIME
-		spend.emit(str(STATS[_held_idx]["id"]), amount)
+		if _held_idx == EXCHANGE_IDX:
+			exchange_pressed.emit(amount)
+		else:
+			spend.emit(str(STATS[_held_idx]["id"]), amount)
+	if _held_idx == EXCHANGE_IDX:
+		if not _exchange_ok:
+			_on_hold_end()
+			return
+		_exchange_button.text = "x%d" % amount if amount > 1 else Loc.t("Exchange")
+		return
 	if base != null and base.free_points <= 0:
 		_on_hold_end()
 		return
@@ -316,6 +372,9 @@ func refresh(coins: int, ctx: Dictionary) -> void:
 		_weapon_button.text = "%s   %d" % [Loc.t("Upgrade weapon"), price]
 		_weapon_button.icon = CoinTex.get_texture()
 		_weapon_button.disabled = coins < price
-	_exchange_button.text = Loc.t("Exchange %d gold  ->  %d stat points") % [EXCHANGE_GOLD, EXCHANGE_POINTS]
-	_exchange_button.disabled = coins < EXCHANGE_GOLD
+	var price := int(ctx.get("exchange_price", EXCHANGE_GOLD))
+	_ex_price.text = "%d" % price
+	_ex_points.text = "+%d" % EXCHANGE_POINTS
+	_exchange_ok = coins >= price
+	_exchange_button.disabled = not _exchange_ok
 	_laser.set_pressed_no_signal(b.laser)

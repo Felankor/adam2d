@@ -70,6 +70,14 @@ func _draw() -> void:
 			draw_arc(Vector2.ZERO, ring, 0.0, TAU, 48, Color(1.0, 0.9, 0.5, a), 5.0 * a + 1.0)
 			for p in _parts:
 				draw_circle(p[0], p[2] * 1.6 * a, Color(1.0, 0.45 + 0.4 * t, 0.1, a))
+		"crit":
+			var cr := 16.0 + 80.0 * power * t
+			for i in 8:
+				var ang := TAU * float(i) / 8.0 + 0.2
+				var dirv := Vector2.RIGHT.rotated(ang)
+				draw_line(dirv * cr * 0.35, dirv * cr, Color(1.0, 0.85, 0.3, a), 5.0 * a + 1.0)
+			draw_arc(Vector2.ZERO, cr * 0.6, 0.0, TAU, 32, Color(1.0, 0.3, 0.15, a), 4.0)
+			draw_circle(Vector2.ZERO, cr * 0.3, Color(1.0, 0.95, 0.7, 0.5 * a))
 		"void_blast":
 			var vr := 30.0 + 150.0 * power * t
 			draw_circle(Vector2.ZERO, vr * 0.8, Color(0.08, 0.0, 0.16, 0.55 * a))
@@ -81,5 +89,7 @@ func _draw() -> void:
 		"number":
 			var font := ThemeDB.fallback_font
 			var pos := Vector2(-40, 0)
-			draw_string_outline(font, pos, text, HORIZONTAL_ALIGNMENT_CENTER, 80, 22, 6, Color(0, 0, 0, a))
-			draw_string(font, pos, text, HORIZONTAL_ALIGNMENT_CENTER, 80, 22, Color(color.r, color.g, color.b, a))
+			var fsz := int(22.0 * clampf(power, 1.0, 2.2))
+			pos = Vector2(-60.0, 0)
+			draw_string_outline(font, pos, text, HORIZONTAL_ALIGNMENT_CENTER, 120, fsz, 6, Color(0, 0, 0, a))
+			draw_string(font, pos, text, HORIZONTAL_ALIGNMENT_CENTER, 120, fsz, Color(color.r, color.g, color.b, a))

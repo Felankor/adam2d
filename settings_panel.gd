@@ -77,6 +77,8 @@ func _build_game_page() -> VBoxContainer:
 		Settings.autosave = on
 		Settings.save())
 	page.add_child(auto)
+	page.add_child(_slider_row("Screen shake", Settings.shake_scale, _on_shake))
+	page.add_child(_slider_row("Screen flashes", Settings.flash_scale, _on_flash))
 	var lang_row := HBoxContainer.new()
 	lang_row.add_theme_constant_override("separation", 14)
 	var lang_label := Label.new()
@@ -111,6 +113,7 @@ func _build_sound_page() -> VBoxContainer:
 
 	page.add_child(_slider_row("Master volume", Settings.volume, _on_volume))
 	page.add_child(_slider_row("Effects volume", Settings.sfx_volume, _on_sfx_volume))
+	page.add_child(_slider_row("Music volume", Settings.music_volume, _on_music_volume))
 	return page
 
 func _build_controls_page() -> VBoxContainer:
@@ -222,6 +225,16 @@ func _on_volume(v: float) -> void:
 
 func _on_sfx_volume(v: float) -> void:
 	Settings.sfx_volume = v
+
+func _on_music_volume(v: float) -> void:
+	Settings.music_volume = v
+	Music.refresh_volume()
+
+func _on_shake(v: float) -> void:
+	Settings.shake_scale = v
+
+func _on_flash(v: float) -> void:
+	Settings.flash_scale = v
 
 func _on_slider_done(_changed: bool) -> void:
 	Settings.save()

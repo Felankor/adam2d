@@ -152,11 +152,16 @@ func take_damage(amount: float, pen: float = 0.0) -> void:
 		Sfx.play("block", -4.0)
 		return
 	var dealt := amount * Weapons.armor_mult(armor, pen) * dmg_taken_mult
+	var hp_before := hp
 	hp -= dealt
+	var crit := _is_crit(dealt)
+	_record_chunk(hp_before, crit)
 	_flash = 0.12
 	_bar_time = 4.0
 	Fx.spawn(par, "spark", position + Vector2(randf_range(-radius, radius), randf_range(-radius, radius)), Color(1.0, 0.85, 0.3), "", 1.1, 0.35)
-	Fx.spawn(par, "number", position + Vector2(randf_range(-20.0, 20.0), -radius), Color.WHITE, str(int(ceil(dealt))), 1.0, 0.7)
+	if crit:
+		_crit_effects(par, 2.0)
+	Fx.spawn(par, "number", position + Vector2(randf_range(-20.0, 20.0), -radius), Color(1.0, 0.35, 0.12) if crit else Color.WHITE, str(int(ceil(dealt))) + ("!" if crit else ""), 1.9 if crit else 1.0, 1.0 if crit else 0.7)
 	Sfx.play("boss_hit", -4.0)
 	if hp <= 0.0:
 		dead = true
@@ -195,7 +200,9 @@ func _draw_bar() -> void:
 	var frac := clampf(hp / max_hp, 0.0, 1.0)
 	draw_rect(Rect2(pos, Vector2(w, 18.0)), Color(0.12, 0.0, 0.02, 0.85))
 	draw_rect(Rect2(pos, Vector2(w * frac, 18.0)), Color(0.9, 0.2, 0.2))
+	_draw_chunk(pos.x, pos.y, w, 18.0, 1.0)
 	draw_rect(Rect2(pos, Vector2(w, 18.0)), Color(1.0, 0.7, 0.7), false, 2.0)
+	_draw_armor_tag(pos + Vector2(-34.0, 3.0))
 	var font := ThemeDB.fallback_font
 	var title := "%s  (%d)" % [boss_name, int(power())]
 	draw_string_outline(font, pos + Vector2(0, -6), title, HORIZONTAL_ALIGNMENT_CENTER, w, 16, 4, Color.BLACK)

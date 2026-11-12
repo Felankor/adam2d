@@ -218,6 +218,9 @@ func refresh() -> void:
 		_bar_row(str(ids[i]), Loc.t(Weapons.name_of(i)), m, bar_cols[i], "%d%%" % roundi(m * 100.0))
 	_text(Loc.t("Your castle has armor too (it grows with the castle stage and the Armor stat). Enemy shells and beams have their own penetration."))
 
+	_heading("Critical hits")
+	_icon_row("damage", Loc.t("A single hit that removes more than 25% of a target's max health is a CRITICAL HIT: a bigger number, a burst effect, and its health bar shatters. It works on you too - watch your own bar!"), 40)
+
 	# ---------------- leveling ----------------
 	_heading("Leveling")
 	_text(Loc.t("Every kill gives XP (bosses and Rogue Castles give a lot). Each new level gives you 5 stat points. Open the Castle window and spend them: every point adds +1% to the CURRENT value of a stat, so points build on each other."))
@@ -225,7 +228,7 @@ func refresh() -> void:
 	for s in stat_ids:
 		_icon_row(str(s[0]), Loc.t(str(s[1])), 36)
 	_text(Loc.t("Tip: hold the left mouse button on a + to spend points faster. The amount doubles every second (1, 2, 4, 8, 16, 32)."))
-	_icon_row("coin", Loc.t("Exchange: in the Castle window you can trade %d gold for %d stat points.") % [CastleMenu.EXCHANGE_GOLD, CastleMenu.EXCHANGE_POINTS], 40)
+	_icon_row("coin", Loc.t("Exchange: trade gold for stat points in the Castle window - %d gold for %d points to start, and every purchase makes the next one 10%% more expensive. Hold the button to buy faster.") % [CastleMenu.EXCHANGE_GOLD, CastleMenu.EXCHANGE_POINTS], 40)
 
 	# ---------------- skills ----------------
 	_heading("Skills")
@@ -235,7 +238,7 @@ func refresh() -> void:
 
 	# ---------------- refugees ----------------
 	_heading("Refugees")
-	_text(Loc.t("Refugees (red clothes, white flag) are innocent - don't shoot them! Let one reach your castle and it becomes a helper. They stop coming in the Space biome:"))
+	_enemy_row(["ally"], Loc.t("Refugees (red clothes, white flag) are innocent - don't shoot them! Let one reach your castle and it becomes a helper. They stop coming in the Space biome:"))
 	_ally_row("gunner", Loc.t("Builds an extra auto-weapon"))
 	_ally_row("scientist", Loc.t("Weapon damage +15%"))
 	_ally_row("engineer", Loc.t("Mana regen +5 per second"))
@@ -243,16 +246,18 @@ func refresh() -> void:
 
 	# ---------------- enemies ----------------
 	_heading("Enemies")
-	_icon_row("hit", Loc.t("Soldier: the standard foe. No armor."), 36)
-	_icon_row("shield", Loc.t("Tank (armor 40): slow; stops at a distance and shells your castle. Shoot the shells down."), 36)
-	_icon_row("speed", Loc.t("Mechanized vehicle: very fast, dodges shots, and explodes into 3 soldiers."), 36)
+	_enemy_row(["soldier"], Loc.t("Soldier: the standard foe. No armor."))
+	_enemy_row(["tank"], Loc.t("Tank (armor 40): slow; stops at a distance and shells your castle. Shoot the shells down."))
+	_enemy_row(["mech"], Loc.t("Mechanized vehicle: very fast, dodges shots, and explodes into 3 soldiers."))
+	_enemy_row(["medic"], Loc.t("Medic (from wave 6): heals the enemies around it. Kill it first!"))
+	_enemy_row(["aegis"], Loc.t("Aegis (from wave 9): an energy shield soaks damage first and recharges if you stop hitting it. Burst it down."))
 
 	_heading("Biome enemies")
-	_text(Loc.t("Mudland - Bloodworm: tiny, very fast and fragile. They come in swarms."))
-	_text(Loc.t("Rocky Mountain - Golem (armor 30): huge, as slow as a tank but much stronger. When it is destroyed it leaves one smaller golem behind."))
-	_text(Loc.t("Hell - Demon (armor 20): faster and stronger than a Golem, with 3 times its health."))
-	_text(Loc.t("Space - Hunter: arrives in a pack of 5. Dodges again and again and shoots from twice as far as a tank."))
-	_text(Loc.t("In the Space biome soldiers become kamikaze drones, tanks become starships and mechanized vehicles become space corvettes. They are faster and dodge shots."))
+	_enemy_row(["worm"], Loc.t("Mudland - Bloodworm: tiny, very fast and fragile. They come in swarms."))
+	_enemy_row(["golem"], Loc.t("Rocky Mountain - Golem (armor 30): huge, as slow as a tank but much stronger. When it is destroyed it leaves one smaller golem behind."))
+	_enemy_row(["demon"], Loc.t("Hell - Demon (armor 20): faster and stronger than a Golem, with 3 times its health."))
+	_enemy_row(["hunter"], Loc.t("Space - Hunter: arrives in a pack of 5. Dodges again and again and shoots from twice as far as a tank."))
+	_enemy_row(["soldier", "tank", "mech"], Loc.t("In the Space biome soldiers become kamikaze drones, tanks become starships and mechanized vehicles become space corvettes. They are faster and dodge shots."), true)
 
 	_heading("Bosses and Rogue Castles")
 	_icon_row("skull", Loc.t("Each biome ends with a boss: heavily armored, with a huge amount of health. It moves, dodges and summons soldiers. Shoot down its energy orbs. If the Void Overlord charges its beam, use your Barrier!"), 40)
@@ -315,6 +320,34 @@ func _legend(n: int, text: String) -> void:
 	b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(b)
 	row.add_child(_wrap_label(text, 19, 720))
+
+# Real, animated enemy drawings (the same art as in the game) next to a description.
+func _enemy_row(kinds: Array, text: String, space: bool = false) -> void:
+	var row := _row()
+	for k in kinds:
+		row.add_child(_enemy_preview(str(k), space))
+	row.add_child(_wrap_label(text, 19, 690 - 84.0 * float(kinds.size() - 1)))
+
+func _enemy_preview(kind: String, space: bool) -> SubViewportContainer:
+	var svc := SubViewportContainer.new()
+	svc.custom_minimum_size = Vector2(84, 84)
+	svc.stretch = true
+	svc.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	svc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var vp := SubViewport.new()
+	vp.size = Vector2i(84, 84)
+	vp.transparent_bg = true
+	vp.disable_3d = true
+	vp.render_target_update_mode = SubViewport.UPDATE_WHEN_VISIBLE
+	svc.add_child(vp)
+	var e: Enemy = Enemy.make_ally() if kind == "ally" else Enemy.make(kind, 1)
+	e.preview = true
+	e.space = space
+	e.position = Vector2(42, 46)
+	var k := minf(1.0, 36.0 / maxf(e.radius, 1.0))
+	e.scale = Vector2(k, k)
+	vp.add_child(e)
+	return svc
 
 func _ally_row(icon: String, text: String) -> void:
 	var row := _row()

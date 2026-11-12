@@ -3,6 +3,7 @@ extends Node2D
 
 signal destroyed
 signal damaged(amount: float)
+signal critical(amount: float)
 signal blocked
 signal poisoned
 
@@ -186,9 +187,12 @@ func take_damage(amount: float, pen: float = 0.0) -> void:
 		blocked.emit()
 		return
 	var dealt := amount * Weapons.armor_mult(armor_points(), pen)
+	var was_crit := max_hp > 0.0 and dealt >= 0.25 * max_hp      # a single hit over 25% of max health
 	hp = maxf(hp - dealt, 0.0)
 	_hurt = 0.25
 	damaged.emit(dealt)
+	if was_crit:
+		critical.emit(dealt)
 	if hp <= 0.0:
 		set_process(false)
 		destroyed.emit()

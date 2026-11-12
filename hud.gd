@@ -35,8 +35,38 @@ var _fps_timer: float = 0.0
 var _fps: int = 0
 var _fps_low: int = 0
 var show_debug: bool = false       # details key: also shows object counts (mobs, shots, effects, nodes, draw calls)
+var _hp_last: float = -1.0
+var _shards: Array = []           # health bar shards of a critical hit on the player: [pos, vel, size, life]
+var _crit_flash: float = 0.0
 var _frame_sb := StyleBoxFlat.new()
 var _fill_sb := StyleBoxFlat.new()
+
+# A single drop of more than 25% of max health breaks that slice of the health bar into falling shards.
+func _check_crit(delta: float) -> void:
+	_crit_flash = maxf(_crit_flash - delta * 2.5, 0.0)
+	if _hp_last >= 0.0 and _hp_last - base.hp >= 0.25 * base.max_hp:
+		var s := Settings.WORLD_SIZE
+		var bw := 440.0
+		var bx := (s.x - bw) * 0.5
+		var by := s.y - 160.0
+		var f_to := clampf(base.hp / base.max_hp, 0.0, 1.0)
+		var f_from := clampf(_hp_last / base.max_hp, 0.0, 1.0)
+		var n := 7
+		for i in n:
+			var fx := lerpf(f_to, f_from, (float(i) + 0.5) / float(n))
+			var sw := bw * (f_from - f_to) / float(n)
+			_shards.append([Vector2(bx + bw * fx - sw * 0.5, by), Vector2(randf_range(-90.0, 90.0), randf_range(-260.0, -80.0)), Vector2(maxf(sw, 6.0), 26.0), 1.0])
+		_crit_flash = 1.0
+	_hp_last = base.hp
+	var j := _shards.size() - 1
+	while j >= 0:
+		var sh: Array = _shards[j]
+		sh[1] = (sh[1] as Vector2) + Vector2(0.0, 1100.0 * delta)
+		sh[0] = (sh[0] as Vector2) + (sh[1] as Vector2) * delta
+		sh[3] = float(sh[3]) - delta * 1.1
+		if float(sh[3]) <= 0.0:
+			_shards.remove_at(j)
+		j -= 1
 
 func _process(delta: float) -> void:
 	_t += delta
@@ -53,6 +83,7 @@ func _process(delta: float) -> void:
 		_en_front = lerpf(_en_front, er, 1.0 - exp(-18.0 * delta))
 		_en_gain = lerpf(_en_gain, 1.0 if er > _en_prev + 0.0005 and er < 0.999 else 0.0, 1.0 - exp(-6.0 * delta))
 		_en_prev = er
+		_check_crit(delta)
 	queue_redraw()
 
 # FPS and the "1% low" (the average of the slowest 1% of the last ~600 frames).
@@ -171,6 +202,13 @@ func _draw() -> void:
 	_bar(Vector2(x, s.y - 126.0), Vector2(w, h), _en_front, _en_front, Color(0.16, 0.42, 0.95), Color(0.5, 0.78, 1.0), en_text, _en_gain, er < 0.2)
 	var hp_col := Color(0.86, 0.1, 0.14)       # health is always red
 	_bar(Vector2(x, s.y - 160.0), Vector2(w, h), _hp_front, _hp_ghost, hp_col, hp_col.lightened(0.3), hp_text, 0.0, hr < 0.3)
+	if _crit_flash > 0.01:
+		var cf := Rect2(Vector2(x - 6.0, s.y - 166.0), Vector2(w + 12.0, h + 12.0))
+		draw_rect(cf, Color(1.0, 0.25, 0.1, 0.8 * _crit_flash * Settings.flash_scale), false, 4.0)
+	for sh in _shards:
+		var life := float(sh[3])
+		draw_rect(Rect2(sh[0] as Vector2, sh[2] as Vector2), Color(0.95, 0.2, 0.15, life))
+		draw_rect(Rect2(sh[0] as Vector2, sh[2] as Vector2), Color(1.0, 0.9, 0.7, 0.8 * life), false, 2.0)
 	_draw_skills(s)
 	# castle level (XP): a full-width golden bar along the bottom edge, like an MMORPG
 	var xp_need := Base.xp_needed(base.xp_level)
@@ -212,8 +250,8 @@ func _draw() -> void:
 	draw_line(Vector2(0.0, bar_y), Vector2(s.x, bar_y), Color(1.0, 0.85, 0.4, 0.5), 1.0)
 	if _xp_flash > 0.01:
 		# level-up: the whole bar flashes
-		draw_rect(Rect2(0.0, bar_y - 3.0, s.x, bar_h + 3.0), Color(1.0, 0.95, 0.55, 0.75 * _xp_flash))
-		draw_rect(Rect2(0.0, bar_y - 3.0, s.x, 3.0 + 6.0 * _xp_flash), Color(1.0, 0.9, 0.3, 0.6 * _xp_flash))
+		draw_rect(Rect2(0.0, bar_y - 3.0, s.x, bar_h + 3.0), Color(1.0, 0.95, 0.55, 0.75 * _xp_flash * Settings.flash_scale))
+		draw_rect(Rect2(0.0, bar_y - 3.0, s.x, 3.0 + 6.0 * _xp_flash), Color(1.0, 0.9, 0.3, 0.6 * _xp_flash * Settings.flash_scale))
 	var xp_text := "%s %d     XP %d / %d   (%d%%)" % [Loc.t("Level"), base.xp_level, base.xp, xp_need, int(xp_frac * 100.0)]
 	var font := ThemeDB.fallback_font
 	draw_string_outline(font, Vector2(0.0, s.y - 2.5), xp_text, HORIZONTAL_ALIGNMENT_CENTER, s.x, 13, 4, Color.BLACK)

@@ -138,7 +138,7 @@ func _draw() -> void:
 			for i in _p.size():
 				draw_line(_p[i], _p[i] - _v[i] * 0.02 * _s[i], Color(0.72, 0.82, 0.95, 0.35), 1.5)
 			if _flash > 0.0:
-				draw_rect(full, Color(1.0, 1.0, 1.0, 0.45 * _flash))
+				draw_rect(full, Color(1.0, 1.0, 1.0, 0.45 * _flash * Settings.flash_scale))
 		2:
 			draw_rect(full, Color(0.75, 0.85, 1.0, 0.07))
 			for i in _p.size():

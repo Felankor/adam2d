@@ -12,7 +12,7 @@ func _ready() -> void:
 func flash(strength: float = 1.0) -> void:
 	if _tween != null:
 		_tween.kill()
-	modulate.a = clampf(strength, 0.0, 1.0)
+	modulate.a = clampf(strength * Settings.flash_scale, 0.0, 1.0)
 	_tween = create_tween()
 	_tween.tween_property(self, "modulate:a", 0.0, 0.85).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 

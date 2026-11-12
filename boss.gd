@@ -145,7 +145,7 @@ func _process(delta: float) -> void:
 				summon_bees.emit(position, _summon_count)       # the Garden Warden calls bees, not soldiers
 			else:
 				summon.emit(position, _summon_count)
-			Sfx.play("boss_spawn", -6.0)
+			Sfx.play("boss_summon", -4.0)
 		if ability == "speed":
 			_bomb_timer -= delta
 			if _bomb_timer <= 0.0:
@@ -154,7 +154,7 @@ func _process(delta: float) -> void:
 					var off := Vector2.RIGHT.rotated(randf() * TAU) * randf_range(60.0, 230.0)
 					bomb.emit(position, target + off)
 				announce.emit(Loc.t("Petek Bombs incoming!  Fly out of the ring!"), "skull")
-				Sfx.play("bolt", -2.0)
+				Sfx.play("boss_warn", -2.0)
 		_bolt_timer -= delta
 		if _bolt_timer <= 0.0:
 			_bolt_timer = _bolt_interval
@@ -171,7 +171,7 @@ func _process_void(delta: float) -> void:
 		for off: float in [-1.0, 1.0]:
 			summon_lesser.emit(position + Vector2(off * 80.0, 30.0), _lesser_hp, damage * 0.5, speed * 0.5)
 		announce.emit(Loc.t("Void Overlord split in two! Destroy the copies within 5 seconds!"), "skull")
-		Sfx.play("boss_spawn", -4.0)
+		Sfx.play("boss_split", -2.0)
 	if _check_timer > 0.0:
 		_check_timer -= delta
 		if _check_timer <= 0.0 and _lessers_alive() and _beam_charge <= 0.0:
@@ -194,6 +194,7 @@ func _process_void(delta: float) -> void:
 			_attack_timer = 7.0
 			_next_attack = "beam"
 			announce.emit(Loc.t("Void Fire!"), "skull")
+			Sfx.play("boss_warn", -2.0)
 		else:
 			_start_beam()
 			_attack_timer = 10.0
@@ -226,13 +227,18 @@ func take_damage(amount: float, pen: float = 0.0) -> void:
 		return
 	var par := get_parent()
 	var dealt := amount * Weapons.armor_mult(armor, pen) * dmg_taken_mult
+	var hp_before := hp
 	hp -= dealt
+	var crit := _is_crit(dealt)
+	_record_chunk(hp_before, crit)
 	_flash = 0.1
 	_scale_pop = 0.05
 	_slow_time = 0.2   # bosses only stagger slightly
 	_push = -Vector2.RIGHT.rotated(_heading) * 40.0
 	Fx.spawn(par, "spark", position + Vector2(randf_range(-25.0, 25.0), randf_range(-25.0, 25.0)), Color(0.85, 0.5, 1.0), "", 1.2, 0.4)
-	Fx.spawn(par, "number", position + Vector2(randf_range(-30.0, 30.0), -radius), Color.WHITE, str(int(ceil(dealt))), 1.0, 0.7)
+	if crit:
+		_crit_effects(par, 2.4)
+	Fx.spawn(par, "number", position + Vector2(randf_range(-30.0, 30.0), -radius), Color(1.0, 0.35, 0.12) if crit else Color.WHITE, str(int(ceil(dealt))) + ("!" if crit else ""), 2.0 if crit else 1.0, 1.0 if crit else 0.7)
 	Sfx.play("boss_hit")
 	if hp <= 0.0:
 		if ability == "titan" and phase < 3:
@@ -256,7 +262,7 @@ func _grow_phase() -> void:
 	_scale_pop = 0.3
 	_flash = 0.4
 	Fx.spawn(get_parent(), "explosion", position, Color.WHITE, "", 1.8, 0.9)
-	Sfx.play("boss_die", -4.0)
+	Sfx.play("boss_phase", -2.0)
 	announce.emit(Loc.t("%s grows stronger!  Phase %d / 3") % [boss_name, phase], "skull")
 
 # ---------- drawing ----------
@@ -421,7 +427,9 @@ func _draw_boss_bar() -> void:
 	var frac := clampf(hp / max_hp, 0.0, 1.0)
 	draw_rect(Rect2(pos, Vector2(w, h)), Color(0.08, 0.0, 0.12, 0.85))
 	draw_rect(Rect2(pos, Vector2(w * frac, h)), Color(0.62, 0.2, 0.92))
+	_draw_chunk(pos.x, pos.y, w, h, 1.0)
 	draw_rect(Rect2(pos, Vector2(w, h)), Color(0.85, 0.6, 1.0), false, 2.0)
+	_draw_armor_tag(pos + Vector2(-34.0, 3.0))
 	var font := ThemeDB.fallback_font
 	var value := "%d/%d" % [ceili(hp), ceili(max_hp)]
 	var title := boss_name
