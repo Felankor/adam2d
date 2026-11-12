@@ -8,6 +8,8 @@ var damage: float = 10.0
 var life: float = 2.0
 var splash: float = 0.0
 var pen: float = 0.0              # armor penetration
+var gen: int = 0                  # Void Gun: 0 = main shot, 1 = one of the 4 lesser fragments it splits into
+var skip: Enemy = null            # a fragment ignores the mob its parent just hit
 var _t: float = 0.0
 
 func _ready() -> void:
@@ -29,7 +31,7 @@ func _process(delta: float) -> void:
 	var best_d := INF
 	var best_pt := position
 	for e in Field.near((prev + position) * 0.5, hit_radius + prev.distance_to(position) * 0.5):
-		if e.dead:
+		if e.dead or e == skip:
 			continue
 		# swept check along this frame's path, so fast shots cannot skip over small mobs
 		var closest := Geometry2D.get_closest_point_to_segment(e.position, prev, position)
@@ -42,7 +44,7 @@ func _process(delta: float) -> void:
 	if best != null:
 		position = best_pt
 		if kind == "rocket" or kind == "void":
-			_explode()
+			_explode(best)
 		else:
 			best.take_damage(damage, pen)
 		queue_free()
@@ -60,11 +62,11 @@ func _process(delta: float) -> void:
 	if kind == "rocket" or kind == "void":
 		queue_redraw()
 
-func _explode() -> void:
+func _explode(hit: Enemy = null) -> void:
 	var par := get_parent()
 	if kind == "void":
 		Fx.spawn(par, "void_blast", position, Color(0.55, 0.15, 0.95), "", splash / 110.0, 0.6)
-		Sfx.play("void_boom")
+		Sfx.play("void_boom", -6.0 if gen > 0 else 0.0)
 	else:
 		Fx.spawn(par, "explosion", position, Color(1.0, 0.7, 0.3), "", 0.6, 0.45)
 		Sfx.play("rocket_boom")
@@ -75,9 +77,29 @@ func _explode() -> void:
 		if gap <= splash:
 			var falloff := 1.0 - 0.5 * clampf(gap / splash, 0.0, 1.0)
 			e.take_damage(damage * falloff, pen)
+	if kind == "void" and gen == 0:
+		_split(par, hit)
+
+# The main Void shot bursts into 4 lesser shots; each explodes too if it hits something.
+func _split(par: Node, hit: Enemy) -> void:
+	var a0 := randf() * TAU
+	for i in 4:
+		var p := Projectile.new()
+		p.kind = "void"
+		p.gen = 1
+		p.skip = hit
+		p.damage = damage * 0.5
+		p.splash = splash * 0.55
+		p.pen = pen
+		p.life = 0.7
+		p.velocity = Vector2.RIGHT.rotated(a0 + TAU * float(i) / 4.0) * 460.0
+		p.position = position
+		par.add_child(p)
 
 func _draw() -> void:
 	var dir := velocity.normalized()
+	if kind == "void" and gen > 0:
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2(0.55, 0.55))
 	match kind:
 		"bullet":
 			PixelFx.line(self, Vector2.ZERO, -dir * 15.0, Color(1.0, 0.9, 0.4, 0.55), 3.0)
