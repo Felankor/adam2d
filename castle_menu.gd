@@ -272,8 +272,8 @@ func refresh(coins: int, ctx: Dictionary) -> void:
 	_row("Skills", "%s %.0f s   %s %.0f s   %s %.0f s" % [Loc.t("Barrier"), Base.BARRIER_COOLDOWN, Loc.t("Overcharge"), Base.BOOST_COOLDOWN, Loc.t("Repair"), Base.REPAIR_COOLDOWN])
 	_row("Repair cost", "%d" % b.repair_cost())
 	_row("Gold", "%d" % coins)
-	_row("Wave", "%d" % int(ctx.get("wave", 1)))
-	_row("Region", str(ctx.get("region", "")))
+	_row("Wave", "%d  -  %s" % [int(ctx.get("wave", 1)), str(ctx.get("region", ""))])
+	_row("Statistics", str(ctx.get("stats", "")))
 	_row("Difficulty", str(ctx.get("difficulty", "")))
 	_row("Power", "%d" % int(ctx.get("power", 0)))
 

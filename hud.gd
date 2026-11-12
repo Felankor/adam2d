@@ -34,6 +34,7 @@ var _ft_i: int = 0
 var _fps_timer: float = 0.0
 var _fps: int = 0
 var _fps_low: int = 0
+var show_debug: bool = false       # details key: also shows object counts (mobs, shots, effects, nodes, draw calls)
 var _frame_sb := StyleBoxFlat.new()
 var _fill_sb := StyleBoxFlat.new()
 
@@ -149,6 +150,10 @@ func _draw_fps(s: Vector2) -> void:
 	var font := ThemeDB.fallback_font
 	draw_string_outline(font, Vector2(s.x - 330.0, 28.0), txt, HORIZONTAL_ALIGNMENT_RIGHT, 316.0, 18, 4, Color.BLACK)
 	draw_string(font, Vector2(s.x - 330.0, 28.0), txt, HORIZONTAL_ALIGNMENT_RIGHT, 316.0, 18, col)
+	if show_debug:
+		var dbg := "Mobs %d  Shots %d  Fx %d  Nodes %d  Draw calls %d" % [Field.mobs().size(), Field.shots().size(), Fx.live, int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)), int(Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME))]
+		draw_string_outline(font, Vector2(s.x - 560.0, 112.0), dbg, HORIZONTAL_ALIGNMENT_RIGHT, 546.0, 16, 4, Color.BLACK)
+		draw_string(font, Vector2(s.x - 560.0, 112.0), dbg, HORIZONTAL_ALIGNMENT_RIGHT, 546.0, 16, Color(0.8, 0.9, 1.0))
 
 func _draw() -> void:
 	if base == null:
@@ -234,31 +239,28 @@ func _draw_minimap(s: Vector2) -> void:
 	draw_arc(c, MAP_RADIUS * 0.5, 0.0, TAU, 48, Color(1, 1, 1, 0.08), 1.5)
 	draw_line(c + Vector2(-MAP_RADIUS, 0.0), c + Vector2(MAP_RADIUS, 0.0), Color(1, 1, 1, 0.06), 1.5)
 	draw_line(c + Vector2(0.0, -MAP_RADIUS), c + Vector2(0.0, MAP_RADIUS), Color(1, 1, 1, 0.06), 1.5)
-	var tree := get_tree()
-	if tree != null:
-		for node in tree.get_nodes_in_group("allies"):
-			var a := node as Enemy
-			if a != null and not a.dead:
-				var arel := (a.global_position - base.global_position) * k
-				if arel.length() <= MAP_RADIUS - 5.0:
-					draw_circle(c + arel, 2.6, Color(0.3, 1.0, 0.4))      # refugees: green
-		for node in tree.get_nodes_in_group("enemies"):
-			var e := node as Enemy
-			if e == null or e.dead:
+	for a in Field.mobs():
+		if a.dead or not a.is_ally:
+			continue
+		var arel := (a.global_position - base.global_position) * k
+		if arel.length() <= MAP_RADIUS - 5.0:
+			draw_circle(c + arel, 2.6, Color(0.3, 1.0, 0.4))      # refugees: green
+	for e in Field.enemies():
+		if e.dead:
+			continue
+		var rel := (e.global_position - base.global_position) * k
+		var big := e.kind == "boss" or e.kind == "minicastle"
+		var dist := rel.length()
+		if dist > MAP_RADIUS - 5.0:
+			if not big:
 				continue
-			var rel := (e.global_position - base.global_position) * k
-			var big := e.kind == "boss" or e.kind == "minicastle"
-			var dist := rel.length()
-			if dist > MAP_RADIUS - 5.0:
-				if not big:
-					continue
-				rel = rel / dist * (MAP_RADIUS - 6.0)         # bosses stay on the rim so you know where they are
-			if big:
-				var pulse := 0.5 + 0.5 * sin(_t * 6.0)
-				draw_circle(c + rel, 6.5 + pulse, Color(0.7, 0.3, 1.0, 0.35))
-				draw_circle(c + rel, 4.5, Color(0.7, 0.3, 1.0))
-			else:
-				draw_circle(c + rel, 2.4, Color(1.0, 0.2, 0.2))
+			rel = rel / dist * (MAP_RADIUS - 6.0)         # bosses stay on the rim so you know where they are
+		if big:
+			var pulse := 0.5 + 0.5 * sin(_t * 6.0)
+			draw_circle(c + rel, 6.5 + pulse, Color(0.7, 0.3, 1.0, 0.35))
+			draw_circle(c + rel, 4.5, Color(0.7, 0.3, 1.0))
+		else:
+			draw_circle(c + rel, 2.4, Color(1.0, 0.2, 0.2))
 	draw_circle(c, 5.5, Color(0, 0, 0, 0.6))
 	draw_circle(c, 4.0, Color(1.0, 0.6, 0.1))
 	draw_arc(c, MAP_RADIUS, 0.0, TAU, 64, Color(1, 1, 1, 0.55), 3.0)

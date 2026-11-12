@@ -269,10 +269,7 @@ func _process(delta: float) -> void:
 
 # Finds one of our shots flying straight at us (used for dodging).
 func _incoming_shot() -> Projectile:
-	for node in get_tree().get_nodes_in_group("shots"):
-		var shot := node as Projectile
-		if shot == null:
-			continue
+	for shot in Field.shots():
 		var to_me := position - shot.position
 		var dist := to_me.length()
 		if dist < 300.0 and dist > 10.0 and shot.velocity.normalized().dot(to_me / dist) > 0.93:

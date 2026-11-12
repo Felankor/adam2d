@@ -68,6 +68,15 @@ func _build_game_page() -> VBoxContainer:
 	fs.button_pressed = Settings.fullscreen
 	fs.toggled.connect(_on_fullscreen)
 	page.add_child(fs)
+	var auto := CheckButton.new()
+	auto.text = "Autosave at the start of each wave"
+	auto.focus_mode = Control.FOCUS_NONE
+	auto.add_theme_font_size_override("font_size", 22)
+	auto.button_pressed = Settings.autosave
+	auto.toggled.connect(func(on: bool) -> void:
+		Settings.autosave = on
+		Settings.save())
+	page.add_child(auto)
 	var lang_row := HBoxContainer.new()
 	lang_row.add_theme_constant_override("separation", 14)
 	var lang_label := Label.new()

@@ -57,6 +57,12 @@ var _msg_time: float = 0.0
 var _banner_tween: Tween
 var _shake: float = 0.0
 var _zoom: float = Settings.VIEW_ZOOM
+# Progress statistics (saved with the game)
+var stat_kills: int = 0
+var stat_gold: int = 0
+var stat_bosses: int = 0
+var stat_best_wave: int = 1
+var stat_time: float = 0.0
 var _zoom_target: float = Settings.VIEW_ZOOM
 var _clear_timer: float = -1.0
 var _boss_level: bool = false
@@ -198,16 +204,27 @@ func _apply_save(d: Dictionary) -> void:
 	level = maxi(int(d.get("level", 1)), 1)
 	coins = int(d.get("coins", 0))
 	base.from_dict(d.get("base", {}) as Dictionary)
+	var st := d.get("stats", {}) as Dictionary
+	stat_kills = maxi(int(st.get("kills", 0)), 0)
+	stat_gold = maxi(int(st.get("gold", 0)), 0)
+	stat_bosses = maxi(int(st.get("bosses", 0)), 0)
+	stat_best_wave = maxi(int(st.get("best_wave", level)), level)
+	stat_time = maxf(float(st.get("time", 0.0)), 0.0)
 	biome = _biome_for(level)
 
 func _make_save_data() -> Dictionary:
 	return {
-		"version": 4,
+		"version": GameState.SAVE_VERSION,
 		"difficulty": GameState.difficulty,
 		"level": level,
 		"coins": coins,
 		"base": base.to_dict(),
+		"stats": {"kills": stat_kills, "gold": stat_gold, "bosses": stat_bosses, "best_wave": stat_best_wave, "time": stat_time},
 	}
+
+func _fmt_time(sec: float) -> String:
+	var t := int(sec)
+	return "%d:%02d:%02d" % [t / 3600, (t / 60) % 60, t % 60]
 
 func _save_game() -> void:
 	var data := _make_save_data()
@@ -277,6 +294,10 @@ func _start_level() -> void:
 	# Remember the state at the start of this level so Retry can restart it.
 	_level_snapshot = _make_save_data()
 	(_level_snapshot["base"] as Dictionary)["hp"] = base.max_hp
+	stat_best_wave = maxi(stat_best_wave, level)
+	_level_snapshot["stats"] = (_make_save_data()["stats"] as Dictionary)
+	if Settings.autosave and GameState.write_save(_level_snapshot):
+		_notify(Loc.t("Autosaved"), "star", Color(1.0, 0.85, 0.3), "save")
 
 func _change_biome(new_biome: int) -> void:
 	biome = new_biome
@@ -326,9 +347,11 @@ func _process(delta: float) -> void:
 	if get_tree().paused:
 		return
 	_update_shake(delta)
-	for group in ["enemies", "allies"]:
-		for node in get_tree().get_nodes_in_group(group):
-			node.set("target", base.position)
+	if not game_over:
+		stat_time += delta
+	var bpos := base.position
+	for m in Field.mobs():
+		m.target = bpos
 	if _msg_time > 0.0:
 		_msg_time -= delta
 		if _msg_time <= 0.0:
@@ -385,9 +408,8 @@ func _update_cursor() -> void:
 		return
 	var mouse := get_global_mouse_position()
 	var over := false
-	for node in get_tree().get_nodes_in_group("enemies"):
-		var e := node as Enemy
-		if e != null and not e.dead and mouse.distance_to(e.global_position) <= e.radius + 12.0:
+	for e in Field.near(mouse, 12.0):
+		if not e.is_ally and not e.dead and mouse.distance_to(e.global_position) <= e.radius + 12.0:
 			over = true
 			break
 	Cursors.set_mode(Cursors.Mode.AGGRESSIVE if over else Cursors.Mode.CROSSHAIR)
@@ -710,6 +732,10 @@ func _on_enemy_died(e: Enemy) -> void:
 		_notify(Loc.t("Refugee Hit!"), "ally", Color(1.0, 0.2, 0.2), "allyhit")
 		return
 	coins += e.reward * COIN_MULT
+	stat_gold += e.reward * COIN_MULT
+	stat_kills += 1
+	if e.kind == "boss":
+		stat_bosses += 1
 	_gain_xp(e.reward)
 	alive -= 1
 	if e.kind == "mech":
@@ -801,6 +827,7 @@ func _input(event: InputEvent) -> void:
 	if event.is_action_pressed("toggle_info"):
 		get_viewport().set_input_as_handled()
 		_show_details = not _show_details
+		hud.show_debug = _show_details
 		_update_label()
 		return
 	if event.is_action_pressed("open_shop"):
@@ -889,6 +916,7 @@ func _refresh_castle() -> void:
 		"region": Loc.t(BIOME_NAMES[biome]),
 		"difficulty": Loc.t(diff_name),
 		"power": Power.of_base(base),
+		"stats": "%s: %d   %s: %s" % [Loc.t("Kills"), stat_kills, Loc.t("Time"), _fmt_time(stat_time)],
 	})
 
 func _on_castle_spend(id: String, count: int = 1) -> void:
@@ -948,6 +976,7 @@ func _on_base_destroyed() -> void:
 			node.set_process(false)
 	boss_label.visible = false
 	var info := Loc.t("Your %s fell on Wave %d  (%s)") % [Loc.t(Base.TIER_NAMES[base.tier]), level, Loc.t(BIOME_NAMES[biome])]
+	info += "\n" + Loc.t("Kills: %d   Gold earned: %d   Play time: %s") % [stat_kills, stat_gold, _fmt_time(stat_time)]
 	get_tree().create_timer(1.3).timeout.connect(gameover_menu.open.bind(info, Loc.t("Retry Wave %d") % level))
 
 # Game-over text stays on the info label; everything else is a pop-up notification.

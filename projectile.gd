@@ -23,25 +23,35 @@ func _process(delta: float) -> void:
 		queue_free()
 		return
 	var hit_radius := 3.0 if kind == "bullet" else 5.0
-	# "mobs" holds both enemies and allies: our shots hit everything.
-	for node in get_tree().get_nodes_in_group("mobs"):
-		var e := node as Enemy
-		if e == null or e.dead:
+	# "mobs" holds both enemies and allies: our shots hit everything. Only mobs near this
+	# frame's path are looked at (see Field); the nearest one along the path is the one hit.
+	var best: Enemy = null
+	var best_d := INF
+	var best_pt := position
+	for e in Field.near((prev + position) * 0.5, hit_radius + prev.distance_to(position) * 0.5):
+		if e.dead:
 			continue
 		# swept check along this frame's path, so fast shots cannot skip over small mobs
 		var closest := Geometry2D.get_closest_point_to_segment(e.position, prev, position)
 		if closest.distance_to(e.position) <= e.radius + hit_radius:
-			position = closest
-			if kind == "rocket" or kind == "void":
-				_explode()
-			else:
-				e.take_damage(damage, pen)
-			queue_free()
-			return
+			var d := prev.distance_squared_to(closest)
+			if d < best_d:
+				best_d = d
+				best = e
+				best_pt = closest
+	if best != null:
+		position = best_pt
+		if kind == "rocket" or kind == "void":
+			_explode()
+		else:
+			best.take_damage(damage, pen)
+		queue_free()
+		return
 	# Enemy shells and boss orbs can be shot down.
-	for node in get_tree().get_nodes_in_group("bolts"):
-		var b := node as Node2D
-		if b != null and position.distance_to(b.position) <= 20.0:
+	for b in Field.bolts():
+		if b.is_queued_for_deletion():
+			continue
+		if position.distance_to(b.position) <= 20.0:
 			Fx.spawn(get_parent(), "spark", b.position, Color(0.8, 0.4, 1.0), "", 1.1, 0.35)
 			Sfx.play("hit")
 			b.queue_free()
@@ -58,9 +68,8 @@ func _explode() -> void:
 	else:
 		Fx.spawn(par, "explosion", position, Color(1.0, 0.7, 0.3), "", 0.6, 0.45)
 		Sfx.play("rocket_boom")
-	for node in get_tree().get_nodes_in_group("mobs"):
-		var e := node as Enemy
-		if e == null or e.dead:
+	for e in Field.near(position, splash):
+		if e.dead:
 			continue
 		var gap := position.distance_to(e.position) - e.radius
 		if gap <= splash:

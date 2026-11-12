@@ -18,6 +18,7 @@ static var fullscreen: bool = false
 static var volume: float = 1.0
 static var sfx_volume: float = 1.0
 static var muted: bool = false
+static var autosave: bool = true      # save automatically at the start of every wave
 static var language: String = ""      # "en" or "tr"; empty = pick from the system language
 static var _window_sized: bool = false
 
@@ -28,6 +29,7 @@ static func load_and_apply() -> void:
 		volume = cfg.get_value("audio", "volume", 1.0)
 		sfx_volume = cfg.get_value("audio", "sfx_volume", 1.0)
 		muted = cfg.get_value("audio", "muted", false)
+		autosave = bool(cfg.get_value("game", "autosave", true))
 		language = str(cfg.get_value("ui", "language", ""))
 	Keybinds.load_from(cfg)
 	if language == "":
@@ -43,6 +45,7 @@ static func save() -> void:
 	cfg.set_value("audio", "volume", volume)
 	cfg.set_value("audio", "sfx_volume", sfx_volume)
 	cfg.set_value("audio", "muted", muted)
+	cfg.set_value("game", "autosave", autosave)
 	cfg.set_value("ui", "language", language)
 	for a in Keybinds.ORDER:
 		cfg.set_value("keys", a, Keybinds.get_key(a))

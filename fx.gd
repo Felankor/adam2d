@@ -10,8 +10,16 @@ var text: String = ""
 var power: float = 1.0
 var _parts: Array = []
 
+# Effects alive right now. Under heavy fire the cheap ones are skipped so the frame rate holds.
+static var live: int = 0
+const MAX_SPARKS := 90
+const MAX_NUMBERS := 140
+const MAX_ALL := 220
+
 static func spawn(parent: Node, k: String, pos: Vector2, col: Color = Color.WHITE, txt: String = "", pw: float = 1.0, duration: float = 0.4) -> void:
 	if parent == null:
+		return
+	if live >= MAX_ALL or (k == "spark" and live >= MAX_SPARKS) or (k == "number" and live >= MAX_NUMBERS):
 		return
 	var f := Fx.new()
 	f.kind = k
@@ -24,6 +32,7 @@ static func spawn(parent: Node, k: String, pos: Vector2, col: Color = Color.WHIT
 	parent.add_child(f)
 
 func _ready() -> void:
+	live += 1
 	process_mode = Node.PROCESS_MODE_PAUSABLE
 	z_index = 5
 	if kind == "spark" or kind == "explosion" or kind == "void_blast":
@@ -32,6 +41,9 @@ func _ready() -> void:
 			var a := randf() * TAU
 			var sp := randf_range(70.0, 240.0) * power
 			_parts.append([Vector2.ZERO, Vector2.RIGHT.rotated(a) * sp, randf_range(2.0, 5.0)])
+
+func _exit_tree() -> void:
+	live = maxi(live - 1, 0)
 
 func _process(delta: float) -> void:
 	life -= delta

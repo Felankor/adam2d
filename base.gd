@@ -80,6 +80,7 @@ var _anim: float = 0.0
 var _hurt: float = 0.0
 var _muzzle: float = 0.0
 var _pix: PixelCastle = null
+const MAX_SHOTS := 400
 var _zap_cd: float = 0.0
 var _lvlfx: float = 0.0             # level-up effect timer
 const LEVELUP_FX := 1.4
@@ -162,9 +163,8 @@ func _barrier_zap(delta: float) -> void:
 	_zap_cd = maxf(_zap_cd - delta, 0.0)
 	var reach_r := body_radius() * 1.75
 	var killed := 0
-	for node in get_tree().get_nodes_in_group("enemies"):
-		var e := node as Enemy
-		if e == null or e.dead or e.kind == "boss" or e.kind == "minicastle":
+	for e in Field.near(position, reach_r):
+		if e.is_ally or e.dead or e.kind == "boss" or e.kind == "minicastle":
 			continue
 		if position.distance_to(e.position) <= reach_r + e.radius * 0.4:
 			e.barrier_kill()
@@ -287,24 +287,34 @@ func to_dict() -> Dictionary:
 		"skills": skill_slots.duplicate(),
 	}
 
+# A number from a save file: NaN, infinity and silly values fall back to a safe range.
+static func _num(v: Variant, def: float, lo: float, hi: float) -> float:
+	var x := float(v)
+	if is_nan(x) or is_inf(x):
+		return def
+	return clampf(x, lo, hi)
+
 func from_dict(d: Dictionary) -> void:
 	tier = clampi(int(d.get("tier", 0)), 0, TIER_NAMES.size() - 1)
 	hp_bonus = int(d.get("hp_bonus", 0))
-	free_points = int(d.get("free_points", 0))
+	free_points = maxi(int(d.get("free_points", 0)), 0)
 	xp_level = maxi(int(d.get("xp_level", 1)), 1)
-	xp = int(d.get("xp", 0))
-	stat_pts = (d.get("stat_pts", {}) as Dictionary).duplicate()
+	xp = maxi(int(d.get("xp", 0)), 0)
+	stat_pts = {}
+	var saved_pts := d.get("stat_pts", {}) as Dictionary
+	for k in saved_pts:
+		stat_pts[str(k)] = maxi(int(saved_pts[k]), 0)
 	max_hp = hp_total()
 	hp = minf(float(d.get("hp", max_hp)), max_hp)
-	max_energy = float(d.get("max_energy", 100.0))
+	max_energy = _num(d.get("max_energy", 100.0), 100.0, 10.0, 1.0e9)
 	energy = max_energy
-	energy_regen = float(d.get("energy_regen", 20.0))
-	damage_mult = float(d.get("damage_mult", 1.0))
-	move_mult = float(d.get("move_mult", 1.0))
-	attack_speed = float(d.get("attack_speed", 1.0))
+	energy_regen = _num(d.get("energy_regen", 20.0), 20.0, 0.0, 1.0e9)
+	damage_mult = _num(d.get("damage_mult", 1.0), 1.0, 0.1, 1.0e9)
+	move_mult = _num(d.get("move_mult", 1.0), 1.0, 0.1, 1.0e6)
+	attack_speed = _num(d.get("attack_speed", 1.0), 1.0, 0.1, 1.0e9)
 	weapon_tier = clampi(int(d.get("weapon_tier", 1)), 0, Weapons.MAX_TIER)
 	auto_cannons = int(d.get("auto_cannons", 0))
-	auto_interval = float(d.get("auto_interval", 1.5))
+	auto_interval = _num(d.get("auto_interval", 1.5), 1.5, 0.02, 100.0)
 	auto_range = float(d.get("auto_range", 450.0))
 	laser = bool(d.get("laser", false))
 	gunners = int(d.get("gunners", 0))
@@ -410,6 +420,8 @@ func _fire(angle: float, dmg: float, is_auto: bool) -> void:
 	if weapon_tier == 3:
 		_fire_beam(muzzle, dir, dmg)
 		return
+	if Field.shots().size() >= MAX_SHOTS:       # safety cap: never flood the scene with projectiles
+		return
 	var p := Projectile.new()
 	p.position = muzzle
 	match weapon_tier:
@@ -439,9 +451,8 @@ func _fire(angle: float, dmg: float, is_auto: bool) -> void:
 func _fire_beam(origin: Vector2, dir: Vector2, dmg: float) -> void:
 	var length := 1700.0
 	Enemy.hit_sound = "laser_hit"       # softer hit sound while the beam damages mobs
-	for node in get_tree().get_nodes_in_group("mobs"):
-		var e := node as Enemy
-		if e == null or e.dead:
+	for e in Field.mobs():
+		if e.dead:
 			continue
 		var rel := e.position - origin
 		var along := rel.dot(dir)
@@ -450,9 +461,8 @@ func _fire_beam(origin: Vector2, dir: Vector2, dmg: float) -> void:
 		if absf(rel.cross(dir)) <= e.radius + 4.0:
 			e.take_damage(dmg, float(Weapons.PEN[weapon_tier]))
 	Enemy.hit_sound = "hit"
-	for node in get_tree().get_nodes_in_group("bolts"):
-		var b := node as Node2D
-		if b == null:
+	for b in Field.bolts():
+		if b.is_queued_for_deletion():
 			continue
 		var rel_b := b.position - origin
 		if rel_b.dot(dir) > 0.0 and absf(rel_b.cross(dir)) <= 18.0:
@@ -466,9 +476,8 @@ func _fire_beam(origin: Vector2, dir: Vector2, dmg: float) -> void:
 func _nearest_enemy() -> Enemy:
 	var best: Enemy = null
 	var best_dist := auto_range
-	for node in get_tree().get_nodes_in_group("enemies"):
-		var e := node as Enemy
-		if e == null or e.dead:
+	for e in Field.enemies():
+		if e.dead:
 			continue
 		var d := global_position.distance_to(e.global_position)
 		if d <= best_dist:
@@ -480,9 +489,8 @@ func _nearest_enemy() -> Enemy:
 func _laser_length() -> float:
 	var dir := Vector2.RIGHT.rotated(aim_angle)
 	var best := 1400.0
-	for node in get_tree().get_nodes_in_group("mobs"):
-		var e := node as Enemy
-		if e == null or e.dead:
+	for e in Field.mobs():
+		if e.dead:
 			continue
 		var rel := e.global_position - global_position
 		var along := rel.dot(dir)
