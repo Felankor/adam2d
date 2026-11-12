@@ -25,6 +25,10 @@ static func draw(ci: CanvasItem, kind: String, origin: Vector2, k: float, with_b
 			_laser_gun(ci)
 		"void":
 			_void_gun(ci)
+		"mouse":
+			_mouse(ci, false)
+		"wheel":
+			_mouse(ci, true)
 		# shop / reward icons
 		"damage":
 			_impact(ci)
@@ -136,6 +140,24 @@ static func _void_gun(ci: CanvasItem) -> void:
 	ci.draw_circle(Vector2(53, 33), 8.0, Color(0.65, 0.25, 1.0))
 	ci.draw_circle(Vector2(53, 33), 5.5, Color(0.03, 0.0, 0.08))
 	ci.draw_arc(Vector2(53, 33), 10.0, 0.5, 4.2, 12, Color(0.85, 0.6, 1.0, 0.9), 1.5)
+
+static func _mouse(ci: CanvasItem, wheel: bool) -> void:
+	# computer mouse: the left button (or the wheel) is highlighted
+	var body := Color(0.78, 0.8, 0.86)
+	ci.draw_circle(Vector2(32, 24), 17.0, body)
+	ci.draw_rect(Rect2(15, 24, 34, 20), body)
+	ci.draw_circle(Vector2(32, 44), 17.0, body)
+	if wheel:
+		ci.draw_rect(Rect2(28, 11, 8, 15), Color(1.0, 0.65, 0.2))
+		ci.draw_line(Vector2(32, 5), Vector2(27, 10), Color(1.0, 0.85, 0.4), 2.5)
+		ci.draw_line(Vector2(32, 5), Vector2(37, 10), Color(1.0, 0.85, 0.4), 2.5)
+		ci.draw_line(Vector2(32, 31), Vector2(27, 26), Color(1.0, 0.85, 0.4), 2.5)
+		ci.draw_line(Vector2(32, 31), Vector2(37, 26), Color(1.0, 0.85, 0.4), 2.5)
+	else:
+		ci.draw_rect(Rect2(18, 14, 13, 15), Color(1.0, 0.65, 0.2))
+	ci.draw_line(Vector2(32, 9), Vector2(32, 30), Color(0.25, 0.27, 0.33), 2.0)
+	ci.draw_line(Vector2(16, 30), Vector2(48, 30), Color(0.25, 0.27, 0.33), 2.0)
+	ci.draw_arc(Vector2(32, 24), 17.0, PI, TAU, 16, Color(0.25, 0.27, 0.33), 2.0)
 
 # ---------- shop and reward icons ----------
 

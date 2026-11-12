@@ -891,8 +891,15 @@ func _refresh_castle() -> void:
 		"power": Power.of_base(base),
 	})
 
-func _on_castle_spend(id: String) -> void:
-	if game_over or not base.spend_point(id):
+func _on_castle_spend(id: String, count: int = 1) -> void:
+	if game_over:
+		return
+	var spent := 0
+	for i in count:
+		if not base.spend_point(id):
+			break
+		spent += 1
+	if spent == 0:
 		return
 	Sfx.play("powerup", -4.0)
 	_update_label()

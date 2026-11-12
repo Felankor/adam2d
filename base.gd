@@ -424,8 +424,8 @@ func _fire(angle: float, dmg: float, is_auto: bool) -> void:
 			p.splash = 110.0
 		4:
 			p.kind = "void"
-			p.velocity = dir * 760.0
-			p.life = 2.4
+			p.velocity = dir * 1520.0      # 2x faster than before
+			p.life = 1.2                   # same range as before (about 1820)
 			p.splash = Weapons.VOID_SPLASH
 		_:
 			p.kind = "shell"

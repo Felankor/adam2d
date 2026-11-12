@@ -4,7 +4,7 @@ extends Control
 # The Castle window (Tab key): every stat of the castle on the left, and on the right
 # the stat points you spend. Each level gives 5 points; each point is +1% over the default.
 # It replaces the old shop. Number keys 1-8 spend a point on the matching row.
-signal spend(id: String)
+signal spend(id: String, count: int)
 signal weapon_upgrade
 signal exchange_pressed
 signal laser_toggled(on: bool)
@@ -38,6 +38,13 @@ var _exchange_button: Button
 var _laser: CheckButton
 var _close: Button
 var _awaiting: bool = false
+# Holding a "+" button keeps spending points, and doubles the amount every second (1, 2, 4 ... 32 per step).
+const HOLD_DELAY := 0.35
+const HOLD_STEP_TIME := 0.1
+const HOLD_MAX_POWER := 5
+var _held_idx: int = -1
+var _held_time: float = 0.0
+var _held_tick: float = 0.0
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -102,8 +109,10 @@ func _ready() -> void:
 	_points.add_theme_color_override("font_color", Color(0.5, 1.0, 0.6))
 	right.add_child(_points)
 	var note := Label.new()
-	note.text = Loc.t("Default -> current value, and points spent")
+	note.text = Loc.t("Default -> current value, and points spent") + "   |   " + Loc.t("Hold + to spend faster")
 	note.add_theme_font_size_override("font_size", 16)
+	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	note.custom_minimum_size = Vector2(680, 0)
 	note.add_theme_color_override("font_color", Color(0.75, 0.78, 0.85))
 	right.add_child(note)
 
@@ -146,7 +155,8 @@ func _ready() -> void:
 		btn.text = "+"
 		btn.custom_minimum_size = Vector2(56, 40)
 		btn.focus_mode = Control.FOCUS_NONE
-		btn.pressed.connect(_on_spend.bind(str(s["id"])))
+		btn.button_down.connect(_on_hold_start.bind(n - 1))
+		btn.button_up.connect(_on_hold_end)
 		row.add_child(btn)
 		_stat_buttons.append(btn)
 		n += 1
@@ -188,8 +198,36 @@ func open(title: String, awaiting_start: bool) -> void:
 	_close.text = Loc.t("Continue") if awaiting_start else Loc.t("Close")
 	visible = true
 
-func _on_spend(id: String) -> void:
-	spend.emit(id)
+func _on_hold_start(idx: int) -> void:
+	_held_idx = idx
+	_held_time = 0.0
+	_held_tick = HOLD_DELAY
+	spend.emit(str(STATS[idx]["id"]), 1)
+
+func _on_hold_end() -> void:
+	if _held_idx >= 0:
+		_stat_buttons[_held_idx].text = "+"
+	_held_idx = -1
+
+func _hold_amount() -> int:
+	return 1 << mini(int(_held_time), HOLD_MAX_POWER)
+
+func _process(delta: float) -> void:
+	if _held_idx < 0:
+		return
+	if not visible or not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+		_on_hold_end()
+		return
+	_held_time += delta
+	_held_tick -= delta
+	var amount := _hold_amount()
+	if _held_tick <= 0.0:
+		_held_tick = HOLD_STEP_TIME
+		spend.emit(str(STATS[_held_idx]["id"]), amount)
+	if base != null and base.free_points <= 0:
+		_on_hold_end()
+		return
+	_stat_buttons[_held_idx].text = "x%d" % amount if amount > 1 else "+"
 
 func _row(label: String, value: String) -> void:
 	var a := Label.new()

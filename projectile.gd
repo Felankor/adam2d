@@ -16,6 +16,7 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	_t += delta
+	var prev := position
 	position += velocity * delta
 	life -= delta
 	if life <= 0.0:
@@ -27,7 +28,10 @@ func _process(delta: float) -> void:
 		var e := node as Enemy
 		if e == null or e.dead:
 			continue
-		if position.distance_to(e.position) <= e.radius + hit_radius:
+		# swept check along this frame's path, so fast shots cannot skip over small mobs
+		var closest := Geometry2D.get_closest_point_to_segment(e.position, prev, position)
+		if closest.distance_to(e.position) <= e.radius + hit_radius:
+			position = closest
 			if kind == "rocket" or kind == "void":
 				_explode()
 			else:
