@@ -901,7 +901,7 @@ func _on_mini_beam(origin: Vector2, aim: Vector2, dmg: float) -> void:
 	fx.thick = 1.4
 	add_child(fx)
 	_add_shake(6.0)
-	_beam_hit_check(origin, aim, dmg, 6.0, float(Weapons.PEN[3]))
+	_beam_hit_check(origin, aim, dmg, 6.0, float(Weapons.PEN[4]))
 
 func _on_enemy_died(e: Enemy) -> void:
 	if e.is_ally:
@@ -962,8 +962,12 @@ func _on_mob_arrived(e: Enemy) -> void:
 func _recruit() -> void:
 	Sfx.play("powerup")
 	var pick := randi() % 4
+	if randf() < 0.2:
+		pick = 5                                  # a refugee: bigger mana pool
 	if pick == 0 and base.auto_cannons >= base.max_auto():
 		pick = 4                                  # all weapon slots are full
+	if pick == 4 and base.auto_interval <= Base.AUTO_INTERVAL_MIN + 0.001:
+		pick = 1 + randi() % 3                    # auto fire rate is maxed: another profession instead
 	match pick:
 		0:
 			base.gunners += 1
@@ -981,6 +985,10 @@ func _recruit() -> void:
 			base.engineers += 1
 			base.energy_regen += 5.0
 			_notify(Loc.t("Mana regen +5 per second"), "engineer", Color(1.0, 0.85, 0.25))
+		5:
+			base.max_energy += 20.0
+			base.energy = minf(base.energy + 20.0, base.max_energy)
+			_notify(Loc.t("Base Mana +20"), "energy", Color(0.4, 0.65, 1.0))
 		3:
 			base.mechanics += 1
 			_notify(Loc.t("Base repairs itself slowly"), "mechanic", Color(1.0, 0.55, 0.35))
@@ -1183,13 +1191,19 @@ func _on_base_destroyed() -> void:
 	game_over = true
 	Sfx.play("fail")
 	_add_shake(26.0)
+	var blast := CastleBlast.new()
+	blast.position = base.position
+	blast.base_ref = base
+	blast.radius = base.hit_radius()
+	blast.shake.connect(_add_shake)
+	add_child(blast)
 	for group in ["enemies", "allies", "bolts", "bombs", "shots", "hazards"]:
 		for node in get_tree().get_nodes_in_group(group):
 			node.set_process(false)
 	boss_label.visible = false
 	var info := Loc.t("Your %s fell on Wave %d  (%s)") % [Loc.t(Base.TIER_NAMES[base.tier]), level, Loc.t(BIOME_NAMES[biome])]
 	info += "\n" + Loc.t("Kills: %d   Gold earned: %d   Play time: %s") % [stat_kills, stat_gold, _fmt_time(stat_time)]
-	get_tree().create_timer(1.3).timeout.connect(gameover_menu.open.bind(info, Loc.t("Retry Wave %d") % level))
+	get_tree().create_timer(4.0).timeout.connect(gameover_menu.open.bind(info, Loc.t("Retry Wave %d") % level))
 
 # Game-over text stays on the info label; everything else is a pop-up notification.
 func _say(text: String, seconds: float) -> void:

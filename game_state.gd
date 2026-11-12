@@ -3,7 +3,7 @@ extends RefCounted
 
 # Data that must survive a scene change (menu -> game) lives here.
 const DIFFICULTY_NAMES := ["Beginner", "I Hate Myself"]
-const SAVE_VERSION := 5
+const SAVE_VERSION := 6
 
 # Every save lives in its own slot file under user://saves/, so starting a new game can never
 # overwrite another slot. Each slot keeps a rolling backup (.bak) of its previous save.
@@ -127,6 +127,12 @@ static func delete_slot(i: int) -> void:
 static func migrate(d: Dictionary) -> Dictionary:
 	if not (d.get("stats") is Dictionary):
 		d["stats"] = {}
+	if int(d.get("version", 0)) < 6 and d.get("base") is Dictionary:
+		# v6 added the Gatling Gun at tier 2: older Rocket / Laser / Void tiers moved up by one
+		var bd := d["base"] as Dictionary
+		var wt := int(bd.get("weapon_tier", 0))
+		if wt >= 2:
+			bd["weapon_tier"] = wt + 1
 	d["version"] = SAVE_VERSION
 	return d
 

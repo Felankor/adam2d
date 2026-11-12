@@ -196,11 +196,12 @@ func refresh() -> void:
 
 	# ---------------- weapons ----------------
 	_heading("Mana and weapons")
-	_text(Loc.t("Every shot costs mana, and mana refills over time. Upgrade your weapon in the Castle window - auto-weapons use the same weapon. Each upgrade has a price in gold:"))
-	var ids := ["mg", "cannon", "rocket", "laser", "void"]
+	_text(Loc.t("Every shot costs mana, and mana refills over time. Upgrade your weapon in the Castle window - auto-weapons use it too, up to the Gatling Gun. Each upgrade has a price in gold:"))
+	var ids := ["mg", "mgun", "gatling", "rocket", "laser", "void"]
 	var notes := [
 		Loc.t("Very fast, cheap, but weak: useless against armor."),
-		Loc.t("Solid all-round shell."),
+		Loc.t("Hard-hitting bursts with some armor penetration."),
+		Loc.t("The fastest gun and the fastest bullets, with good armor penetration. The best weapon your Gunners can use."),
 		Loc.t("Explodes: damages everything around the target."),
 		Loc.t("Instant beam that pierces every mob on its line."),
 		Loc.t("Dark orb with a huge blast. TRUE DAMAGE: ignores armor and shields."),
@@ -212,7 +213,7 @@ func refresh() -> void:
 
 	_heading("Armor")
 	_text(Loc.t("Armor takes a part of every hit. Armor penetration cancels armor. Tanks, golems and bosses are heavily armored, so pick weapons that penetrate. Damage dealt to a Tank (armor 40):"))
-	var bar_cols := [Color(0.9, 0.8, 0.3), Color(0.95, 0.6, 0.2), Color(0.95, 0.4, 0.25), Color(0.3, 0.9, 1.0), Color(0.65, 0.25, 1.0)]
+	var bar_cols := [Color(0.9, 0.8, 0.3), Color(0.95, 0.65, 0.2), Color(1.0, 0.8, 0.45), Color(0.95, 0.4, 0.25), Color(0.3, 0.9, 1.0), Color(0.65, 0.25, 1.0)]
 	for i in ids.size():
 		var m := Weapons.armor_mult(40.0, float(Weapons.PEN[i]))
 		_bar_row(str(ids[i]), Loc.t(Weapons.name_of(i)), m, bar_cols[i], "%d%%" % roundi(m * 100.0))
@@ -244,6 +245,7 @@ func refresh() -> void:
 	_ally_row("gunner", Loc.t("Builds an extra auto-weapon"))
 	_ally_row("scientist", Loc.t("Weapon damage +15%"))
 	_ally_row("engineer", Loc.t("Mana regen +5 per second"))
+	_ally_row("energy", Loc.t("Base Mana +20"))
 	_ally_row("mechanic", Loc.t("Slowly repairs the castle"))
 
 	# ---------------- enemies ----------------

@@ -72,6 +72,10 @@ static func draw_raw(ci: CanvasItem, kind: String, origin: Vector2, k: float, wi
 		# weapons
 		"mg":
 			_machinegun(ci)
+		"mgun":
+			_mgun(ci)
+		"gatling":
+			_gatling(ci)
 		"cannon":
 			_cannon(ci, Vector2.ZERO)
 		"rocket":
@@ -154,6 +158,40 @@ static func _machinegun(ci: CanvasItem) -> void:
 	ci.draw_colored_polygon(flash, Color(1.0, 0.85, 0.2))
 	ci.draw_line(Vector2(48, 14), Vector2(60, 12), Color(1.0, 0.9, 0.4, 0.8), 2.0)
 	ci.draw_line(Vector2(44, 20), Vector2(60, 19), Color(1.0, 0.9, 0.4, 0.6), 2.0)
+
+static func _mgun(ci: CanvasItem) -> void:
+	# belt-fed machinegun on a bipod: stock, receiver, ventilated barrel shroud, ammo box with a belt
+	ci.draw_rect(Rect2(4, 27, 12, 10), Color(0.45, 0.30, 0.18))
+	ci.draw_rect(Rect2(14, 25, 24, 13), DARK_METAL)
+	ci.draw_rect(Rect2(16, 27, 20, 4), METAL)
+	ci.draw_rect(Rect2(36, 27, 20, 8), METAL)
+	for i in 4:
+		ci.draw_rect(Rect2(39 + i * 4, 28, 2, 5), DARK_METAL)
+	ci.draw_rect(Rect2(54, 26, 5, 10), DARK_METAL)
+	ci.draw_rect(Rect2(16, 38, 14, 11), Color(0.36, 0.42, 0.3))
+	ci.draw_rect(Rect2(16, 38, 14, 11), Color(0, 0, 0, 0.4), false, 1.5)
+	for i in 3:
+		ci.draw_rect(Rect2(30 + i * 3, 36 - i, 3, 5), Color(0.85, 0.68, 0.2))
+	ci.draw_line(Vector2(44, 35), Vector2(38, 56), DARK_METAL, 3.0)
+	ci.draw_line(Vector2(48, 35), Vector2(56, 56), DARK_METAL, 3.0)
+	var flash := PackedVector2Array([Vector2(59, 31), Vector2(63, 26), Vector2(62, 31), Vector2(63, 36)])
+	ci.draw_colored_polygon(flash, Color(1.0, 0.85, 0.2))
+
+static func _gatling(ci: CanvasItem) -> void:
+	# a cluster of barrels held by two rings, motor housing and a round ammo drum
+	ci.draw_rect(Rect2(4, 22, 14, 22), DARK_METAL)
+	ci.draw_rect(Rect2(6, 24, 10, 4), METAL)
+	for k in 3:
+		var y := 20.0 + 9.0 * k
+		ci.draw_rect(Rect2(18, y, 40, 6), METAL)
+		ci.draw_rect(Rect2(18, y, 40, 2), Color(0.85, 0.87, 0.92))
+		ci.draw_rect(Rect2(56, y, 3, 6), Color(0.1, 0.1, 0.12))
+	ci.draw_rect(Rect2(32, 17, 5, 31), DARK_METAL)
+	ci.draw_rect(Rect2(46, 17, 5, 31), DARK_METAL)
+	ci.draw_circle(Vector2(14, 52), 9.0, Color(0.55, 0.45, 0.2))
+	ci.draw_circle(Vector2(14, 52), 4.0, Color(0.25, 0.2, 0.1))
+	var flash := PackedVector2Array([Vector2(59, 30), Vector2(64, 24), Vector2(62, 31), Vector2(64, 38)])
+	ci.draw_colored_polygon(flash, Color(1.0, 0.8, 0.25))
 
 static func _cannon(ci: CanvasItem, o: Vector2) -> void:
 	ci.draw_line(Vector2(12, 42) + o, Vector2(42, 30) + o, METAL, 12.0)

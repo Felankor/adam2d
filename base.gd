@@ -59,6 +59,8 @@ var energy_regen: float = 20.0
 var weapon_tier: int = 0
 var damage_mult: float = 1.0
 
+const AUTO_INTERVAL_MIN := 0.9       # each auto-weapon fires at most about once per 0.9 s
+const AUTO_RATE_CAP := 1.3
 var auto_cannons: int = 0          # number of auto-weapons (built by Gunner allies)
 var auto_interval: float = 1.5
 var auto_range: float = 450.0
@@ -202,7 +204,7 @@ func reset_stat_points() -> int:
 	return total
 
 func auto_rate_factor() -> float:
-	return pow(1.01, float(int(stat_pts.get("autorate", 0))))
+	return minf(pow(1.01, float(int(stat_pts.get("autorate", 0)))), AUTO_RATE_CAP)      # capped so auto fire cannot snowball
 
 func set_tier(new_tier: int) -> void:
 	tier = new_tier
@@ -325,7 +327,7 @@ func add_auto_cannon() -> bool:
 	return true
 
 func upgrade_auto_rate() -> void:
-	auto_interval = maxf(auto_interval * 0.85, 0.3)
+	auto_interval = maxf(auto_interval * 0.85, AUTO_INTERVAL_MIN)
 	auto_range = minf(auto_range + RANGE_STEP, MAX_RANGE)
 
 func upgrade_weapon() -> bool:
@@ -426,9 +428,9 @@ func from_dict(d: Dictionary) -> void:
 	damage_mult = _num(d.get("damage_mult", 1.0), 1.0, 0.1, 1.0e9)
 	move_mult = _num(d.get("move_mult", 1.0), 1.0, 0.1, 1.0e6)
 	attack_speed = _num(d.get("attack_speed", 1.0), 1.0, 0.1, 1.0e9)
-	weapon_tier = clampi(int(d.get("weapon_tier", 1)), 0, Weapons.MAX_TIER)
+	weapon_tier = clampi(int(d.get("weapon_tier", 0)), 0, Weapons.MAX_TIER)
 	auto_cannons = int(d.get("auto_cannons", 0))
-	auto_interval = _num(d.get("auto_interval", 1.5), 1.5, 0.02, 100.0)
+	auto_interval = _num(d.get("auto_interval", 1.5), 1.5, AUTO_INTERVAL_MIN, 100.0)
 	auto_range = float(d.get("auto_range", 450.0))
 	laser = bool(d.get("laser", false))
 	gunners = int(d.get("gunners", 0))
@@ -514,18 +516,20 @@ func _process(delta: float) -> void:
 		var dmg: float = Weapons.DAMAGE[weapon_tier]
 		var angle := aim_angle
 		if weapon_tier == 0:
-			angle += randf_range(-0.045, 0.045)   # machinegun spread
+			angle += randf_range(-0.045, 0.045)   # automatic rifle spread
+		elif weapon_tier == 2:
+			angle += randf_range(-0.03, 0.03)     # gatling spread
 		_fire(angle, dmg * dmg_factor(), false)
 		_muzzle = 0.07
 
 	# Auto-weapons: share one timer, so shots are evenly spread out.
-	# They use the same weapon tier as the manual weapon.
+	# They use the manual weapon tier, up to the Gatling Gun.
 	if auto_cannons > 0:
 		_auto_timer -= delta
 		if _auto_timer <= 0.0:
 			var target := _nearest_enemy()
 			if target != null:
-				var adm: float = Weapons.AUTO_DAMAGE[weapon_tier]
+				var adm: float = Weapons.AUTO_DAMAGE[mini(weapon_tier, Weapons.AUTO_MAX_TIER)]
 				_fire((target.global_position - global_position).angle(), adm * dmg_factor(), true)
 				_auto_timer = auto_interval / auto_cannons / attack_speed / auto_rate_factor()
 
@@ -557,26 +561,35 @@ func _move(delta: float) -> void:
 func _fire(angle: float, dmg: float, is_auto: bool) -> void:
 	var dir := Vector2.RIGHT.rotated(angle)
 	var muzzle := position + dir * (hit_radius() * 0.6 + 14.0)
-	var sound: String = Weapons.SOUNDS[weapon_tier]
+	var wt: int = mini(weapon_tier, Weapons.AUTO_MAX_TIER) if is_auto else weapon_tier
+	var sound: String = Weapons.SOUNDS[wt]
 	Sfx.play(sound, -6.0 if is_auto else 0.0)
-	if weapon_tier == 3:
+	if wt == 4:
 		_fire_beam(muzzle, dir, dmg)
 		return
 	if Field.shots().size() >= MAX_SHOTS:       # safety cap: never flood the scene with projectiles
 		return
 	var p := Projectile.new()
 	p.position = muzzle
-	match weapon_tier:
+	match wt:
 		0:
 			p.kind = "bullet"
 			p.velocity = dir * 1500.0
 			p.life = 1.4
+		1:
+			p.kind = "bullet"
+			p.velocity = dir * 1750.0
+			p.life = 1.25
 		2:
+			p.kind = "bullet"                # Gatling Gun: the fastest bullets of all
+			p.velocity = dir * 2300.0
+			p.life = 1.0
+		3:
 			p.kind = "rocket"
 			p.velocity = dir * 640.0
 			p.life = 2.5
 			p.splash = 110.0
-		4:
+		5:
 			p.kind = "void"
 			p.velocity = dir * 1520.0      # 2x faster than before
 			p.life = 1.2                   # same range as before (about 1820)
@@ -586,7 +599,7 @@ func _fire(angle: float, dmg: float, is_auto: bool) -> void:
 			p.velocity = dir * 850.0
 			p.life = 2.0
 	p.damage = dmg
-	p.pen = float(Weapons.PEN[weapon_tier])
+	p.pen = float(Weapons.PEN[wt])
 	get_parent().add_child(p)
 
 # Laser Gun: an instant beam that pierces everything on its line.
@@ -601,7 +614,7 @@ func _fire_beam(origin: Vector2, dir: Vector2, dmg: float) -> void:
 		if along < -e.radius or along > length:
 			continue
 		if absf(rel.cross(dir)) <= e.radius + 4.0:
-			e.take_damage(dmg, float(Weapons.PEN[weapon_tier]))
+			e.take_damage(dmg, float(Weapons.PEN[4]))
 	Enemy.hit_sound = "hit"
 	for b in Field.bolts():
 		if b.is_queued_for_deletion():
@@ -734,16 +747,27 @@ func _draw_barrel(dir: Vector2, r: float) -> void:
 			PixelFx.disc(self, Vector2.ZERO, 8.0, Color(0.3, 0.3, 0.34))
 		1:
 			PixelFx.line(self, Vector2.ZERO, tip, Color.DIM_GRAY, 9.0)
+			PixelFx.line(self, dir * 10.0, dir * (r + 12.0), Color(0.3, 0.3, 0.34), 13.0)
+			PixelFx.disc(self, tip, 5.0, Color(0.15, 0.15, 0.18))
 		2:
+			# Gatling: three barrels that turn around each other, held by two rings
+			var side2 := dir.orthogonal()
+			for k in 3:
+				var off := side2 * sin(_anim * 14.0 + TAU * float(k) / 3.0) * 5.0
+				PixelFx.line(self, off, tip + off, Color(0.5, 0.5, 0.55), 4.0)
+			PixelFx.line(self, dir * (r * 0.6), dir * (r * 0.6 + 4.0), Color(0.2, 0.2, 0.24), 17.0)
+			PixelFx.line(self, dir * (r + 10.0), dir * (r + 14.0), Color(0.2, 0.2, 0.24), 17.0)
+			PixelFx.disc(self, Vector2.ZERO, 9.0, Color(0.3, 0.3, 0.34))
+		3:
 			PixelFx.line(self, Vector2.ZERO, dir * (r + 28.0), Color(0.35, 0.42, 0.3), 15.0)
 			PixelFx.line(self, dir * (r + 22.0), dir * (r + 29.0), Color(0.75, 0.3, 0.2), 16.0)
-		4:
+		5:
 			PixelFx.line(self, Vector2.ZERO, tip, Color(0.16, 0.1, 0.26), 10.0)
 			PixelFx.line(self, Vector2.ZERO, tip, Color(0.4, 0.2, 0.65), 3.0)
 			PixelFx.disc(self, tip, 7.0, Color(0.04, 0.0, 0.1))
 			PixelFx.disc(self, tip, 12.0, Color(0.5, 0.15, 0.9, 0.3))
 			PixelFx.arc(self, tip, 9.0, _anim * 6.0, _anim * 6.0 + 4.0, Color(0.8, 0.55, 1.0, 0.9), 2.0)
-		3:
+		4:
 			PixelFx.line(self, Vector2.ZERO, tip, Color(0.32, 0.36, 0.5), 8.0)
 			PixelFx.disc(self, tip, 6.0, Color(0.5, 0.95, 1.0, 0.9))
 			PixelFx.disc(self, tip, 10.0, Color(0.3, 0.9, 1.0, 0.25))

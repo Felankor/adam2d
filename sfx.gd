@@ -147,6 +147,15 @@ static func _build(sound: String) -> AudioStreamWAV:
 			d = _tone(90.0, 55.0, 0.9, 0.5, 1)
 		"bolt":
 			d = _tone(300.0, 750.0, 0.22, 0.28, 0)
+		"rifle":
+			# MP5-style: a snappy, fairly light crack with a short thump under it
+			d = _mix(_mix(_noise(0.05, 0.55, 0.25), _tone(1500.0, 320.0, 0.035, 0.28, 1)), _tone(170.0, 85.0, 0.07, 0.3, 0))
+		"carbine":
+			# M4-style: a harder, louder crack, a deep boom and a short rumbling tail
+			d = _mix(_mix(_noise(0.09, 0.8, 0.35), _tone(2200.0, 450.0, 0.03, 0.3, 1)), _mix(_tone(120.0, 42.0, 0.13, 0.55, 0), _noise(0.2, 0.22, 0.85)))
+		"gatling":
+			# very short and fast, so a stream of them sounds like a buzzing whir
+			d = _mix(_noise(0.03, 0.32, 0.15), _tone(950.0, 480.0, 0.03, 0.22, 1))
 		"mg":
 			d = _mix(_tone(1100.0, 350.0, 0.05, 0.3, 1), _noise(0.03, 0.2, 0.2))
 		"rocket":

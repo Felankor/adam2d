@@ -17,8 +17,8 @@ const HP_MULT := 100.0               # Rogue Castles are 100x tougher than the p
 const ATTACK_MAX := 2.5            # attack speed ceiling (stat points can push the player far higher)
 const SCALE_MIN := 0.3             # damage multiplier floor
 const BEAM_CHARGE := 0.7
-const STYLES := ["bullet", "shell", "rocket", "bullet", "void"]
-const SPEEDS := [700.0, 340.0, 380.0, 700.0, 520.0]
+const STYLES := ["bullet", "bullet", "bullet", "rocket", "bullet", "void"]
+const SPEEDS := [700.0, 560.0, 820.0, 380.0, 700.0, 520.0]
 
 var tier: int = 0
 var weapon_tier: int = 0
@@ -154,13 +154,13 @@ func _shoot(delta: float) -> void:
 		return
 	energy -= cost
 	_fire_cd = Weapons.INTERVAL[weapon_tier] / attack_speed
-	if weapon_tier == 3:
+	if weapon_tier == 4:
 		_beam_charge = BEAM_CHARGE
 		_beam_aim = target
 		Sfx.play("beam_charge", -8.0)
 		return
 	var aim := target
-	if weapon_tier == 0:
+	if weapon_tier == 0 or weapon_tier == 2:
 		aim += Vector2(randf_range(-40.0, 40.0), randf_range(-40.0, 40.0))
 	Sfx.play(str(Weapons.SOUNDS[weapon_tier]), -9.0)
 	fire.emit(origin, aim, dmg, str(STYLES[weapon_tier]))

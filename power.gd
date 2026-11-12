@@ -59,7 +59,7 @@ static func castle_dps(weapon_tier: int, energy_regen: float, dmg_mult: float, a
 	var shots := minf(atk / interval, energy_regen / cost)
 	var dps := dmg * shots
 	if autos > 0:
-		var adm: float = Weapons.AUTO_DAMAGE[weapon_tier]
+		var adm: float = Weapons.AUTO_DAMAGE[mini(weapon_tier, Weapons.AUTO_MAX_TIER)]
 		dps += float(autos) * adm / auto_interval * atk
 	return dps * dmg_mult
 
