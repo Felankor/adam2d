@@ -5,17 +5,25 @@ extends Control
 const LINES := ["CASTLE", "IN THE SKY"]
 const SIZES := [80, 50]
 
+var k: float = 1.0
+
+func set_k(v: float) -> void:
+	k = v
+	custom_minimum_size = Vector2(700, 230) * k
+	queue_redraw()
+
 func _init() -> void:
 	custom_minimum_size = Vector2(700, 230)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 func _draw() -> void:
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2(k, k))
 	var f := PixelUI.font()
 	var y := 78.0
 	for li in LINES.size():
 		var txt: String = LINES[li]
 		var sz: int = SIZES[li]
-		var w := size.x
+		var w := size.x / k
 		var step := float(sz) / 10.0          # one font pixel
 		var base := Vector2(0.0, y)
 		# extrusion going down and to the right, darker the deeper it goes

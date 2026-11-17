@@ -14,7 +14,7 @@ const NAMES := {
 # Elements that draw text: they also get a font and a text size.
 const TEXT := ["bars", "shield", "xp", "tag", "skills", "helpers", "gold", "fps", "info", "notifier", "bossbar", "bosswarn", "banner", "levelup"]
 const TEXT_ROWS := [
-	["font", "Font", "enum", ["game", "pixelify", "silkscreen"]],
+	["font", "Font", "enum", ["game", "pixelify", "silkscreen", "pressstart", "thinelectro", "errorstate", "halfpixel"]],
 	["tsize", "Text size", "float", 0.5, 2.0, 0.25],
 ]
 const PRESETS := ["Classic", "Wide", "Compact", "Minimal"]

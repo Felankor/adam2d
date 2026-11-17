@@ -8,9 +8,14 @@ var damage: float = 10.0
 var life: float = 2.0
 var splash: float = 0.0
 var pen: float = 0.0              # armor penetration
-var gen: int = 0                  # Void Gun: 0 = main shot, 1 = one of the 4 lesser fragments it splits into
+var gen: int = 0                  # Void Gun: 0 = main shot, 1 = one of the 5 pieces of shrapnel it splits into
 var skip: Enemy = null            # a fragment ignores the mob its parent just hit
 var _t: float = 0.0
+# Shrapnel (gen 1) flies to its own random spot and explodes after FUSE seconds, hit or no hit.
+const FUSE := 1.0
+var _from: Vector2 = Vector2.ZERO
+var _to: Vector2 = Vector2.ZERO
+var _travel: float = 0.6
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_PAUSABLE
@@ -18,6 +23,15 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	_t += delta
+	if kind == "void" and gen > 0:
+		var k := clampf(_t / _travel, 0.0, 1.0)
+		position = _from.lerp(_to, 1.0 - (1.0 - k) * (1.0 - k))      # eases out and then waits for the fuse
+		if _t >= FUSE:
+			_explode()
+			queue_free()
+			return
+		queue_redraw()
+		return
 	var prev := position
 	position += velocity * delta
 	life -= delta
@@ -80,19 +94,23 @@ func _explode(hit: Enemy = null) -> void:
 	if kind == "void" and gen == 0:
 		_split(par, hit)
 
-# The main Void shot bursts into 4 lesser shots; each explodes too if it hits something.
-func _split(par: Node, hit: Enemy) -> void:
+# The main Void shot bursts into 5 pieces of shrapnel. Each one flies to a different random spot around the
+# impact and explodes there one second after the burst.
+func _split(par: Node, _hit: Enemy) -> void:
 	var a0 := randf() * TAU
-	for i in 4:
+	for i in 5:
 		var p := Projectile.new()
 		p.kind = "void"
 		p.gen = 1
-		p.skip = hit
 		p.damage = damage * 0.5
 		p.splash = splash * 0.55
 		p.pen = pen
-		p.life = 0.7
-		p.velocity = Vector2.RIGHT.rotated(a0 + TAU * float(i) / 4.0) * 460.0
+		p.life = FUSE + 0.5
+		p._from = position
+		var ang := a0 + TAU * float(i) / 5.0 + randf_range(-0.55, 0.55)
+		p._to = position + Vector2.RIGHT.rotated(ang) * randf_range(120.0, 400.0)
+		p._travel = randf_range(0.45, 0.8)
+		p.velocity = (p._to - position) / p._travel
 		p.position = position
 		par.add_child(p)
 
@@ -113,6 +131,12 @@ func _draw() -> void:
 			PixelFx.disc(self, Vector2.ZERO, 12.0, Color(0.6, 0.2, 1.0))
 			PixelFx.disc(self, Vector2.ZERO, 9.0, Color(0.03, 0.0, 0.08))
 			PixelFx.ring(self, Vector2.ZERO, 15.0, Color(0.85, 0.6, 1.0, 0.8), 3.0)
+			if gen > 0:
+				# shows where the piece will blow up, tightening as the fuse burns down
+				draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+				var left := clampf(_t / FUSE, 0.0, 1.0)
+				var blink := 0.5 + 0.5 * sin(_t * (14.0 + 30.0 * left))
+				PixelFx.ring(self, Vector2.ZERO, splash * (0.55 + 0.45 * left), Color(0.75, 0.4, 1.0, 0.25 + 0.3 * blink), 3.0)
 		"rocket":
 			var flick := 0.7 + 0.3 * sin(_t * 60.0)
 			PixelFx.line(self, Vector2.ZERO, -dir * 34.0 * flick, Color(1.0, 0.55, 0.15, 0.7), 9.0)

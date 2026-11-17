@@ -237,7 +237,7 @@ func refresh() -> void:
 
 	# ---------------- refugees ----------------
 	_heading("Refugees")
-	_enemy_row(["ally"], Loc.t("Refugees (red clothes, white flag) are innocent - don't shoot them! Let one reach your castle and it becomes a helper. They stop coming in the Space biome:"))
+	_enemy_row(["ally"], Loc.t("Refugees (red clothes, white flag) are innocent - don't shoot them! Let one reach your castle and it becomes a helper. They stop coming in the Space chapter:"))
 	_ally_row("gunner", Loc.t("Builds an extra auto-weapon"))
 	_ally_row("scientist", Loc.t("Weapon damage +15%"))
 	_ally_row("engineer", Loc.t("Mana regen +5 per second"))
@@ -254,17 +254,17 @@ func refresh() -> void:
 	_enemy_row(["medic"], Loc.t("Medic (from wave 6): heals the enemies around it. Kill it first!"))
 	_enemy_row(["aegis"], Loc.t("Aegis (from wave 9): an energy shield soaks damage first and recharges if you stop hitting it. Burst it down."))
 
-	_heading("Biome enemies")
+	_heading("Chapter enemies")
 	_enemy_row(["worm"], Loc.t("Mudland - Bloodworm: tiny and very fast, with double the health it used to have. They come in swarms."))
 	_enemy_row(["golem"], Loc.t("Rocky Mountain - Golem (armor 30): throws rocks from far away and slams the ground to summon 3 Earthworms under your castle. When it is destroyed it leaves two smaller golems behind."))
 	_enemy_row(["earthworm"], Loc.t("Earthworm: the grey cousin of the Bloodworm with half its health. Golems summon them under your castle."))
 	_enemy_row(["demon"], Loc.t("Hell - Demon (armor 20): throws fireballs that burst the moment they land, and spawns 5 Sinners. Kill every Sinner and it spawns 5 more at once!"))
 	_enemy_row(["sinner"], Loc.t("Sinner: a black, unarmed zombie that shambles toward your castle. Demons keep spawning them."))
 	_enemy_row(["hunter"], Loc.t("Space - Hunter: arrives in a pack of 5. Dodges again and again and shoots from twice as far as a tank."))
-	_enemy_row(["soldier", "tank", "mech"], Loc.t("In the Space biome soldiers become kamikaze drones, tanks become starships and mechanized vehicles become space corvettes. They are faster and dodge shots."), true)
+	_enemy_row(["soldier", "tank", "mech"], Loc.t("In the Space chapter soldiers become kamikaze drones, tanks become starships and mechanized vehicles become space corvettes. They are faster and dodge shots."), true)
 
 	_heading("Bosses and Rogue Castles")
-	_icon_row("skull", Loc.t("Each biome ends with a boss: heavily armored, with a huge amount of health. It moves, dodges and summons soldiers. Shoot down its energy orbs. If the Void Overlord charges its beam, keep moving: it is TRUE DAMAGE and ignores armor and shield!"), 40)
+	_icon_row("skull", Loc.t("Each chapter ends with a boss: heavily armored, with a huge amount of health. It moves, dodges and summons soldiers. Shoot down its energy orbs. If the Void Overlord charges its beam, keep moving: it is TRUE DAMAGE and ignores armor and shield!"), 40)
 	_icon_row("skull", Loc.t("Rogue Castles are rival castles that fly in and fight with your kind of weapon. They are much tougher than normal mobs and give a lot of XP and gold. They start around level 5-6, show up a little later in each wave, and never join boss waves."), 40)
 
 # ---------- building blocks ----------

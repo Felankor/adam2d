@@ -55,6 +55,7 @@ var _shoot_cd: float = 0.8
 
 # Dodging (mechs and bosses): sidestep shots that fly straight at us.
 var dodge_chance: float = 0.0
+static var dealt_total: float = 0.0     # all damage our weapons did to hostile mobs (the chapter summary reads it)
 static var terrain_biome: int = 0      # which backdrop is under the battlefield (ground units avoid its water and lava)
 var _blocked_t: float = 0.0
 var _side: float = 1.0
@@ -718,6 +719,7 @@ func take_damage(amount: float, pen: float = 0.0) -> void:
 		shield -= absorbed
 		_shield_idle = 0.0
 	var dealt := raw - absorbed
+	dealt_total += maxf(dealt, 0.0)
 	var hp_before := hp
 	hp -= dealt
 	var crit := _is_crit(dealt)
@@ -764,11 +766,11 @@ func take_damage(amount: float, pen: float = 0.0) -> void:
 	if hp <= 0.0:
 		dead = true
 		_tell_master()
-		if kind == "mech" or kind == "golem" or kind == "demon" or kind == "heavytank" or kind == "apoctank":
-			Fx.spawn(par, "explosion", position, Color.WHITE, "", 1.0, 0.6)
+		if kind == "tank" or kind == "hunter" or kind == "mech" or kind == "golem" or kind == "demon" or kind == "heavytank" or kind == "apoctank":
+			Fx.spawn(par, "explosion", position, Color.WHITE, "", 1.0, 0.6, true)
 			Sfx.play("explode")
 		else:
-			Fx.spawn(par, "spark", position, Color(0.9, 0.2, 0.2), "", 1.7, 0.5)
+			Fx.spawn(par, "spark", position, Color(0.9, 0.2, 0.2), "", 1.7, 0.5, true)
 			Sfx.play("kill")
 		died.emit(self)
 		queue_free()

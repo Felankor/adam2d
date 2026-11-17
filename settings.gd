@@ -22,7 +22,7 @@ static var music_volume: float = 0.5
 static var shake_scale: float = 1.0     # 0 = no screen shake, 1 = full
 static var flash_scale: float = 1.0     # 0 = no screen flashes, 1 = full
 static var menu_scale: float = 0.85   # size of the menu windows (castle, pause ...), 0.6 - 1.2
-static var menu_font: String = "soft"   # "soft" (Pixelify Sans, lighter) or "classic" (the heavy game font); read when a menu is built
+static var menu_font: String = "pixelify"   # font of the menus, one of HudFonts.IDS; read when a menu is built
 static var hud_scale: float = 1.0     # size of the HUD (bars, skills, minimap), 0.6 - 1.6
 static var autosave: bool = true      # save automatically at the start of every wave
 static var language: String = ""      # "en" or "tr"; empty = pick from the system language
@@ -42,7 +42,10 @@ static func load_and_apply() -> void:
 		language = str(cfg.get_value("ui", "language", ""))
 		hud_scale = clampf(float(cfg.get_value("ui", "hud_scale", 1.0)), 0.6, 1.6)
 		menu_scale = clampf(float(cfg.get_value("ui", "menu_scale", 0.85)), 0.6, 1.2)
-		menu_font = "classic" if str(cfg.get_value("ui", "menu_font", "soft")) == "classic" else "soft"
+		var mf := str(cfg.get_value("ui", "menu_font", "pixelify"))
+		if mf == "classic":
+			mf = "game"
+		menu_font = mf if HudFonts.IDS.has(mf) else "pixelify"
 	Keybinds.load_from(cfg)
 	HudLayout.load_from(cfg)
 	if language == "":
@@ -90,8 +93,11 @@ static func apply() -> void:
 		if not _window_sized:
 			_window_sized = true
 			var screen := DisplayServer.screen_get_size()
-			var w := int(screen.x * 0.8333)
+			var w := int(screen.x * 0.92)
 			var h := int(w * 9.0 / 16.0)
+			if h > int(screen.y * 0.88):              # keep the title bar and taskbar on screen
+				h = int(screen.y * 0.88)
+				w = int(h * 16.0 / 9.0)
 			DisplayServer.window_set_size(Vector2i(w, h))
 			DisplayServer.window_set_position(DisplayServer.screen_get_position() + (screen - Vector2i(w, h)) / 2)
 	AudioServer.set_bus_volume_db(0, linear_to_db(maxf(volume, 0.0001)))

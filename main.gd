@@ -9,7 +9,15 @@ const SPAWN_RATE_BASE := 3.0       # every biome spawns at least 3x as fast as b
 const SPAWN_RATE_PER_LEVEL := 0.20 # ...and +0.20 more (of the base rate) with every level
 const MAX_ALIVE := 180            # safety cap so huge summons never overload the game
 
-const BIOME_NAMES := ["Greenland Biome", "Mudland Biome", "Rocky Mountain Biome", "Hell Biome", "Space Biome"]
+const BIOME_NAMES := ["Chapter I: Greenland", "Chapter II: Mudland", "Chapter III: High Mountains", "Chapter IV: Hell", "Chapter V: Space"]
+const CHAPTER_TITLES := ["Greenland", "Mudland", "High Mountains", "Hell", "Outer Space"]      # without the "Chapter III:" in front
+const CHAPTER_TAGS := [
+	"The garden is waking up",
+	"The mud swallows the weak",
+	"The peaks hide ancient stone",
+	"The fire never sleeps",
+	"Beyond the sky, only the void",
+]
 const BOSS_NAMES := ["Garden Warden", "Mud Colossus", "Stone Titan", "Hell Lord", "Void Overlord"]
 
 var level: int = 1
@@ -75,6 +83,15 @@ var exchange_count: int = 0          # gold -> stat points exchanges so far (eac
 var _zoom_target: float = Settings.VIEW_ZOOM
 var _clear_timer: float = -1.0
 var _boss_level: bool = false
+# Statistics of the running chapter (shown in the chapter summary, saved with the game)
+var ch_dealt: float = 0.0
+var ch_taken: float = 0.0
+var ch_kills: int = 0
+var ch_gold: int = 0
+var ch_time: float = 0.0
+var _dealt_seen: float = 0.0
+var chapter_scene: ChapterScene
+var _chapter_flow: bool = false          # true while the next chapter is built behind the clouds
 
 func _ready() -> void:
 	PixelUI.setup(get_tree())
@@ -198,7 +215,17 @@ func _ready() -> void:
 	gameover_menu.quit_requested.connect(_quit_to_menu)
 	layer.add_child(gameover_menu)
 
+	chapter_scene = ChapterScene.new()
+	chapter_scene.continue_pressed.connect(chapter_scene.start_transition)
+	chapter_scene.covered.connect(_on_chapter_covered)
+	chapter_scene.clouds_cleared.connect(_update_pause)
+	layer.add_child(chapter_scene)
+
+	Enemy.dealt_total = 0.0
+	_dealt_seen = 0.0
 	_start_level()
+	if (level - 1) % LEVELS_PER_BIOME == 0:      # a new game (or a save that begins a chapter) opens with the chapter card
+		chapter_scene.show_card(_chapter_info(biome))
 
 func _exit_tree() -> void:
 	Music.stop()
@@ -216,6 +243,11 @@ func _apply_save(d: Dictionary) -> void:
 	stat_bosses = maxi(int(st.get("bosses", 0)), 0)
 	stat_best_wave = maxi(int(st.get("best_wave", level)), level)
 	stat_time = maxf(float(st.get("time", 0.0)), 0.0)
+	ch_dealt = maxf(float(st.get("ch_dealt", 0.0)), 0.0)
+	ch_taken = maxf(float(st.get("ch_taken", 0.0)), 0.0)
+	ch_kills = maxi(int(st.get("ch_kills", 0)), 0)
+	ch_gold = maxi(int(st.get("ch_gold", 0)), 0)
+	ch_time = maxf(float(st.get("ch_time", 0.0)), 0.0)
 	exchange_count = clampi(int(d.get("exchange_count", 0)), 0, 400)
 	biome = _biome_for(level)
 	if d.get("hud") is Dictionary:           # the HUD layout belongs to the saved game
@@ -231,7 +263,8 @@ func _make_save_data() -> Dictionary:
 		"base": base.to_dict(),
 		"exchange_count": exchange_count,
 		"hud": HudLayout.snapshot(),
-		"stats": {"kills": stat_kills, "gold": stat_gold, "bosses": stat_bosses, "best_wave": stat_best_wave, "time": stat_time},
+		"stats": {"kills": stat_kills, "gold": stat_gold, "bosses": stat_bosses, "best_wave": stat_best_wave, "time": stat_time,
+			"ch_dealt": ch_dealt, "ch_taken": ch_taken, "ch_kills": ch_kills, "ch_gold": ch_gold, "ch_time": ch_time},
 	}
 
 func _fmt_time(sec: float) -> String:
@@ -326,7 +359,8 @@ func _start_level() -> void:
 	to_spawn = count
 	spawn_timer = 1.5
 	_clear_timer = -1.0
-	_show_banner(title, _boss_level)
+	if not _chapter_flow:
+		_show_banner(title, _boss_level)
 	_update_label()
 	# Remember the state at the start of this level so Retry can restart it.
 	_level_snapshot = _make_save_data()
@@ -347,6 +381,10 @@ func _change_biome(new_biome: int) -> void:
 	add_child(fresh)
 	move_child(fresh, old.get_index() + 1)
 	backdrop = fresh
+	if _chapter_flow:                    # behind the clouds: no slow fade needed
+		fresh.modulate.a = 1.0
+		old.queue_free()
+		return
 	var tw := create_tween()
 	tw.tween_property(fresh, "modulate:a", 1.0, 3.0)
 	tw.tween_callback(old.queue_free)
@@ -390,6 +428,9 @@ func _process(delta: float) -> void:
 	_update_shake(delta)
 	if not game_over:
 		stat_time += delta
+		ch_time += delta
+		ch_dealt += Enemy.dealt_total - _dealt_seen
+	_dealt_seen = Enemy.dealt_total
 	var bpos := base.position
 	for m in Field.mobs():
 		m.target = bpos
@@ -449,7 +490,7 @@ func _count_hostiles() -> int:
 	return n
 
 func _update_pause() -> void:
-	get_tree().paused = _manual_paused or castle_menu.visible or pause_menu.visible or hud_editor.visible
+	get_tree().paused = _manual_paused or castle_menu.visible or pause_menu.visible or hud_editor.visible or chapter_scene.blocking()
 	if not _manual_paused:
 		pause_panel.visible = false
 
@@ -491,6 +532,7 @@ func _update_shake(delta: float) -> void:
 		camera.offset = Vector2.ZERO
 
 func _on_base_damaged(amount: float) -> void:
+	ch_taken += amount
 	_add_shake(minf(7.0 + amount * 3.0, 24.0))
 	vignette.flash(minf(0.55 + amount * 0.12, 1.0))
 	Sfx.play("base_hit")
@@ -518,8 +560,48 @@ func _level_cleared() -> void:
 	_notify(Loc.t("Wave %d cleared!") % cleared, "star", Color(1.0, 0.85, 0.3))
 	if biome_done:
 		_notify(Loc.t("%s conquered!") % Loc.t(BIOME_NAMES[_biome_for(cleared)]), "star", Color(1.0, 0.85, 0.3))
+		_begin_chapter_end(_biome_for(cleared))
+		return
 	_start_level()
 	spawn_timer = 3.5            # a short breather before the next wave
+
+# ---------- Chapter end: summary window, clouds, title card ----------
+
+func _chapter_info(idx: int) -> Dictionary:
+	idx = clampi(idx, 0, CHAPTER_TITLES.size() - 1)
+	return {"roman": ChapterScene.ROMAN[idx], "name": CHAPTER_TITLES[idx], "tag": CHAPTER_TAGS[idx]}
+
+func _begin_chapter_end(idx: int) -> void:
+	var info := _chapter_info(idx)
+	info["rows"] = [
+		{"label": "Damage dealt", "num": ch_dealt},
+		{"label": "Damage taken", "num": ch_taken},
+		{"label": "Mobs defeated", "num": float(ch_kills)},
+		{"label": "Gold earned", "num": float(ch_gold)},
+		{"label": "Time", "text": _fmt_time(ch_time)},
+		{"label": "Boss defeated", "text": Loc.t(BOSS_NAMES[clampi(idx, 0, BOSS_NAMES.size() - 1)])},
+	]
+	ch_dealt = 0.0
+	ch_taken = 0.0
+	ch_kills = 0
+	ch_gold = 0
+	ch_time = 0.0
+	# Save now, with the new wave number: quitting from the summary must not make the player fight the boss again.
+	var snap := _make_save_data()
+	(snap["base"] as Dictionary)["hp"] = base.max_hp
+	if Settings.autosave:
+		GameState.write_save(snap)
+	chapter_scene.show_summary(info)
+	_update_pause()
+
+# The clouds cover the screen: build the next chapter now.
+func _on_chapter_covered() -> void:
+	_chapter_flow = true
+	_start_level()
+	_chapter_flow = false
+	spawn_timer = 4.5
+	chapter_scene.show_card(_chapter_info(biome))
+	chapter_scene.release()
 
 # Kills give XP equal to their reward (summoned fodder gives none). Every new level = 5 stat points.
 func _gain_xp(amount: int) -> void:
@@ -939,6 +1021,8 @@ func _on_enemy_died(e: Enemy) -> void:
 	coins += e.reward * _coin_mult()
 	stat_gold += e.reward * _coin_mult()
 	stat_kills += 1
+	ch_gold += e.reward * _coin_mult()
+	ch_kills += 1
 	if e.kind == "boss":
 		stat_bosses += 1
 	_gain_xp(e.reward)
@@ -1025,6 +1109,16 @@ func _recruit() -> void:
 # ---------- Input: Esc menu, pause, shop, skills ----------
 
 func _input(event: InputEvent) -> void:
+	if chapter_scene != null and chapter_scene.blocking():
+		return                       # the chapter window and the clouds own the keyboard (Enter / Space continues)
+	# Trackpads (MacBook): pinch or two-finger scroll zooms like the mouse wheel.
+	var pinch := event as InputEventMagnifyGesture
+	var pan := event as InputEventPanGesture
+	if pinch != null or pan != null:
+		if not (castle_menu.visible or pause_menu.visible or hud_editor.visible):
+			var f := pinch.factor if pinch != null else pow(1.1, -clampf(pan.delta.y, -3.0, 3.0) * 0.5)
+			_zoom_target = clampf(_zoom_target * f, Settings.ZOOM_MIN, Settings.ZOOM_MAX)
+		return
 	var mb := event as InputEventMouseButton
 	if mb != null and mb.pressed and (mb.button_index == MOUSE_BUTTON_WHEEL_UP or mb.button_index == MOUSE_BUTTON_WHEEL_DOWN):
 		if not (castle_menu.visible or pause_menu.visible or hud_editor.visible):

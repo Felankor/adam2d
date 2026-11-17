@@ -6,7 +6,7 @@ extends Enemy
 #   Mud Colossus    - "regen"  fast health regeneration + takes 25% less damage
 #   Stone Titan     - "titan"  3 phases, grows +50% (hp, speed, power, size) after each
 #   Hell Lord       - "hell"   summons 15 soldiers every 4 s
-#   Void Overlord   - "void"   splits into two lesser copies every 10 s; if they live
+#   Void Overlord   - "void"   splits into two lesser copies every 8 s; if they live
 #                              for 5 s it fires an uncancellable energy beam (Space biome)
 # All other bosses summon 5 soldiers every 5 s and lob energy orbs at the base.
 
@@ -49,7 +49,7 @@ var _beam_charge: float = 0.0
 var _beam_flash: float = 0.0
 var _beam_aim: Vector2 = Vector2.ZERO     # locked when the beam starts charging
 var _bolt_interval: float = 4.0
-var _attack_timer: float = 6.0
+var _attack_timer: float = 3.0
 var _next_attack: String = "fire"
 var _burst_left: int = 0
 var _burst_cd: float = 0.0
@@ -71,6 +71,9 @@ const KITS := {
 	"void": ["singularity", "blink", "orbs"],
 }
 var _kit_cd: float = 6.0
+var _combo_t: float = -1.0           # Void Overlord: seconds until the Void Beam of a Singularity combo
+var _combo_pos: Vector2 = Vector2.ZERO
+const BEAM_MULT := 5.5               # Void Beam damage (x the boss's dmg)
 var _kit_last: String = ""
 var _wind: String = ""               # an attack winding up ("quake", "blink")
 var _wind_t: float = 0.0
@@ -134,7 +137,9 @@ static func make_boss(lvl: int, biome: int) -> Boss:
 			b._phase_hp = maxf(base_hp * 0.4, mud_hp * 1.1)
 			b.hp = b._phase_hp
 		"void":
-			b._lesser_hp = base_hp * 0.06
+			b.hp = base_hp * 10.0                 # the Void Overlord has 10x the health of an ordinary boss ...
+			b.speed *= 2.0                        # ... and moves twice as fast
+			b._lesser_hp = base_hp * 0.06         # (the lesser copies stay as they were)
 			b._lesser_timer = 5.0
 		"hell":
 			b.hp = base_hp * 1.1
@@ -277,10 +282,12 @@ func _kit_tick(delta: float) -> void:
 		return
 	var names: Array = KITS[ability]
 	var pick: String = names[randi() % names.size()]
+	if ability == "void" and _kit_last != "singularity" and randf() < 0.6:
+		pick = "singularity"          # the Void Overlord loves its black holes
 	if pick == _kit_last:
 		pick = names[(names.find(pick) + 1) % names.size()]
 	_kit_last = pick
-	_kit_cd = (6.0 if ability == "regen" else (7.0 - 0.7 * float(phase) if ability == "titan" else 8.0)) * randf_range(0.85, 1.15)
+	_kit_cd = (6.0 if ability == "regen" else (7.0 - 0.7 * float(phase) if ability == "titan" else 4.5)) * randf_range(0.85, 1.15)
 	_kit_start(pick)
 
 func _haz(style: String, pos: Vector2, rad: float, delay: float, dmg: float, opts: Dictionary = {}) -> void:
@@ -333,7 +340,12 @@ func _kit_start(pick: String) -> void:
 			_add_shake(14.0)
 		"singularity":
 			announce.emit(Loc.t("Singularity!  The void pulls you in!"), "skull")
-			_haz("void", target + Vector2(randf_range(-80.0, 80.0), randf_range(-80.0, 80.0)), 170.0, 1.6, damage * 2.0, {"linger": 4.0, "pull": 60.0})
+			var core := target + Vector2(randf_range(-80.0, 80.0), randf_range(-80.0, 80.0))
+			_haz("void", core, 210.0, 1.6, damage * 2.0, {"linger": 4.5, "pull": 170.0})
+			# Combo: a moment after the pull starts the Void Beam locks onto the core, where the castle is being dragged.
+			_combo_pos = core
+			_combo_t = 1.6 + 0.4
+			_attack_timer = maxf(_attack_timer, 4.4)
 		"blink":
 			announce.emit(Loc.t("Phase Blink!  A void nova follows!"), "skull")
 			_wind = "blink"
@@ -447,11 +459,16 @@ func _enrage() -> void:
 # Void Overlord: split in two, then punish the player if the copies survive.
 func _process_void(delta: float) -> void:
 	_lesser_timer -= delta
+	if _combo_t > 0.0:
+		_combo_t -= delta
+		if _combo_t <= 0.0 and _beam_charge <= 0.0:
+			announce.emit(Loc.t("Singularity + Void Beam!  Break free!"), "skull")
+			_start_beam(_combo_pos)
 	if _lesser_timer <= 0.0:
-		_lesser_timer = 10.0
+		_lesser_timer = 8.0
 		_check_timer = 5.0
 		for off: float in [-1.0, 1.0]:
-			summon_lesser.emit(position + Vector2(off * 80.0, 30.0), _lesser_hp, damage * 0.5, speed * 0.5)
+			summon_lesser.emit(position + Vector2(off * 80.0, 30.0), _lesser_hp, damage * 0.5, speed * 0.25)      # a quarter of the master's speed = the old half, before the boss became 2x faster
 		announce.emit(Loc.t("Void Overlord split in two! Destroy the copies within 5 seconds!"), "skull")
 		Sfx.play("boss_split", -2.0)
 	if _check_timer > 0.0:
@@ -463,7 +480,7 @@ func _process_void(delta: float) -> void:
 		if _beam_charge <= 0.0:
 			_beam_charge = 0.0
 			_beam_flash = BEAM_FLASH_TIME
-			beam.emit(damage * 3.0, position, _beam_aim)   # fires at the LOCKED spot; only moving away stops it
+			beam.emit(damage * BEAM_MULT, position, _beam_aim)   # fires at the LOCKED spot; only moving away stops it
 			Sfx.play("beam")
 	if _beam_flash > 0.0:
 		_beam_flash = maxf(_beam_flash - delta, 0.0)
@@ -471,15 +488,15 @@ func _process_void(delta: float) -> void:
 	_attack_timer -= delta
 	if _attack_timer <= 0.0 and _beam_charge <= 0.0 and _burst_left <= 0:
 		if _next_attack == "fire":
-			_burst_left = 24
+			_burst_left = 30
 			_burst_cd = 0.0
-			_attack_timer = 7.0
+			_attack_timer = 4.0
 			_next_attack = "beam"
 			announce.emit(Loc.t("Void Fire!"), "skull")
 			Sfx.play("boss_warn", -2.0)
 		else:
 			_start_beam()
-			_attack_timer = 10.0
+			_attack_timer = 6.0
 			_next_attack = "fire"
 	if _burst_left > 0:
 		_burst_cd -= delta
@@ -491,9 +508,9 @@ func _process_void(delta: float) -> void:
 			Sfx.play("mg", -10.0)
 
 # Locks the beam onto where the castle is right now, then charges.
-func _start_beam() -> void:
+func _start_beam(aim: Vector2 = Vector2.INF) -> void:
 	_beam_charge = BEAM_CHARGE_TIME
-	_beam_aim = target
+	_beam_aim = target if aim == Vector2.INF else aim
 	announce.emit(Loc.t("Void beam charging!  Move!"), "shield")
 	Sfx.play("beam_charge")
 
@@ -509,6 +526,7 @@ func take_damage(amount: float, pen: float = 0.0) -> void:
 		return
 	var par := get_parent()
 	var dealt := amount * Weapons.armor_mult(armor, pen) * dmg_taken_mult
+	Enemy.dealt_total += dealt
 	var hp_before := hp
 	hp -= dealt
 	var crit := _is_crit(dealt)

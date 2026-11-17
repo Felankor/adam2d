@@ -46,12 +46,25 @@ func _ready() -> void:
 	_show_page(0)
 	_refresh()
 
+# A container keeps the biggest size it ever had, so after a tab change the panel around the settings is shrunk to what the visible tab needs.
+func _shrink_to_fit() -> void:
+	if not is_inside_tree():
+		return
+	reset_size()
+	var n: Node = get_parent()
+	while n != null:
+		if n is PanelContainer:
+			(n as Control).reset_size()
+			break
+		n = n.get_parent()
+
 func _show_page(index: int) -> void:
 	_waiting = ""
 	for i in _pages.size():
 		_pages[i].visible = (i == index)
 		_tab_buttons[i].button_pressed = (i == index)
 	_refresh()
+	_shrink_to_fit.call_deferred()
 
 # ---------- pages ----------
 
@@ -77,15 +90,27 @@ func _build_game_page() -> VBoxContainer:
 	page.add_child(auto)
 	page.add_child(_slider_row("HUD size", Settings.hud_scale, _on_hud_scale, 0.6, 1.6, true))
 	page.add_child(_slider_row("Menu size", Settings.menu_scale, _on_menu_scale, 0.6, 1.2, true))
-	var mf := CheckButton.new()
-	mf.text = "Light menu font (applies after restart)"
-	mf.focus_mode = Control.FOCUS_NONE
-	mf.add_theme_font_size_override("font_size", PixelUI.mfs(22))
-	mf.button_pressed = Settings.menu_font == "soft"
-	mf.toggled.connect(func(on: bool) -> void:
-		Settings.menu_font = "soft" if on else "classic"
-		Settings.save())
-	page.add_child(mf)
+	var mrow := HBoxContainer.new()
+	mrow.add_theme_constant_override("separation", 14)
+	var mlab := Label.new()
+	mlab.text = "Menu font (applies after restart)"
+	mlab.custom_minimum_size = Vector2(220, 0)
+	mlab.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	mlab.add_theme_font_size_override("font_size", PixelUI.mfs(22))
+	mrow.add_child(mlab)
+	var mopt := OptionButton.new()
+	mopt.focus_mode = Control.FOCUS_NONE
+	mopt.custom_minimum_size = Vector2(260, 40)
+	mopt.add_theme_font_size_override("font_size", PixelUI.mfs(20))
+	for fid: String in HudFonts.IDS:
+		mopt.add_item(str(HudFonts.NAMES[fid]))
+	mopt.selected = maxi(HudFonts.IDS.find(Settings.menu_font), 0)
+	mopt.item_selected.connect(func(idx: int) -> void:
+		Settings.menu_font = HudFonts.IDS[idx]
+		Settings.save()
+		Sfx.play("click"))
+	mrow.add_child(mopt)
+	page.add_child(mrow)
 	if show_edit_hud:
 		page.add_child(_button("Edit HUD layout", func() -> void:
 			Sfx.play("click")
@@ -197,7 +222,8 @@ func _button(text: String, handler: Callable) -> Button:
 	var b := Button.new()
 	b.text = text
 	b.focus_mode = Control.FOCUS_NONE
-	b.custom_minimum_size = Vector2(380, 52)
+	b.custom_minimum_size = Vector2(440, 64)
+	b.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	b.add_theme_font_size_override("font_size", PixelUI.mfs(22))
 	b.pressed.connect(handler)
 	return b

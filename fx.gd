@@ -16,11 +16,16 @@ static var live: int = 0
 const MAX_SPARKS := 90
 const MAX_NUMBERS := 140
 const MAX_ALL := 220
+const VITAL_EXTRA := 80
 
-static func spawn(parent: Node, k: String, pos: Vector2, col: Color = Color.WHITE, txt: String = "", pw: float = 1.0, duration: float = 0.4) -> void:
+static func spawn(parent: Node, k: String, pos: Vector2, col: Color = Color.WHITE, txt: String = "", pw: float = 1.0, duration: float = 0.4, vital: bool = false) -> void:
 	if parent == null:
 		return
-	if live >= MAX_ALL or (k == "spark" and live >= MAX_SPARKS) or (k == "number" and live >= MAX_NUMBERS):
+	# Death effects (vital) are never dropped because the screen is busy: ordinary hit sparks and numbers are cut first.
+	if vital:
+		if live >= MAX_ALL + VITAL_EXTRA:
+			return
+	elif live >= MAX_ALL or (k == "spark" and live >= MAX_SPARKS) or (k == "number" and live >= MAX_NUMBERS):
 		return
 	var f := Fx.new()
 	f.kind = k

@@ -174,6 +174,7 @@ func take_damage(amount: float, pen: float = 0.0) -> void:
 		Sfx.play("block", -4.0)
 		return
 	var dealt := amount * Weapons.armor_mult(armor, pen) * dmg_taken_mult
+	Enemy.dealt_total += dealt
 	var hp_before := hp
 	hp -= dealt
 	var crit := _is_crit(dealt)

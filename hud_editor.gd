@@ -9,7 +9,8 @@ signal closed
 const PANEL_W := 430.0
 const DISPLAY := {
 	"layer": "In tube", "own": "Own tube", "fps": "FPS only", "row": "Row", "column": "Column",
-	"game": "Classic", "pixelify": "Pixelify", "silkscreen": "Silk",
+	"game": "Classic", "pixelify": "Pixelify", "silkscreen": "Silk", "pressstart": "Press Start",
+	"thinelectro": "Thin", "errorstate": "Error", "halfpixel": "Gothic",
 }
 
 var hud: Hud
@@ -156,15 +157,12 @@ func _build_panel() -> void:
 	scroll.add_child(_props)
 
 	v.add_child(HSeparator.new())
-	var all_row := HBoxContainer.new()
-	all_row.add_theme_constant_override("separation", 6)
-	var all_lab := _label("Font for all", 20)
-	all_lab.custom_minimum_size = Vector2(130, 0)
-	all_row.add_child(all_lab)
+	v.add_child(_label("Font for all", 20))
+	var all_row := HFlowContainer.new()
+	all_row.add_theme_constant_override("h_separation", 6)
+	all_row.add_theme_constant_override("v_separation", 6)
 	for fid: String in HudFonts.IDS:
-		var ab := _btn(_opt_name(fid), _on_all_font.bind(fid), 0, 36, 16)
-		ab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		all_row.add_child(ab)
+		all_row.add_child(_btn(_opt_name(fid), _on_all_font.bind(fid), 0, 36, 16))
 	v.add_child(all_row)
 	v.add_child(_check("Snap to grid (10 px)", _snap_on, func(on: bool) -> void: _snap_on = on))
 	v.add_child(_check("Show grid", _grid_on, func(on: bool) -> void:
@@ -275,14 +273,14 @@ func _row(r: Array) -> Control:
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 4)
 	box.add_child(_label(text, 20))
-	var opts := HBoxContainer.new()
-	opts.add_theme_constant_override("separation", 6)
+	var opts := HFlowContainer.new()
+	opts.add_theme_constant_override("h_separation", 6)
+	opts.add_theme_constant_override("v_separation", 6)
 	for o: Variant in r[3]:
 		var pick := func() -> void:
 			_put(key, o)
 			_build_props.call_deferred()
 		var b := _btn(_opt_name(o), pick, 0, 36, 16, true)
-		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.set_pressed_no_signal(str(o) == str(cur))
 		opts.add_child(b)
 	box.add_child(opts)

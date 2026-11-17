@@ -1,0 +1,32 @@
+# Builds a macOS version of the game on GitHub (no Mac needed).
+# Run it: GitHub page of the repository -> Actions -> "Export macOS build" -> Run workflow.
+# When it is green, open the run and download the "CastleInTheSky-macOS" zip at the bottom (Artifacts).
+# Needs an export preset named exactly  macOS  in the project (see MAC_TESTING.md, option B).
+name: Export macOS build
+
+on:
+  workflow_dispatch:
+
+jobs:
+  export-mac:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: chickensoft-games/setup-godot@v2
+        with:
+          version: 4.7.2          # keep this the same as the Godot you use
+          use-dotnet: false
+          include-templates: true
+
+      - name: Export
+        run: |
+          GODOT_BIN="$(command -v godot || echo "$GODOT")"
+          mkdir -p build
+          "$GODOT_BIN" --headless --import || true
+          "$GODOT_BIN" --headless --export-release "macOS" build/CastleInTheSky-mac.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CastleInTheSky-macOS
+          path: build/CastleInTheSky-mac.zip

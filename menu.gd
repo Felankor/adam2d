@@ -6,7 +6,14 @@ var _main_box: VBoxContainer
 var _diff_box: VBoxContainer
 var _slot_box: VBoxContainer
 var _new_diff: int = 0
-const PAGE_W := 1000.0
+const K := 1.0                     # launcher size factor (buttons, text, logo)
+const PAGE_W := 860.0               # panel width: about 45% of the screen so the castle painting stays visible
+const MAIN_BTN_W := 520.0           # main-menu and Back buttons: narrower than the panel and centred
+const WIDE_BTN_W := 780.0           # buttons with long labels (difficulty choice)
+const BTN_H := 76.0                 # button height: tall enough for the biggest menu font
+var _panel: PanelContainer
+var _logo: Control
+var _subtitle: Label
 var _settings: SettingsPanel
 
 func _ready() -> void:
@@ -31,7 +38,7 @@ func _ready() -> void:
 	# The menu sits in a column on the left so the castle stays visible.
 	var margin := MarginContainer.new()
 	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	margin.add_theme_constant_override("margin_left", 110)
+	margin.add_theme_constant_override("margin_left", 80)
 	margin.add_theme_constant_override("margin_right", 60)
 	add_child(margin)
 
@@ -44,20 +51,25 @@ func _ready() -> void:
 	sb.set_content_margin_all(34)
 	panel.add_theme_stylebox_override("panel", sb)
 	left.add_child(panel)
+	_panel = panel
 
 	var stack := VBoxContainer.new()
 	stack.custom_minimum_size = Vector2(PAGE_W, 0)      # every page and button lines up on one width
 	stack.add_theme_constant_override("separation", 22)
 	panel.add_child(stack)
 
-	stack.add_child(PixelLogo.new())
+	var logo := PixelLogo.new()
+	logo.set_k(0.9)
+	_logo = logo
+	stack.add_child(logo)
 
 	var subtitle := Label.new()
 	subtitle.text = "Grow your village into an Eye of End"
 	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	subtitle.add_theme_font_size_override("font_size", PixelUI.mfs(22))
+	subtitle.add_theme_font_size_override("font_size", PixelUI.mfs(int(22 * K)))
 	subtitle.add_theme_color_override("font_color", Color(1.0, 0.88, 0.55))
 	stack.add_child(subtitle)
+	_subtitle = subtitle
 
 	# ----- main buttons -----
 	_main_box = VBoxContainer.new()
@@ -71,10 +83,10 @@ func _ready() -> void:
 	_diff_box.add_theme_constant_override("separation", 12)
 	_diff_box.visible = false
 	stack.add_child(_diff_box)
-	_diff_box.add_child(PixelTitle.make("Choose your difficulty", 30))
-	_diff_box.add_child(_button("Beginner  -  the standard experience", _pick_difficulty.bind(0)))
-	_diff_box.add_child(_button("I Hate Myself  -  denser waves, more rivals, double gold", _pick_difficulty.bind(1)))
-	_diff_box.add_child(_button("Back", _show_main))
+	_diff_box.add_child(PixelTitle.make("Choose your difficulty", int(30 * K)))
+	_diff_box.add_child(_button("Beginner  -  the standard experience", _pick_difficulty.bind(0), WIDE_BTN_W))
+	_diff_box.add_child(_button("I Hate Myself  -  denser waves, more rivals, double gold", _pick_difficulty.bind(1), WIDE_BTN_W))
+	_diff_box.add_child(_button("Back", _show_main, MAIN_BTN_W))
 
 	# ----- save slots (load or choose where a new game is saved) -----
 	_slot_box = VBoxContainer.new()
@@ -91,12 +103,16 @@ func _ready() -> void:
 		GameState.reopen_slots = false
 		_open_slots.call_deferred("load")
 
-func _button(text: String, handler: Callable) -> Button:
+func _button(text: String, handler: Callable, width: float = 0.0) -> Button:
 	var b := Button.new()
 	b.text = text
-	b.add_theme_font_size_override("font_size", PixelUI.mfs(24))
-	b.custom_minimum_size = Vector2(0, 64)
-	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	b.add_theme_font_size_override("font_size", PixelUI.mfs(int(24 * K)))
+	if width > 0.0:
+		b.custom_minimum_size = Vector2(width, BTN_H)
+		b.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	else:
+		b.custom_minimum_size = Vector2(0, BTN_H)
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	b.alignment = HORIZONTAL_ALIGNMENT_CENTER
 	if not handler.is_null():
 		b.pressed.connect(handler)
@@ -110,16 +126,21 @@ func _build_main() -> void:
 	if newest >= 0:
 		var info := GameState.slot_info(newest)
 		var label := Loc.t("Continue  (Slot %d, Wave %d, %s)") % [newest + 1, int(info["level"]), Loc.t(GameState.DIFFICULTY_NAMES[int(info["difficulty"])])]
-		_main_box.add_child(_button(label, _load_slot.bind(newest)))
-		_main_box.add_child(_button("Load Game", _open_slots.bind("load")))
-	_main_box.add_child(_button("New Game", _on_new_game))
-	_main_box.add_child(_button("Settings", _on_settings))
-	_main_box.add_child(_button("Quit", _on_quit))
+		_main_box.add_child(_button(label, _load_slot.bind(newest), MAIN_BTN_W))
+		_main_box.add_child(_button("Load Game", _open_slots.bind("load"), MAIN_BTN_W))
+	_main_box.add_child(_button("New Game", _on_new_game, MAIN_BTN_W))
+	_main_box.add_child(_button("Settings", _on_settings, MAIN_BTN_W))
+	_main_box.add_child(_button("Quit", _on_quit, MAIN_BTN_W))
 
 # Shows exactly one page (main, difficulty, slots, settings) and hides all the others.
 func _show_page(page: Control) -> void:
 	for p: Control in [_main_box, _diff_box, _slot_box, _settings]:
 		p.visible = p == page
+	# the big logo only shows on the first two pages, so the settings and save lists never run off the screen
+	var show_logo := page == _main_box or page == _diff_box
+	_logo.visible = show_logo
+	_subtitle.visible = show_logo
+	_panel.reset_size.call_deferred()        # shrink the panel to the page that is showing now (it never shrank back before)
 
 func _show_main() -> void:
 	_show_page(_main_box)
@@ -139,7 +160,7 @@ func _open_slots(mode: String) -> void:
 	for c in _slot_box.get_children():
 		_slot_box.remove_child(c)        # take them out at once so old rows never overlap the new list
 		c.queue_free()
-	_slot_box.add_child(PixelTitle.make("Load which save?" if mode == "load" else "Save the new game in which slot?", 30))
+	_slot_box.add_child(PixelTitle.make("Load which save?" if mode == "load" else "Save the new game in which slot?", int(30 * K)))
 	for i in GameState.SLOT_COUNT:
 		var info := GameState.slot_info(i)
 		var row := HBoxContainer.new()
@@ -151,7 +172,7 @@ func _open_slots(mode: String) -> void:
 		else:
 			text = Loc.t("Slot %d  -  Wave %d, %s   %s") % [i + 1, int(info["level"]), Loc.t(GameState.DIFFICULTY_NAMES[int(info["difficulty"])]), GameState.time_text(int(info["time"]))]
 		var btn := _button(text, Callable())
-		btn.add_theme_font_size_override("font_size", PixelUI.mfs(22))
+		btn.add_theme_font_size_override("font_size", PixelUI.mfs(int(22 * K)))
 		row.add_child(btn)
 		if mode == "load":
 			btn.disabled = info.is_empty()
@@ -168,8 +189,8 @@ func _open_slots(mode: String) -> void:
 		if not info.is_empty():
 			var del := Button.new()
 			del.text = "Delete"
-			del.add_theme_font_size_override("font_size", PixelUI.mfs(22))
-			del.custom_minimum_size = Vector2(180, 64)
+			del.add_theme_font_size_override("font_size", PixelUI.mfs(int(22 * K)))
+			del.custom_minimum_size = Vector2(180 * K, BTN_H)
 			var confirm := [false]
 			del.pressed.connect(func() -> void:
 				if not confirm[0]:
@@ -184,9 +205,9 @@ func _open_slots(mode: String) -> void:
 			row.add_child(del)
 		else:
 			var gap := Control.new()                 # keeps empty rows the same width as the others
-			gap.custom_minimum_size = Vector2(180, 64)
+			gap.custom_minimum_size = Vector2(180 * K, BTN_H)
 			row.add_child(gap)
-	_slot_box.add_child(_button("Back", _show_main if mode == "load" else _on_new_game))
+	_slot_box.add_child(_button("Back", _show_main if mode == "load" else _on_new_game, MAIN_BTN_W))
 
 func _start_new(slot: int) -> void:
 	Sfx.play("click")

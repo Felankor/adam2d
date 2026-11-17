@@ -31,24 +31,25 @@ static func font() -> Font:
 		_font = ff
 	return _font
 
-# The font of the menus and windows. "soft" is Pixelify Sans, a lighter pixel font than the heavy game font.
+# The font of the menus and windows (Settings > Menu font): one of HudFonts.IDS.
 static func ui_font() -> Font:
-	if Settings.menu_font == "classic":
-		return font()
-	return HudFonts.get_font("pixelify")
+	return HudFonts.get_font(Settings.menu_font)
 
-# Outline width: the soft font gets a thinner outline (a thick one is what makes text look heavy).
+# Outline width: lighter fonts get a thinner outline (a thick one is what makes text look heavy).
 static func ol(n: int) -> int:
-	if Settings.menu_font == "classic":
+	if Settings.menu_font == "game":
 		return n
 	return (n + 1) >> 1
 
-# Menu text size: the game font keeps its pixel grid, the soft font is cut to the same letter height
-# (it is narrower and lighter, so the layouts have room to spare).
+# Menu text size: the game font keeps its pixel grid, Pixelify is cut to the same letter height, the other
+# fonts snap to their own pixel grid.
 static func mfs(n: int) -> int:
-	if Settings.menu_font == "classic":
+	var id := Settings.menu_font
+	if id == "game":
 		return fs(n)
-	return maxi(12, int(roundf(float(n) * 1.08 / 2.0)) * 2)
+	if id == "pixelify":
+		return maxi(12, int(roundf(float(n) * 1.08 / 2.0)) * 2)
+	return HudFonts.size_for(id, float(n))
 
 # Called when the settings are loaded: the theme's default font follows the menu font setting.
 static func refresh_theme_font() -> void:
