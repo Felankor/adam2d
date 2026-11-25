@@ -54,11 +54,13 @@ var _spr3: Sprite2D
 var _flags: FlagLayer
 var _chains: ChainLayer
 var _use3d: bool = false
+var _spr3_f: float = 1.0
 
 # Waving flag cloth on top of the 3D castle (the poles are part of the model).
 class FlagLayer extends Node2D:
 	var tier: int = 0
 	var s: float = 2.0
+	var cell: float = 3.0          # size of one cloth cell on screen (the same pixel size as the mobs)
 	var bob: float = 0.0
 	var tm: float = 0.0
 	func _draw() -> void:
@@ -66,14 +68,14 @@ class FlagLayer extends Node2D:
 			var p := CastleArt.screen_of(float(f[0]), float(f[1]), float(f[2]))
 			var base := Vector2(p.x, 11.0 + p.y) * s + Vector2(0.0, bob)
 			var col: Color = f[3]
-			for i in 7:
+			for i in 6:
 				var wave := roundf(sin(tm * 5.0 + float(i) * 0.75) * 0.9 + float(i) * 0.12)
-				var x := roundf(base.x + float(i) * s)
-				var y := roundf(base.y + wave * s)
-				draw_rect(Rect2(x, y, ceilf(s), ceilf(s * 2.0)), col.lightened(0.15))
-				draw_rect(Rect2(x, y + ceilf(s * 2.0), ceilf(s), ceilf(s * 2.0)), col.darkened(0.22))
-				draw_rect(Rect2(x, y - ceilf(s * 0.6), ceilf(s), ceilf(s * 0.6)), Color(0.05, 0.04, 0.09))
-				draw_rect(Rect2(x, y + ceilf(s * 4.0), ceilf(s), ceilf(s * 0.6)), Color(0.05, 0.04, 0.09))
+				var x := roundf(base.x + float(i) * cell)
+				var y := roundf(base.y + wave * cell)
+				draw_rect(Rect2(x, y, ceilf(cell), ceilf(cell * 2.0)), col.lightened(0.15))
+				draw_rect(Rect2(x, y + ceilf(cell * 2.0), ceilf(cell), ceilf(cell * 2.0)), col.darkened(0.22))
+				draw_rect(Rect2(x, y - ceilf(cell * 0.6), ceilf(cell), ceilf(cell * 0.6)), Color(0.05, 0.04, 0.09))
+				draw_rect(Rect2(x, y + ceilf(cell * 4.0), ceilf(cell), ceilf(cell * 0.6)), Color(0.05, 0.04, 0.09))
 
 # Iron shackle chains hanging from the sides of the Eye of End; they sway and swing as the castle hovers.
 class ChainLayer extends Node2D:
@@ -196,14 +198,19 @@ func _update_3d(tier: int, r: float, hurt: float, tm: float, bob: float, drop: f
 	var tex: Texture2D = CastleArt.tex(tier)
 	if _spr3.texture != tex:
 		_spr3.texture = tex
-		_spr3.offset = Vector2(0.0, 11.0 - (CastleArt.top_row() - float(CastleArt.H) * 0.5))
-	var sc := r / 48.0                   # one art pixel on screen
-	_spr3.scale = Vector2(sc, sc)
-	_bob = roundf(bob / sc) * sc
+		# the picture is a re-sampled one: put the island-top row on the castle's anchor (11 raw art pixels below the middle)
+		var f := CastleArt.factor(tier)
+		var top_r := CastleArt.top_row() * float(tex.get_height()) / float(CastleArt.H)
+		_spr3.offset = Vector2(0.0, 11.0 * (r / 48.0) / CastleArt.PIXEL - (top_r - float(tex.get_height()) * 0.5))
+		_spr3_f = f
+	var sc := r / 48.0                   # world pixels per raw art unit (flag and chain positions are in raw units)
+	_spr3.scale = Vector2(CastleArt.PIXEL, CastleArt.PIXEL)
+	_bob = roundf(bob / CastleArt.PIXEL) * CastleArt.PIXEL
 	_spr3.position = Vector2(0.0, _bob)
 	_spr3.modulate = Color(1, 1, 1).lerp(Color(1.0, 0.3, 0.3), clampf(hurt, 0.0, 1.0) * 0.6)
 	_flags.tier = tier
 	_flags.s = sc
+	_flags.cell = CastleArt.PIXEL
 	_flags.bob = _bob
 	_flags.tm = tm
 	_flags.queue_redraw()

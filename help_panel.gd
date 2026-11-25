@@ -153,9 +153,9 @@ func refresh() -> void:
 	_text(Loc.t("Defend your castle. Enemies walk in one by one - shoot them to earn gold and XP. Clear every wave to grow from a Village into an Eye of End. Every 10th wave is a boss wave."))
 
 	_heading("Quick start")
-	_step_row("sight", Loc.t("1. Aim with the mouse, hold the left button to fire. Every shot costs mana."))
+	_step_row("sight", Loc.t("1. Aim with the mouse, hold the left button to fire."))
 	_step_row("coin", Loc.t("2. Kills give gold and XP. Don't shoot refugees - they become your helpers."))
-	_step_row("star", Loc.t("3. Each new XP level gives 5 stat points. Open the Castle window and spend them."))
+	_step_row("star", Loc.t("3. Each new XP level lets you choose one of three buffs."))
 	_step_row("laser", Loc.t("4. Spend gold on better weapons (Castle window) and use your skills at the right moment."))
 
 	# ---------------- the screen ----------------
@@ -167,11 +167,11 @@ func refresh() -> void:
 	_legend(2, Loc.t("Your helpers (gunners, scientists, engineers, mechanics) and how many you have."))
 	_legend(3, Loc.t("Gold, and the FPS counter with the 1% low."))
 	_legend(4, Loc.t("Minimap: you are orange, enemies red, bosses purple, refugees green."))
-	_legend(5, Loc.t("Health (red, left) and Mana (blue, right) on the bronze bar, with your level in the middle. The ice-blue layer on top of the health tube is the Energy Shield."))
+	_legend(5, Loc.t("Health (red, left) and Shield (blue, right) on the bronze bar, with your level in the middle."))
 	_legend(6, Loc.t("Your current weapon."))
 	_legend(7, Loc.t("Skills: Overcharge, Repair."))
 	_legend(8, Loc.t("XP bar. When it fills you gain a level."))
-	_legend(9, Loc.t("Blinks when you have unspent stat points."))
+	_legend(9, Loc.t("Blinks when you have level-up picks waiting."))
 
 	# ---------------- controls ----------------
 	_heading("Controls")
@@ -187,12 +187,12 @@ func refresh() -> void:
 	_key_row("Skill slot 3 (Repair: costs gold)", [Keybinds.key_text("skill_3")], "repair")
 	_key_row("Skill slot 4", [Keybinds.key_text("skill_4")])
 	_key_row("Pause menu / go back", ["Esc"])
-	_key_row("Spend a stat point", [Loc.t("Number keys 1-9 or click")])
+	_key_row("Choose a buff", [Loc.t("Number keys 1-3 or click")])
 	_text(Loc.t("You can change these keys in Settings > Controls."))
 
 	# ---------------- weapons ----------------
-	_heading("Mana and weapons")
-	_text(Loc.t("Every shot costs mana, and mana refills over time. Upgrade your weapon in the Castle window - auto-weapons use it too, up to the Gatling Gun. Each upgrade has a price in gold:"))
+	_heading("Weapons")
+	_text(Loc.t("Upgrade your weapon in the Castle window - auto-weapons use it too, up to the Gatling Gun. Each upgrade has a price in gold:"))
 	var ids := ["mg", "mgun", "gatling", "rocket", "laser", "void"]
 	var notes := [
 		Loc.t("Very fast, cheap, but weak: useless against armor."),
@@ -215,20 +215,16 @@ func refresh() -> void:
 		_bar_row(str(ids[i]), Loc.t(Weapons.name_of(i)), m, bar_cols[i], "%d%%" % roundi(m * 100.0))
 	_text(Loc.t("Your castle has armor too (it grows with the castle stage and the Armor stat). Enemy shells and beams have their own penetration."))
 
-	_icon_row("eshield", Loc.t("Energy Shield: a cyan barrier that soaks damage (after armor) before your health, from physical and energy weapons alike. It recharges when you have not been hit for a few seconds. Void Gun shots are TRUE DAMAGE: they ignore both armor and the Energy Shield. Spend points on the Energy Shield stat to make it bigger."), 40)
 
 	_heading("Critical hits")
 	_icon_row("damage", Loc.t("A single hit that removes more than 25% of a target's max health is a CRITICAL HIT: a bigger number, a burst effect, and its health bar shatters. It works on you too - watch your own bar!"), 40)
 
 	# ---------------- leveling ----------------
 	_heading("Leveling")
-	_text(Loc.t("Every kill gives XP (bosses and Rogue Castles give a lot). Each new level gives you 5 stat points. Open the Castle window and spend them: every point adds +1% to the CURRENT value of a stat, so points build on each other."))
-	var stat_ids := [["damage", "Weapon damage"], ["atkspeed", "Attack speed"], ["regen", "Mana regen"], ["energy", "Max mana"], ["walls", "Max health"], ["speed", "Move speed"], ["autorate", "Auto fire rate"], ["shield", "Armor"], ["eshield", "Energy Shield"]]
+	_text(Loc.t("Every kill gives XP (bosses and Rogue Castles give a lot). Each new level lets you choose one of three buffs (the offers depend on your castle class). Buffs add a percentage to the CURRENT value of a stat, so they build on each other. Change the castle class in the hub, in the Castle window."))
+	var stat_ids := [["damage", "Weapon damage"], ["atkspeed", "Attack speed"], ["regen", "Mana regen"], ["energy", "Max mana"], ["walls", "Max health"], ["speed", "Move speed"], ["autorate", "Auto fire rate"], ["shield", "Armor"]]
 	for s in stat_ids:
 		_icon_row(str(s[0]), Loc.t(str(s[1])), 36)
-	_text(Loc.t("Wrong click? The Reset points button (click twice) gives every spent point back."))
-	_text(Loc.t("Tip: hold the left mouse button on a + to spend points faster. The amount doubles every second (1, 2, 4, 8, 16, 32)."))
-	_icon_row("coin", Loc.t("Exchange: trade gold for stat points in the Castle window - %d gold for %d points to start, and every purchase makes the next one 10%% more expensive. Hold the button to buy faster.") % [CastleMenu.EXCHANGE_GOLD, CastleMenu.EXCHANGE_POINTS], 40)
 
 	# ---------------- skills ----------------
 	_heading("Skills")
@@ -239,9 +235,9 @@ func refresh() -> void:
 	_heading("Refugees")
 	_enemy_row(["ally"], Loc.t("Refugees (red clothes, white flag) are innocent - don't shoot them! Let one reach your castle and it becomes a helper. They stop coming in the Space chapter:"))
 	_ally_row("gunner", Loc.t("Builds an extra auto-weapon"))
-	_ally_row("scientist", Loc.t("Weapon damage +15%"))
-	_ally_row("engineer", Loc.t("Mana regen +5 per second"))
-	_ally_row("energy", Loc.t("Base Mana +20"))
+	_ally_row("scientist", Loc.t("Weapon damage +1%"))
+	_ally_row("engineer", Loc.t("Mana regen +1%"))
+	_ally_row("energy", Loc.t("Base Mana +1%"))
 	_ally_row("mechanic", Loc.t("Slowly repairs the castle"))
 
 	# ---------------- enemies ----------------
@@ -257,6 +253,38 @@ func refresh() -> void:
 	_heading("Chapter enemies")
 	_enemy_row(["worm"], Loc.t("Mudland - Bloodworm: tiny and very fast, with double the health it used to have. They come in swarms."))
 	_enemy_row(["golem"], Loc.t("Rocky Mountain - Golem (armor 30): throws rocks from far away and slams the ground to summon 3 Earthworms under your castle. When it is destroyed it leaves two smaller golems behind."))
+	_enemy_row(["stalker"], Loc.t("Dark Continent - Stalker (armor 4): a fast night predator. Dodges shots and pounces on your castle from a distance."))
+	_enemy_row(["herald"], Loc.t("Forgotten Realm - Herald (armor 10): a flying angel that hovers at range and shoots bolts of light. Shoot the bolts down!"))
+	_enemy_row(["thornling"], Loc.t("Cursed Garden - Thornling (armor 12): a snapping plant on root legs. It spits thorns from a distance; shoot them down."))
+	_enemy_row(["angler"], Loc.t("Deep Ocean - Angler (armor 18): an armoured seabed hunter with a glowing lure and a vicious bite."))
+	_enemy_row(["destroyer"], Loc.t("Deep Ocean - Destroyer (armor 10): a small, fast warship that fires rapidly and dodges shots."))
+	_enemy_row(["cruiser"], Loc.t("Deep Ocean - Cruiser (armor 38): a heavy warship with twin guns, slow and thickly armoured."))
+	_enemy_row(["missilecruiser"], Loc.t("Deep Ocean - Missile Cruiser (armor 26): fires guided missiles from very far away. Shoot the missiles down!"))
+	_enemy_row(["carrier"], Loc.t("Deep Ocean - Aircraft Carrier (armor 55): a rare, enormous mini boss. It launches dozens of jets of every kind at your castle - shoot them down!"))
+	_enemy_row(["troll"], Loc.t("Dark Continent - Troll (armor 8): a big, slow brute with a club."))
+	_enemy_row(["trollwarrior"], Loc.t("Dark Continent - Troll Warrior (armor 28): horned helm, shield and axe. Hard to hurt."))
+	_enemy_row(["trollcaptain"], Loc.t("Dark Continent - Troll Captain (armor 18): carries a war banner and throws rocks from a distance."))
+	_enemy_row(["trollking"], Loc.t("Dark Continent - Troll King (armor 30): hurls boulders and calls a Troll, a Warrior and a Captain."))
+	_enemy_row(["titan"], Loc.t("Dark Continent - Titan (armor 45): the biggest, toughest troll. Heaves huge boulders from far away."))
+	_enemy_row(["ant"], Loc.t("Dark Continent - Ant Soldier: the smallest ant. Fast and frail, they come in swarms."))
+	_enemy_row(["antwarden"], Loc.t("Dark Continent - Royal Guard Warden (armor 28): a slow, thickly armoured ant with huge pincers."))
+	_enemy_row(["antspitter"], Loc.t("Dark Continent - Royal Guard Spitter: spits acid from a distance. Shoot the acid down!"))
+	_enemy_row(["antflyer"], Loc.t("Dark Continent - Royal Guard Flyer: a winged ant that flies over everything and dives at your castle."))
+	_enemy_row(["antking"], Loc.t("Dark Continent - Ant King (armor 30): lobs acid globs and calls one Royal Guard of each kind. When they are all gone, he calls three more."))
+	_enemy_row(["antqueen"], Loc.t("Dark Continent - Ant Queen (armor 20): barely moves, but keeps laying Ant Soldiers. Kill her first."))
+	_enemy_row(["cursed"], Loc.t("Cursed Garden - Cursed Soldier: the ordinary soldier in a dark, cursed tone. Rushes your castle."))
+	_enemy_row(["crpg"], Loc.t("Cursed Garden - Cursed RPG Soldier: fires rockets from a distance. Shoot the rockets down!"))
+	_enemy_row(["cmini"], Loc.t("Cursed Garden - Cursed Minigunner: a steady stream of weak bullets from far away."))
+	_enemy_row(["cgren"], Loc.t("Cursed Garden - Cursed Grenadier: lobs grenades that burst where they land."))
+	_enemy_row(["aatruck"], Loc.t("Cursed Garden - AA Halftrack (armor 20): an armoured vehicle with an anti-air turret that fires flak at your flying castle."))
+	_enemy_row(["soul"], Loc.t("Forgotten Realm - Lesser Soul: a pale, unarmed spirit, a grey-white cousin of the Sinner. Fast and fragile, they come in crowds."))
+	_enemy_row(["wisp"], Loc.t("Forgotten Realm - Soul Wisp: a flying spark of light that bursts against your castle."))
+	_enemy_row(["fallen"], Loc.t("Forgotten Realm - Fallen Angel (armor 25): a winged mini-boss. White invincibility, super-speed dash and jump, a light blade that deals true damage, up to 3 duplicates, and a call for Lesser Souls."))
+	_enemy_row(["phantom"], Loc.t("Deep Ocean - F-4 Phantom (armor 8): a jet that makes strafing runs and fires two guided missiles per pass. Shoot the missiles down!"))
+	_enemy_row(["falcon"], Loc.t("Deep Ocean - F-16 Falcon (armor 4): a very fast jet that dodges shots and rakes your castle with tracer bursts."))
+	_enemy_row(["warthog"], Loc.t("Deep Ocean - A-10 Warthog (armor 30): a tough, slow jet with an armour-piercing cannon."))
+	_enemy_row(["stealth"], Loc.t("Deep Ocean - Black Stealth Bomber (armor 20): a black flying wing with twin laser guns. Fast shots that bite through armour."))
+	_enemy_row(["fighter"], Loc.t("Fighter: a fast kamikaze jet launched by an Aircraft Carrier."))
 	_enemy_row(["earthworm"], Loc.t("Earthworm: the grey cousin of the Bloodworm with half its health. Golems summon them under your castle."))
 	_enemy_row(["demon"], Loc.t("Hell - Demon (armor 20): throws fireballs that burst the moment they land, and spawns 5 Sinners. Kill every Sinner and it spawns 5 more at once!"))
 	_enemy_row(["sinner"], Loc.t("Sinner: a black, unarmed zombie that shambles toward your castle. Demons keep spawning them."))

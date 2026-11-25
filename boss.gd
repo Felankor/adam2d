@@ -16,6 +16,13 @@ signal bolt(origin: Vector2, dmg: float)
 signal beam(dmg: float, origin: Vector2, aim: Vector2)
 signal void_fire(origin: Vector2, aim: Vector2, dmg: float)
 signal summon_bees(pos: Vector2, count: int)
+signal summon_golems(center: Vector2, count: int)
+signal summon_stalkers(pos: Vector2, count: int)
+signal summon_heralds(pos: Vector2, count: int)
+signal summon_thornlings(pos: Vector2, count: int)
+signal summon_anglers(pos: Vector2, count: int)
+signal summon_trolls(pos: Vector2, count: int)
+signal summon_pillars(center: Vector2, count: int)
 signal bomb(origin: Vector2, dest: Vector2)
 signal announce(text: String, icon: String)
 signal breath(origin: Vector2, angle: float, reach: float, half: float, dmg: float)
@@ -23,9 +30,16 @@ signal hell_arrow(origin: Vector2, aim: Vector2, dmg: float)
 signal raged
 signal hazard(style: String, pos: Vector2, radius: float, delay: float, dmg: float, opts: Dictionary)
 
-const ABILITIES := ["speed", "regen", "titan", "hell", "void"]
+# Indexed by look id: Greenland, Mudland, High Mountains, Dark Continent, Forgotten Realm, Cursed Garden, Deep Ocean, Hell, Space
+# (the order they are played in is Main.CONTENT).
+# The three unbuilt chapters borrow a kit until they get their own boss.
+const ABILITIES := ["speed", "regen", "titan", "dark", "seraph", "queen", "leviathan", "hell", "void"]
+# Stat tier per chapter (armor, speed and size grow with it): Hell and Space keep their old values.
+const TIER := [0, 1, 2, 3, 3, 2, 2, 3, 4]      # by look id (not chapter position): Dark Continent and Forgotten Realm are late chapters now, Cursed Garden and Deep Ocean mid
 const BEAM_CHARGE_TIME := 1.6
 const BEAM_FLASH_TIME := 0.5
+# Early bosses (Garden, Mud, Stone) carry less health than the plain boss formula gives.
+const EARLY_HP := [0.55, 0.5, 0.5]
 const BIOME_STEP := 10               # levels per biome (Mud Colossus is 10 levels before the Stone Titan)
 
 var ability: String = "speed"
@@ -33,10 +47,14 @@ var biome_idx: int = 0
 var boss_name: String = "Boss"
 var phase: int = 1
 var regen_rate: float = 0.0          # fraction of max health regained per second
+const REGEN_DELAY := 3.0             # the Mud Colossus only heals after this many seconds without taking damage
+var _regen_pause: float = 0.0
+var _last_hp: float = INF
 
 var _phase_hp: float = 0.0
 var _grow: float = 1.0
 var _wander_target: Vector2 = Vector2.ZERO
+var _brain: Brain = null            # shared tactical AI (brain.gd): where to stand and how to circle
 var _wander_timer: float = 0.0
 var _summon_timer: float = 4.0
 var _summon_interval: float = 5.0
@@ -66,9 +84,13 @@ const BREATH_HALF := 0.4             # half-angle of the flame cone, radians
 var enraged: bool = false
 # ---- extra ability kits (Mud Colossus, Stone Titan, Void Overlord) ----
 const KITS := {
-	"regen": ["geysers", "barrage", "quake"],
+	"regen": ["geysers", "barrage", "quake", "golems"],
 	"titan": ["meteors", "spikes", "hurl"],
 	"void": ["singularity", "blink", "orbs"],
+	"dark": ["boulders", "leap", "dash", "pillars", "roar"],
+	"seraph": ["smite", "judgement", "feathers", "guard"],
+	"queen": ["vines", "pollen", "seeds", "brood"],
+	"leviathan": ["whirlpool", "tsunami", "bubbles", "school"],
 }
 var _kit_cd: float = 6.0
 var _combo_t: float = -1.0           # Void Overlord: seconds until the Void Beam of a Singularity combo
@@ -78,6 +100,9 @@ var _kit_last: String = ""
 var _wind: String = ""               # an attack winding up ("quake", "blink")
 var _wind_t: float = 0.0
 var _wind_max: float = 1.0
+var _dash_t: float = 0.0              # Elite Titan: super-speed dash
+var _dash_dir: Vector2 = Vector2.ZERO
+var _leap_pos: Vector2 = Vector2.ZERO
 var _q_kind: String = ""             # a queued series of projectiles
 var _q_left: int = 0
 var _q_cd: float = 0.0
@@ -99,26 +124,29 @@ static func make_boss(lvl: int, biome: int) -> Boss:
 	b.biome_idx = biome
 	var ab: String = ABILITIES[biome]
 	b.ability = ab
+	if ab == "void" or ab == "seraph":
+		b.domain_override = Enemy.Domain.AIR        # the Void Overlord floats above everything
 	var base_hp := (250.0 + 90.0 * lvl) * 2.0 * 10.0 * GameState.hp_mult()      # bosses have 20x the original health
 	b.hp = base_hp
-	b.speed = (80.0 + biome * 8.0) * GameState.speed_mult()
+	var tier: int = int(TIER[clampi(biome, 0, TIER.size() - 1)])
+	b.speed = (80.0 + tier * 8.0) * GameState.speed_mult()
 	b.damage = 2.5 * (1.0 + 0.25 * float(lvl - 1))
 	b.reward = (40 + lvl * 6) * 10          # 10x gold
-	b.radius = 56.0 * SIZE_K * (1.0 + 0.12 * float(maxi(biome - 1, 0)))     # tier 3 and later bosses are bigger still
-	b.armor = 15.0 + 10.0 * float(biome)      # 15 / 25 / 35 / 45 / 55 armor
+	b.radius = 56.0 * SIZE_K * (1.0 + 0.12 * float(maxi(tier - 1, 0)))     # tier 3 and later bosses are bigger still
+	b.armor = 15.0 + 10.0 * float(tier)      # 15 / 25 / 35 / 45 / 55 armor
 	b.armor_pen = 20.0
 	b.dodge_chance = 0.65
 	b.dodge_cd_time = 1.4
 	b.dodge_dash = 520.0
-	b._summon_interval = 5.0
+	b._summon_interval = 3.5
 	b._summon_count = 5
-	b._summon_timer = 4.0
-	b._bolt_interval = 4.0 / GameState.speed_mult()
+	b._summon_timer = 2.5
+	b._bolt_interval = 2.4 / GameState.speed_mult()
 	b._bolt_timer = b._bolt_interval
 	match ab:
 		"speed":
 			# Garden Warden: twice as fast as before, bee swarms, Petek Bombs and a machine-gun-like orb stream
-			b.hp = base_hp * 0.9
+			b.hp = base_hp * 0.9 * float(EARLY_HP[0])
 			b.speed *= 4.8
 			b.dodge_dash = 720.0
 			b._summon_interval = 3.0
@@ -128,17 +156,58 @@ static func make_boss(lvl: int, biome: int) -> Boss:
 			b._bolt_timer = b._bolt_interval
 			b._bomb_timer = 3.0
 		"regen":
-			b.regen_rate = 0.015
-			b.dmg_taken_mult = 0.75
-			b.speed *= 0.9
+			b.regen_rate = 0.003            # 0.3% of max health per second, and only while it is not being hit
+			b.dmg_taken_mult = 0.85
+			b.hp = base_hp * float(EARLY_HP[1])
+			b.speed = 190.0 * GameState.speed_mult()          # was 79: the Colossus kept up with nobody
 		"titan":
 			# starts tougher than the Mud Colossus (the boss 10 levels earlier)
-			var mud_hp := (250.0 + 90.0 * float(maxi(lvl - BIOME_STEP, 1))) * 2.0 * 10.0 * GameState.hp_mult()
-			b._phase_hp = maxf(base_hp * 0.4, mud_hp * 1.1)
+			var mud_hp := (250.0 + 90.0 * float(maxi(lvl - BIOME_STEP, 1))) * 2.0 * 10.0 * GameState.hp_mult() * float(EARLY_HP[1])
+			b._phase_hp = maxf(base_hp * 0.4 * float(EARLY_HP[2]), mud_hp * 1.1)
+			b.speed = 175.0 * GameState.speed_mult()          # was 96
 			b.hp = b._phase_hp
+		"dark":
+			# Elite Titan: super-speed dashes, huge leaps, boulder volleys, pinning pillars and a horde of trolls
+			b.hp = base_hp * 1.0
+			b.speed = 240.0 * GameState.speed_mult()
+			b._bolt_interval = 3.4 / GameState.speed_mult()
+			b._bolt_timer = b._bolt_interval
+			b._summon_interval = 7.0
+			b._summon_count = 3
+			b._summon_timer = 4.0
+		"leviathan":
+			# Leviathan: a vast deep-sea hunter: whirlpools, tidal waves and a school of anglers
+			b.hp = base_hp * 1.1
+			b.speed = 185.0 * GameState.speed_mult()
+			b.dmg_taken_mult = 0.9
+			b._bolt_interval = 3.0 / GameState.speed_mult()
+			b._bolt_timer = b._bolt_interval
+			b._summon_interval = 7.0
+			b._summon_count = 3
+			b._summon_timer = 4.0
+		"queen":
+			# Thorn Queen: a rooted giant bloom that heals when left alone, calls thornlings and fills the ground with thorns
+			b.hp = base_hp * 0.95
+			b.speed = 165.0 * GameState.speed_mult()
+			b.regen_rate = 0.002
+			b.dmg_taken_mult = 0.9
+			b._bolt_interval = 3.2 / GameState.speed_mult()
+			b._bolt_timer = b._bolt_interval
+			b._summon_interval = 7.0
+			b._summon_count = 3
+			b._summon_timer = 4.0
+		"seraph":
+			# Fallen Seraph: floats above everything, rains light and calls heralds
+			b.hp = base_hp * 0.9
+			b.speed = 210.0 * GameState.speed_mult()
+			b._bolt_interval = 3.0 / GameState.speed_mult()
+			b._bolt_timer = b._bolt_interval
+			b._summon_interval = 8.0
+			b._summon_count = 2
+			b._summon_timer = 5.0
 		"void":
 			b.hp = base_hp * 10.0                 # the Void Overlord has 10x the health of an ordinary boss ...
-			b.speed *= 2.0                        # ... and moves twice as fast
+			b.speed *= 2.2                        # ... and moves a bit more than twice as fast
 			b._lesser_hp = base_hp * 0.06         # (the lesser copies stay as they were)
 			b._lesser_timer = 5.0
 		"hell":
@@ -190,12 +259,20 @@ func _layer_tex(sp: Sprite2D, idx: int) -> void:
 func _update_boss_sprites() -> void:
 	if _spr_body == null:
 		return
-	var k := radius / MobArt.BOSS_R * (1.0 + _scale_pop * 2.0)
+	var k := radius / MobArt.BOSS_R * (1.0 + _scale_pop * 2.0) * (0.5 if ability == "dark" else (0.62 if ability == "seraph" else (0.8 if ability == "queen" else (0.7 if ability == "leviathan" else 1.0))))
 	var idx := 0
 	if ability == "hell":
 		idx = int(fposmod(_t * 5.0, TAU) / TAU * 4.0)
 	elif ability == "void":
 		idx = 1 if _beam_charge > 0.0 else 0           # the iris turns red while the beam charges
+	elif ability == "dark":
+		idx = int(floorf(_t * (6.0 if _dash_t > 0.0 else 3.4))) % 4     # the Elite Titan stomps (faster while dashing)
+	elif ability == "seraph":
+		idx = int(floorf(_t * 2.2)) % 2                # wings
+	elif ability == "queen":
+		idx = int(floorf(_t * 3.0)) % 4                # roots creep
+	elif ability == "leviathan":
+		idx = int(floorf(_t * 2.6)) % 4                # coils sway
 	if _spr_back != null:
 		_layer_tex(_spr_back, int(floorf(_t * 1.8 * 100.0 / TAU)) % 10)      # the ring of leaves spins
 		_spr_back.scale = Vector2(k, k)
@@ -208,26 +285,44 @@ func _update_boss_sprites() -> void:
 func _pick_wander() -> void:
 	var a := randf() * TAU
 	_wander_target = target + Vector2.RIGHT.rotated(a) * randf_range(330.0, 560.0)
-	_wander_timer = randf_range(1.5, 3.0)
+	_wander_timer = randf_range(1.0, 2.2)
 
 func _process(delta: float) -> void:
 	_tick_common(delta)
 	_t += delta
 	_update_boss_sprites()
-	_wander_timer -= delta
-	if _wander_timer <= 0.0 or position.distance_to(_wander_target) < 30.0:
-		_pick_wander()
-	var vel := (_wander_target - position).normalized() * _move_speed()
-	_heading = vel.angle()
+	if _brain == null:
+		_brain = Brain.new(0.6, 0.5, 330.0, 560.0)
+		_brain.dodges = false        # Bosses already have their own dash dodge
+		_brain.strafe_speed = 0.85   # and keep moving: they circle briskly, never idle
+	_brain.aggression = 0.85 if enraged else 0.5       # an enraged boss presses in
+	var vel := _brain.tick(delta, position, target, hp / maxf(max_hp, 1.0), 1.0, _move_speed(), radius)
+	_heading = vel.angle() if vel.length_squared() > 1.0 else (target - position).angle()
 	vel += _update_dodge(delta)      # bosses sidestep shots that fly straight at them
 	if _wind != "":
 		vel *= 0.15
 	if _hell_mode == "charge" or _hell_mode == "breath":
 		vel *= 0.3                   # the Hell Lord plants itself while it breathes fire
+	if _dash_t > 0.0:
+		_dash_t -= delta
+		vel = _dash_dir * speed * 3.4
+		_heading = _dash_dir.angle()
+		if position.distance_to(target) < radius + 70.0:
+			_dash_t = 0.0
+		if _dash_t <= 0.0:
+			_dash_t = 0.0
+			shake.emit(18.0)
+			Sfx.play("boss_phase", -4.0)
+			_haz("ring", position, 300.0, 0.0, damage * 1.5, {"ring_speed": 600.0, "slow_factor": 0.6, "slow_time": 1.5})
 	position += vel * delta
 
-	if regen_rate > 0.0 and hp < max_hp:
-		hp = minf(hp + max_hp * regen_rate * delta, max_hp)
+	if regen_rate > 0.0:
+		if hp < _last_hp - 0.01:
+			_regen_pause = REGEN_DELAY
+		_regen_pause = maxf(_regen_pause - delta, 0.0)
+		if hp < max_hp and _regen_pause <= 0.0:
+			hp = minf(hp + max_hp * regen_rate * delta, max_hp)
+		_last_hp = hp
 
 	if ability == "hell":
 		_process_hell(delta)
@@ -237,10 +332,18 @@ func _process(delta: float) -> void:
 		_process_void(delta)
 	else:
 		_summon_timer -= delta
-		if _summon_timer <= 0.0:
+		if _summon_timer <= 0.0 and ability != "regen":          # the Mud Colossus calls no soldiers
 			_summon_timer = _summon_interval
 			if ability == "speed":
 				summon_bees.emit(position, _summon_count)       # the Garden Warden calls bees, not soldiers
+			elif ability == "dark":
+				summon_trolls.emit(position, _summon_count)      # the Elite Titan calls trolls and titans
+			elif ability == "seraph":
+				summon_heralds.emit(position, _summon_count)    # the Seraph calls heralds
+			elif ability == "queen":
+				summon_thornlings.emit(position, _summon_count) # the Queen calls thornlings
+			elif ability == "leviathan":
+				summon_anglers.emit(position, _summon_count)    # the Leviathan calls anglers
 			else:
 				summon.emit(position, _summon_count)
 			Sfx.play("boss_summon", -4.0)
@@ -254,7 +357,7 @@ func _process(delta: float) -> void:
 				announce.emit(Loc.t("Petek Bombs incoming!  Fly out of the ring!"), "skull")
 				Sfx.play("boss_warn", -2.0)
 		_bolt_timer -= delta
-		if _bolt_timer <= 0.0:
+		if _bolt_timer <= 0.0 and ability != "regen":            # ... and throws no energy orbs
 			_bolt_timer = _bolt_interval
 			bolt.emit(position, damage)
 			Sfx.play("bolt")
@@ -278,7 +381,7 @@ func _kit_tick(delta: float) -> void:
 			launch.emit(_q_kind, position, aim, damage * _q_dmg)
 			Sfx.play("bolt", -4.0)
 	_kit_cd -= delta
-	if _kit_cd > 0.0 or _wind != "" or _q_left > 0 or _beam_charge > 0.0:
+	if _kit_cd > 0.0 or _wind != "" or _q_left > 0 or _beam_charge > 0.0 or _dash_t > 0.0:
 		return
 	var names: Array = KITS[ability]
 	var pick: String = names[randi() % names.size()]
@@ -287,7 +390,7 @@ func _kit_tick(delta: float) -> void:
 	if pick == _kit_last:
 		pick = names[(names.find(pick) + 1) % names.size()]
 	_kit_last = pick
-	_kit_cd = (6.0 if ability == "regen" else (7.0 - 0.7 * float(phase) if ability == "titan" else 4.5)) * randf_range(0.85, 1.15)
+	_kit_cd = (3.0 if ability == "dark" or ability == "seraph" or ability == "queen" or ability == "leviathan" else 3.4 if ability == "regen" else (4.6 - 0.5 * float(phase) if ability == "titan" else 3.6)) * randf_range(0.85, 1.15)
 	_kit_start(pick)
 
 func _haz(style: String, pos: Vector2, rad: float, delay: float, dmg: float, opts: Dictionary = {}) -> void:
@@ -312,6 +415,9 @@ func _kit_start(pick: String) -> void:
 			_q_gap = 0.45
 			_q_spread = 90.0
 			_q_dmg = 1.2
+		"golems":
+			announce.emit(Loc.t("Mud Golems!  Smash them!"), "skull")
+			summon_golems.emit(target, 3)
 		"quake":
 			announce.emit(Loc.t("Quake Slam!  Brace yourself!"), "skull")
 			_wind = "quake"
@@ -338,6 +444,119 @@ func _kit_start(pick: String) -> void:
 			_q_spread = 40.0
 			_q_dmg = 2.4
 			_add_shake(14.0)
+		"whirlpool":
+			announce.emit(Loc.t("Whirlpool!  Fight the current!"), "skull")
+			var core := target + Vector2(randf_range(-80.0, 80.0), randf_range(-80.0, 80.0))
+			_haz("whirl", core, 200.0, 1.5, damage * 1.8, {"linger": 4.5, "pull": 160.0})
+		"tsunami":
+			announce.emit(Loc.t("Tidal Wave!  Brace yourself!"), "skull")
+			_wind = "tide"
+			_wind_max = 1.0
+			_wind_t = 1.0
+		"bubbles":
+			announce.emit(Loc.t("Bubble Barrage!  Pop them!"), "skull")
+			_q_kind = "bubble"
+			_q_left = 8
+			_q_cd = 0.4
+			_q_gap = 0.22
+			_q_spread = 90.0
+			_q_dmg = 0.9
+		"school":
+			announce.emit(Loc.t("The Leviathan calls its school!"), "skull")
+			summon_anglers.emit(position, 4)
+		"vines":
+			announce.emit(Loc.t("Thorn Vines!  Keep moving!"), "skull")
+			var nv := 8
+			for i in nv:
+				var pv := position.lerp(target, float(i + 1) / float(nv))
+				_haz("spike", pv, 66.0, 0.7 + 0.12 * i, damage * 1.2, {"tint": Color(0.55, 1.0, 0.5)})
+			_haz("spike", target, 105.0, 0.7 + 0.12 * nv, damage * 1.6, {"tint": Color(0.55, 1.0, 0.5)})
+		"pollen":
+			announce.emit(Loc.t("Pollen Cloud!  Poison is rising!"), "skull")
+			_haz("spore", target, 105.0, 1.3, damage * 1.1, {"linger": 4.5, "slow_factor": 0.6, "slow_time": 2.5})
+			for i in 4:
+				_haz("spore", _around_base(70.0, 300.0), 105.0, 1.3 + 0.18 * i, damage * 1.1, {"linger": 4.5, "slow_factor": 0.6, "slow_time": 2.5})
+		"seeds":
+			announce.emit(Loc.t("Thorn Seeds!  Shoot them down!"), "skull")
+			_q_kind = "thorn"
+			_q_left = 8
+			_q_cd = 0.4
+			_q_gap = 0.22
+			_q_spread = 90.0
+			_q_dmg = 0.9
+		"brood":
+			announce.emit(Loc.t("The Queen calls her brood!"), "skull")
+			summon_thornlings.emit(position, 4)
+		"smite":
+			announce.emit(Loc.t("Divine Smite!  Leave the golden circles!"), "skull")
+			_haz("smite", target, 80.0, 1.5, damage * 1.6)
+			for i in 3 + phase:
+				_haz("smite", _around_base(40.0, 330.0), 80.0, 1.3 + 0.2 * i, damage * 1.6)
+		"judgement":
+			announce.emit(Loc.t("Judgement!  Brace yourself!"), "skull")
+			_wind = "judge"
+			_wind_max = 1.0
+			_wind_t = 1.0
+		"feathers":
+			announce.emit(Loc.t("Feather Storm!  Shoot the light down!"), "skull")
+			_q_kind = "holy"
+			_q_left = 8
+			_q_cd = 0.4
+			_q_gap = 0.2
+			_q_spread = 70.0
+			_q_dmg = 0.9
+		"guard":
+			announce.emit(Loc.t("The Seraph calls its Heralds!"), "skull")
+			summon_heralds.emit(position, 3)
+		"spores":
+			announce.emit(Loc.t("Spore Cloud!  Poison is rising!"), "skull")
+			_haz("spore", target, 105.0, 1.3, damage * 1.1, {"linger": 4.5, "slow_factor": 0.6, "slow_time": 2.5})
+			for i in 4:
+				_haz("spore", _around_base(70.0, 300.0), 105.0, 1.3 + 0.18 * i, damage * 1.1, {"linger": 4.5, "slow_factor": 0.6, "slow_time": 2.5})
+		"thorns":
+			announce.emit(Loc.t("Bone Thorns erupt!"), "skull")
+			var n2 := 7
+			for i in n2:
+				var p2 := position.lerp(target, float(i + 1) / float(n2))
+				_haz("spike", p2, 66.0, 0.7 + 0.12 * i, damage * 1.3)
+			_haz("spike", target, 105.0, 0.7 + 0.12 * n2, damage * 1.7)
+		"howl":
+			announce.emit(Loc.t("Savage Howl!  Brace yourself!"), "skull")
+			_wind = "howl"
+			_wind_max = 1.0
+			_wind_t = 1.0
+		"pounce":
+			announce.emit(Loc.t("Behemoth Pounce!  Move away!"), "skull")
+			_wind = "pounce"
+			_wind_max = 0.8
+			_wind_t = 0.8
+		"boulders":
+			announce.emit(Loc.t("Boulder Volley!  Shoot the boulders down!"), "skull")
+			_q_kind = "boulder"
+			_q_left = 5
+			_q_cd = 0.4
+			_q_gap = 0.4
+			_q_spread = 110.0
+			_q_dmg = 1.3
+		"leap":
+			announce.emit(Loc.t("Titan Leap!  Move away!"), "skull")
+			_leap_pos = target + (position - target).normalized() * (radius + 50.0)
+			_haz("spike", _leap_pos, radius + 70.0, 0.9, damage * 1.8)
+			_wind = "leap"
+			_wind_max = 0.9
+			_wind_t = 0.9
+		"dash":
+			announce.emit(Loc.t("Titan Dash!  Get out of the way!"), "skull")
+			_dash_dir = (target - position).normalized()
+			_dash_t = 1.1
+		"pillars":
+			announce.emit(Loc.t("Titan Pillars!  Destroy them to break free!"), "skull")
+			summon_pillars.emit(target, 3 + (1 if phase >= 2 else 0))
+		"roar":
+			announce.emit(Loc.t("Titan Roar!  Trolls incoming!"), "skull")
+			_wind = "roar"
+			_wind_max = 1.0
+			_wind_t = 1.0
 		"singularity":
 			announce.emit(Loc.t("Singularity!  The void pulls you in!"), "skull")
 			var core := target + Vector2(randf_range(-80.0, 80.0), randf_range(-80.0, 80.0))
@@ -370,6 +589,43 @@ func _kit_fire(w: String) -> void:
 			Sfx.play("boss_phase", -2.0)
 			var reach := position.distance_to(target) + 260.0
 			_haz("ring", position, reach, 0.0, damage * 2.0, {"ring_speed": 420.0, "slow_factor": 0.5, "slow_time": 3.0})
+		"tide":
+			shake.emit(26.0)
+			Sfx.play("boss_phase", -2.0)
+			var tr := position.distance_to(target) + 300.0
+			_haz("ring", position, tr, 0.0, damage * 1.8, {"ring_speed": 480.0, "slow_factor": 0.4, "slow_time": 3.0})
+		"judge":
+			shake.emit(26.0)
+			Sfx.play("boss_phase", -2.0)
+			var jr := position.distance_to(target) + 260.0
+			_haz("ring", position, jr, 0.0, damage * 1.8, {"ring_speed": 500.0, "slow_factor": 0.5, "slow_time": 2.5})
+		"howl":
+			shake.emit(24.0)
+			Sfx.play("boss_phase", -2.0)
+			summon_stalkers.emit(position, 2)
+			var hr := position.distance_to(target) + 260.0
+			_haz("ring", position, hr, 0.0, damage * 1.2, {"ring_speed": 460.0, "slow_factor": 0.45, "slow_time": 3.0})
+		"leap":
+			Fx.spawn(get_parent(), "explosion", position, Color(1.0, 0.6, 0.2), "", 1.2, 0.5)
+			position = _leap_pos
+			Fx.spawn(get_parent(), "explosion", position, Color(1.0, 0.6, 0.2), "", 1.8, 0.6)
+			shake.emit(32.0)
+			Sfx.play("boss_phase", -2.0)
+			_haz("ring", position, 420.0, 0.0, damage * 2.0, {"ring_speed": 620.0, "slow_factor": 0.5, "slow_time": 2.5})
+		"roar":
+			shake.emit(24.0)
+			Sfx.play("boss_phase", -2.0)
+			summon_trolls.emit(position, 3)
+			var rr := position.distance_to(target) + 260.0
+			_haz("ring", position, rr, 0.0, damage * 1.2, {"ring_speed": 460.0, "slow_factor": 0.45, "slow_time": 2.5})
+		"pounce":
+			Fx.spawn(get_parent(), "explosion", position, Color(0.3, 1.0, 0.8), "", 1.2, 0.5)
+			var away := (position - target).normalized()
+			position = target + away * (radius + 140.0)
+			Fx.spawn(get_parent(), "explosion", position, Color(0.3, 1.0, 0.8), "", 1.6, 0.6)
+			shake.emit(26.0)
+			Sfx.play("boss_phase", -3.0)
+			_haz("ring", position, 380.0, 0.0, damage * 1.7, {"ring_speed": 640.0})
 		"blink":
 			Fx.spawn(get_parent(), "explosion", position, Color(0.7, 0.4, 1.0), "", 1.4, 0.6)
 			position = _around_base(430.0, 600.0)
@@ -436,7 +692,7 @@ func _process_hell(delta: float) -> void:
 func _end_hell_attack(next: String) -> void:
 	_hell_mode = ""
 	_hell_next = next
-	_hell_cd = 1.5 if enraged else 3.0
+	_hell_cd = 1.1 if enraged else 2.2
 
 func _breath_reach() -> float:
 	return radius * 4.2
@@ -490,13 +746,13 @@ func _process_void(delta: float) -> void:
 		if _next_attack == "fire":
 			_burst_left = 30
 			_burst_cd = 0.0
-			_attack_timer = 4.0
+			_attack_timer = 3.2
 			_next_attack = "beam"
 			announce.emit(Loc.t("Void Fire!"), "skull")
 			Sfx.play("boss_warn", -2.0)
 		else:
 			_start_beam()
-			_attack_timer = 6.0
+			_attack_timer = 4.8
 			_next_attack = "fire"
 	if _burst_left > 0:
 		_burst_cd -= delta
@@ -529,6 +785,8 @@ func take_damage(amount: float, pen: float = 0.0) -> void:
 	Enemy.dealt_total += dealt
 	var hp_before := hp
 	hp -= dealt
+	if _brain != null:
+		_brain.note_damage(dealt / maxf(max_hp, 1.0))
 	var crit := _is_crit(dealt)
 	_record_chunk(hp_before, crit)
 	_flash = 0.1
@@ -558,7 +816,7 @@ func _grow_phase() -> void:
 	_grow *= 1.5
 	max_hp = _phase_hp * _grow
 	hp = max_hp
-	speed *= 1.5
+	speed *= 1.25
 	damage *= 1.5
 	radius *= 1.5
 	_scale_pop = 0.3
@@ -590,6 +848,14 @@ func _draw_under(r: float) -> void:
 			pass
 		"titan":
 			pass
+		"dark":
+			pass
+		"queen":
+			pass
+		"leviathan":
+			PixelFx.disc(self, Vector2.ZERO, r * 1.4, Color(0.3, 0.7, 1.0, 0.10))
+		"seraph":
+			PixelFx.disc(self, Vector2.ZERO, r * 1.5, Color(1.0, 0.9, 0.5, 0.10))
 		"void":
 			PixelFx.disc(self, Vector2.ZERO, r * 1.38, Color(0.5, 0.2, 0.9, 0.14))
 			for i in 8:
@@ -609,7 +875,7 @@ func _draw_over() -> void:
 	var r := radius
 	if _wind != "":
 		var k := 1.0 - clampf(_wind_t / _wind_max, 0.0, 1.0)
-		var wc := Color(1.0, 0.4, 0.2, 0.6) if _wind == "quake" else Color(0.75, 0.4, 1.0, 0.7)
+		var wc := Color(1.0, 0.4, 0.2, 0.6) if _wind == "quake" else (Color(1.0, 0.55, 0.2, 0.7) if ability == "dark" else Color(1.0, 0.9, 0.45, 0.7) if ability == "seraph" else Color(0.4, 0.8, 1.0, 0.7) if ability == "leviathan" else Color(0.75, 0.4, 1.0, 0.7))
 		PixelFx.ring(_ov, Vector2.ZERO, r * (1.9 - 0.8 * k), wc, 4.0)
 		PixelFx.ring(_ov, Vector2.ZERO, r * (1.2 + 0.6 * k), wc, 3.0)
 	var s := 1.0 + _scale_pop * 2.0
@@ -628,6 +894,18 @@ func _draw_over() -> void:
 			PixelFx.line(_ov, Vector2(0, r * 0.33), Vector2(0, r * 0.57), cross, 5.0)
 		"titan":
 			PixelFx.disc(_ov, Vector2.ZERO, r * 0.2, Color(1.0, 0.6, 0.15, 0.25 + 0.3 * sin(_t * 3.0 + phase)))
+		"leviathan":
+			var lp := 0.5 + 0.5 * sin(_t * 2.4)
+			PixelFx.ring(_ov, Vector2.ZERO, r * 1.12 + lp * 4.0, Color(0.4, 0.9, 1.0, 0.12 + 0.2 * lp), 4.0)
+		"queen":
+			var qp := 0.5 + 0.5 * sin(_t * 2.0)
+			PixelFx.ring(_ov, Vector2.ZERO, r * 1.1 + qp * 4.0, Color(0.9, 0.2, 0.5, 0.12 + 0.2 * qp), 4.0)
+		"seraph":
+			var hp2 := 0.5 + 0.5 * sin(_t * 2.5)
+			PixelFx.ring(_ov, Vector2.ZERO, r * 1.15 + hp2 * 5.0, Color(1.0, 0.9, 0.45, 0.15 + 0.25 * hp2), 4.0)
+		"dark":
+			var gp := 0.5 + 0.5 * sin(_t * 3.0)
+			PixelFx.ring(_ov, Vector2.ZERO, r * 1.1 + gp * 4.0, Color(1.0, 0.5, 0.15, 0.12 + 0.2 * gp), 4.0)
 		"void":
 			PixelFx.arc(_ov, Vector2.ZERO, r * 0.86, _t, _t + 3.6, Color(0.7, 0.4, 1.0, 0.85), 3.0)
 			PixelFx.arc(_ov, Vector2.ZERO, r * 0.62, -_t * 1.3, -_t * 1.3 + 3.0, Color(0.5, 0.3, 0.95, 0.8), 3.0)
@@ -715,24 +993,33 @@ func _draw_beam() -> void:
 		PixelFx.line(_ov, Vector2.ZERO, to_base, Color(1.0, 0.8, 1.0, 0.9 * a), 22.0 * a + 3.0)
 
 func _draw_boss_bar() -> void:
-	var w := maxf(240.0, radius * 2.4)
-	var h := 20.0
-	var top := -radius * 1.4 - 36.0
+	var w := maxf(300.0, radius * 2.4)
+	var h := 28.0
+	var top := -radius * 1.4 - 52.0
 	var pos := Vector2(-w * 0.5, top)
 	var frac := clampf(hp / max_hp, 0.0, 1.0)
-	_ov.draw_rect(Rect2(pos, Vector2(w, h)), Color(0.08, 0.0, 0.12, 0.85))
+	_ov.draw_rect(Rect2(pos - Vector2(3, 3), Vector2(w + 6, h + 6)), Color(0.03, 0.0, 0.06, 0.9))
+	_ov.draw_rect(Rect2(pos, Vector2(w, h)), Color(0.08, 0.0, 0.12, 0.9))
 	_ov.draw_rect(Rect2(pos, Vector2(w * frac, h)), Color(0.62, 0.2, 0.92))
+	_ov.draw_rect(Rect2(pos, Vector2(w * frac, 4.0)), Color(0.82, 0.55, 1.0, 0.8))
 	_draw_chunk(pos.x, pos.y, w, h, 1.0, _ov)
 	_ov.draw_rect(Rect2(pos, Vector2(w, h)), Color(0.85, 0.6, 1.0), false, 2.0)
-	_draw_armor_tag(pos + Vector2(-34.0, 3.0), _ov)
-	var font := ThemeDB.fallback_font
-	var value := "%d/%d" % [ceili(hp), ceili(max_hp)]
+	_draw_armor_tag(pos + Vector2(-34.0, 7.0), _ov)
 	var title := boss_name
 	if ability == "titan":
 		title = Loc.t("%s  -  Phase %d/3") % [boss_name, phase]
 	elif enraged:
 		title = "%s  -  %s" % [boss_name, Loc.t("ENRAGED")]
-	_ov.draw_string_outline(font, pos + Vector2(0, 15), value, HORIZONTAL_ALIGNMENT_CENTER, w, PixelUI.fs(15), 4, Color.BLACK)
-	_ov.draw_string(font, pos + Vector2(0, 15), value, HORIZONTAL_ALIGNMENT_CENTER, w, PixelUI.fs(15), Color.WHITE)
-	_ov.draw_string_outline(font, pos + Vector2(0, -6), title, HORIZONTAL_ALIGNMENT_CENTER, w, PixelUI.fs(16), 4, Color.BLACK)
-	_ov.draw_string(font, pos + Vector2(0, -6), title, HORIZONTAL_ALIGNMENT_CENTER, w, PixelUI.fs(16), Color(0.9, 0.75, 1.0))
+	# the name sits above the bar with a clear gap, the numbers inside it; both shrink until they fit
+	var font := PixelUI.ui_font()
+	var tsz := 24
+	while tsz > 10 and font.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, PixelUI.mfs(tsz)).x > w:
+		tsz -= 1
+	var tw := font.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, PixelUI.mfs(tsz)).x
+	PixelUI.text(_ov, Vector2(pos.x + (w - tw) * 0.5, pos.y - 12.0), title, tsz, Color(0.92, 0.78, 1.0), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 4)
+	var value := "%d / %d" % [ceili(hp), ceili(max_hp)]
+	var vsz := 20
+	while vsz > 10 and font.get_string_size(value, HORIZONTAL_ALIGNMENT_LEFT, -1, PixelUI.mfs(vsz)).x > w - 16.0:
+		vsz -= 1
+	var vw := font.get_string_size(value, HORIZONTAL_ALIGNMENT_LEFT, -1, PixelUI.mfs(vsz)).x
+	PixelUI.text(_ov, Vector2(pos.x + (w - vw) * 0.5, pos.y + h - 7.0), value, vsz, Color.WHITE, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 4)

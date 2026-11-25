@@ -67,6 +67,9 @@ func _process(delta: float) -> void:
 	for b in Field.bolts():
 		if b.is_queued_for_deletion():
 			continue
+		var eb := b as EnemyBolt
+		if eb == null or not eb.is_guided():
+			continue
 		if position.distance_to(b.position) <= 20.0:
 			Fx.spawn(get_parent(), "spark", b.position, Color(0.8, 0.4, 1.0), "", 1.1, 0.35)
 			Sfx.play("hit")

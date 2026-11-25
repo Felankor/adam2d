@@ -25,7 +25,7 @@ func _ready() -> void:
 
 	var panel := PanelContainer.new()
 	var sb := PixelUI.box(Color(0.1, 0.05, 0.04, 0.97), Color(0.7, 0.32, 0.18))
-	sb.set_content_margin_all(40)
+	sb.set_content_margin_all(46)
 	panel.add_theme_stylebox_override("panel", sb)
 	center.add_child(panel)
 	PixelUI.fit(panel)

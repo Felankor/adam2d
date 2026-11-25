@@ -5,8 +5,8 @@ const PATH := "user://settings.cfg"
 # The game is designed for a 1920x1080 virtual screen. Godot scales it to
 # the real window, so 1080p, 2K (1440p) and 4K monitors all look sharp.
 const WORLD_SIZE := Vector2(1920, 1080)
-const VIEW_ZOOM := 0.75    # default zoom and the size of the play area (0.75 = 2560x1440)
-const ZOOM_MIN := 0.5      # mouse-wheel zoom limits
+const VIEW_ZOOM := 0.6     # default zoom and the size of the play area (0.6 = 3200x1800, was 0.75 = 2560x1440)
+const ZOOM_MIN := 0.4      # mouse-wheel zoom limits
 const ZOOM_MAX := 1.5
 
 # The part of the map the camera actually shows.
@@ -73,6 +73,7 @@ static func save() -> void:
 	cfg.set_value("ui", "menu_font", menu_font)
 	for a in Keybinds.ORDER:
 		cfg.set_value("keys", a, Keybinds.get_key(a))
+	cfg.set_value("keys", "ver", 2)
 	HudLayout.save_to(cfg)
 	cfg.save(PATH)
 

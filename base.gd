@@ -11,7 +11,7 @@ signal burning(dps: float)
 signal status(text: String, kind: String)
 
 const TIER_NAMES := ["Hoverin Village", "High Town", "Flyin City", "Fortress of the Wind", "Capital", "Battlestation", "Juggernaut", "Dreadnaught", "Galactus", "Eye of End"]
-const TIER_HP := [20, 40, 70, 110, 160, 230, 310, 400, 520, 650]
+const TIER_HP := [32, 60, 95, 130, 175, 235, 310, 400, 520, 650]     # the first tiers got a boost now that nothing shields you for free
 const TIER_COLORS := [
 	Color(0.55, 0.40, 0.25),
 	Color(0.65, 0.50, 0.30),
@@ -27,7 +27,12 @@ const TIER_COLORS := [
 const MAX_AUTO := 12
 # Auto-weapon slots on the island: each castle tier has a fixed number of them.
 const AUTO_SLOTS := [2, 3, 4, 6, 8, 9, 10, 11, 12, 12]
-const SLOT_ORDER := [90.0, 30.0, 150.0, 0.0, 180.0, 330.0, 210.0, 60.0, 120.0, 300.0, 240.0, 270.0]
+# Gunner platforms hover around the castle (one per auto-weapon). Each picks its target in its own way;
+# most of them simply shoot whatever is nearest to THEM.
+const PLATFORM_MODES := ["near", "near", "threat", "near", "weak", "near", "strong", "near", "far", "near", "random", "near"]
+const MODE_COLORS := {"near": Color(1.0, 0.95, 0.7), "threat": Color(1.0, 0.3, 0.25), "weak": Color(0.4, 1.0, 0.45),
+	"strong": Color(1.0, 0.6, 0.2), "far": Color(0.4, 0.7, 1.0), "random": Color(0.8, 0.5, 1.0)}
+const PLATFORM_TURN := 11.0            # radians per second the turret can turn
 const ISLAND_F := [0.68, 0.76, 0.85, 0.93, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
 const RANGE_STEP := 40.0
 const MAX_RANGE := 1000.0
@@ -36,19 +41,31 @@ const BARRIER_COOLDOWN := 10.0
 const SHIELD_BASE := 0.25          # Energy Shield capacity: 25% of max health, +1% per Energy Shield point
 const SHIELD_DELAY := 4.0          # seconds without damage before it recharges
 const SHIELD_RECHARGE := 0.2       # then it refills 20% of its capacity per second
-const BOOST_DURATION := 5.0        # Overcharge skill: +30% weapon damage for 5 s
+const BOOST_DURATION := 8.0        # Overcharge skill: +30% weapon damage for 5 s
 const BOOST_COOLDOWN := 15.0
 const BOOST_MULT := 1.3
 const REPAIR_COOLDOWN := 1.0       # Repair skill: costs gold, heals 50% of max health
 const REPAIR_HEAL := 0.5
+const DASH_COOLDOWN := 6.0         # Scout skill: a burst of speed, no damage taken while it lasts
+const DASH_TIME := 0.24
+const DASH_SPEED := 1500.0
+const PUSH_COOLDOWN := 12.0        # Bulwark skill: a shockwave that throws mobs back
+const PUSH_RADIUS := 430.0
+const PUSH_FORCE := 800.0
 
 var tier: int = 0
 var max_hp: float = 20.0
 var hp: float = 20.0
 var hp_bonus: int = 0
-var xp_level: int = 1               # castle level (XP): every new level gives 5 stat points
+var xp_level: int = 1               # castle level (XP): every new level gives one buff to choose
+var can_fire: bool = true            # false in the safe hub
 var xp: int = 0                     # XP towards the next level
-var free_points: int = 0            # unspent stat points (5 per level)
+var free_points: int = 0            # old unspent stat points (only used while loading an old save)
+var picks: int = 0                  # level-up buff choices waiting (one per level)
+var cls: String = "standard"        # castle class (see CastleClass)
+var dash_time: float = 0.0
+var _dash_dir: Vector2 = Vector2.RIGHT
+var push_fx: float = 0.0            # 1 -> 0 while the Mob Push ring expands
 var stat_pts: Dictionary = {}       # points spent per stat id; each point = +1% over the default
 
 var max_energy: float = 100.0
@@ -66,10 +83,15 @@ var auto_interval: float = 1.5
 var auto_range: float = 450.0
 var laser: bool = false            # laser SIGHT (aim line), not the Laser Gun
 
+# Balance test switches: with MANA_ON false every shot is free (limited only by fire rate); with HELPERS_ON false refugees do not appear and cannot be hired.
+const MANA_ON := false
+const HELPERS_ON := false
+
 var gunners: int = 0
 var scientists: int = 0
 var engineers: int = 0
 var mechanics: int = 0
+var mana_helpers: int = 0          # refugees that became Mana Keepers (+1% max mana each)
 
 # Active skills: 4 slots, triggered with the skill keybinds (V, B, N, M by default).
 var skill_slots: Array[String] = ["", "overcharge", "repair", ""]     # slot 1 (Barrier) is removed for now
@@ -97,11 +119,20 @@ var _vel: Vector2 = Vector2.ZERO
 
 var aim_angle: float = 0.0
 var _fire_cd: float = 0.0
-var _auto_timer: float = 0.0
+var _plat_ang: Array[float] = []        # where each platform hovers (degrees, eased)
+var _plat_aim: Array[float] = []        # the direction each turret points
+var _plat_cd: Array[float] = []
+var _plat_flash: Array[float] = []
+var _plat_recoil: Array[float] = []
+var _plat_in: Array[float] = []         # 0..1 appear animation
+var _plat_target: Array = []
+var _plat_look: Array[float] = []       # time until the platform looks for a new target
 var _heal_acc: float = 0.0
 var _anim: float = 0.0
 var _hurt: float = 0.0
 var _muzzle: float = 0.0
+var _gat_spin: float = 0.0          # Gatling barrel turn (cycles)
+var _gat_rate: float = 0.0
 var _pix: PixelCastle = null
 const MAX_SHOTS := 400
 var _zap_cd: float = 0.0
@@ -110,13 +141,14 @@ const LEVELUP_FX := 1.4
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_PAUSABLE
+	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST      # the baked turret is pixel art
 	if PixelCastle.ENABLED:
 		z_index = 1                 # the pixel castle (z -1) lands on the normal layer; barrel and barrier draw above it
 		_pix = PixelCastle.new()
 		add_child(_pix)
 
 func body_radius() -> float:
-	return 42.0 + tier * 5.0
+	return (42.0 + tier * 5.0) * CastleArt.SCALE
 
 # Radius of the whole floating base (the hitbox and the size of every effect around the castle).
 func hit_radius() -> float:
@@ -135,13 +167,13 @@ func add_xp(amount: int) -> int:
 	while xp >= xp_needed(xp_level):
 		xp -= xp_needed(xp_level)
 		xp_level += 1
-		free_points += 5
+		picks += 1
 		gained += 1
 	return gained
 
 # Max health including the Max health stat points (+1% per point).
 func hp_total() -> float:
-	return float(TIER_HP[tier] + hp_bonus) * pow(1.01, float(int(stat_pts.get("health", 0))))
+	return float(TIER_HP[tier] + hp_bonus) * pow(1.01, float(int(stat_pts.get("health", 0)))) * CastleClass.hp(cls)
 
 # Spends one stat point (each point = +1% over the default value).
 func spend_point(id: String) -> bool:
@@ -183,7 +215,42 @@ func spend_point(id: String) -> bool:
 
 # Energy Shield capacity. Compounds like every other stat: +1% per point.
 func shield_cap() -> float:
+	if not shield_on():
+		return 0.0
 	return max_hp * SHIELD_BASE * pow(1.01, float(int(stat_pts.get("eshield", 0))))
+
+# The Energy Shield is a build now: it exists once you hold at least one Shield point (a level-up card).
+func shield_on() -> bool:
+	return int(stat_pts.get("eshield", 0)) > 0
+
+# A level-up buff: `pts` stat points on one stat (each point is +1% over the current value), without spending free points.
+func grant_buff(id: String, pts: int) -> void:
+	var keep := free_points
+	free_points = pts
+	for i in pts:
+		if not spend_point(id):
+			break
+	free_points = keep
+	queue_redraw()
+
+# Changes the castle class: health, armor, speed and the class skill (slot 1) follow.
+func set_class(id: String) -> void:
+	if not CastleClass.valid(id) or id == cls:
+		return
+	var frac := hp / maxf(max_hp, 1.0)
+	cls = id
+	max_hp = hp_total()
+	hp = clampf(frac * max_hp, 1.0, max_hp)
+	shield = -1.0
+	dash_time = 0.0
+	_apply_class_skill()
+	queue_redraw()
+
+func _apply_class_skill() -> void:
+	var sk := CastleClass.skill(cls)
+	skill_slots[0] = sk
+	skill_cd[0] = 0.0
+	skill_cd_max[0] = DASH_COOLDOWN if sk == "dash" else (PUSH_COOLDOWN if sk == "push" else 1.0)
 
 # Takes back EVERY spent stat point (for wrong clicks) and returns how many were refunded.
 func reset_stat_points() -> int:
@@ -243,11 +310,11 @@ func heal(amount: float) -> void:
 
 # Castle armor: 3 per castle stage plus 0.5 per Armor stat point.
 func armor_points() -> float:
-	return 3.0 * float(tier) + 0.5 * float(int(stat_pts.get("armor", 0)))
+	return maxf(3.0 * float(tier) + 0.5 * float(int(stat_pts.get("armor", 0))) + CastleClass.armor(cls), 0.0)
 
 # pen = armor penetration of the attacker. Poison ignores armor.
 func take_damage(amount: float, pen: float = 0.0) -> void:
-	if hp <= 0.0:
+	if hp <= 0.0 or dash_time > 0.0:
 		return
 	var dealt := amount
 	var absorbed := 0.0
@@ -315,14 +382,115 @@ func shove(v: Vector2) -> void:
 func max_auto() -> int:
 	return AUTO_SLOTS[clampi(tier, 0, AUTO_SLOTS.size() - 1)]
 
-# Where weapon slot i sits relative to the castle position (on the rim of the island top).
-func slot_pos(i: int, r: float) -> Vector2:
-	var a := deg_to_rad(float(SLOT_ORDER[i]))
+# Where platform i hovers, relative to the castle (an ellipse around the island, in the same 55 degree view as the castle).
+func platform_pos(i: int, r: float) -> Vector2:
+	var a := deg_to_rad(_plat_ang[i])
+	var s := r / 48.0
+	var rx := r + 66.0
 	if tier < CastleArt.TIERS:
-		var s := r / 48.0
-		var rx := 94.0 * float(ISLAND_F[tier]) * s * 0.84
-		return Vector2(cos(a) * rx, 11.0 * s + sin(a) * rx * 0.72)
-	return Vector2.RIGHT.rotated(a) * (r + 8.0)
+		rx = 94.0 * float(ISLAND_F[tier]) * s * 0.84 + 62.0
+	return Vector2(cos(a) * rx, 11.0 * s + sin(a) * rx * 0.72)
+
+func _ensure_platforms() -> void:
+	var n := PLATFORM_MODES.size()
+	while _plat_ang.size() < n:
+		_plat_ang.append(90.0)
+		_plat_aim.append(0.0)
+		_plat_cd.append(randf() * 1.0)
+		_plat_flash.append(0.0)
+		_plat_recoil.append(0.0)
+		_plat_in.append(0.0)
+		_plat_target.append(null)
+		_plat_look.append(randf() * 0.3)
+
+# Evenly spread, symmetric around the castle (2 = left and right, 4 = diagonals, ...).
+func _platform_goal(i: int) -> float:
+	var n := maxi(auto_cannons, 1)
+	return 90.0 + 180.0 / float(n) + 360.0 * float(i) / float(n)
+
+func _platform_bob(i: int) -> float:
+	return sin(_anim * 1.7 + float(i) * 1.3) * 4.0
+
+func _platform_world(i: int) -> Vector2:
+	return position + platform_pos(i, body_radius()) + Vector2(0.0, _platform_bob(i) - 5.0)
+
+# Chooses a target for platform i. Only mobs inside the weapon range of the PLATFORM count.
+func _pick_target(i: int, from: Vector2) -> Enemy:
+	var mode: String = PLATFORM_MODES[i]
+	var cands: Array[Enemy] = []
+	for e in Field.enemies():
+		if not e.dead and from.distance_to(e.global_position) <= auto_range:
+			cands.append(e)
+	if cands.is_empty():
+		return null
+	if mode == "random":
+		return cands[randi() % cands.size()]
+	var best: Enemy = null
+	var best_v := INF
+	for e in cands:
+		var v := 0.0
+		match mode:
+			"threat":
+				v = position.distance_to(e.global_position)        # closest to the castle
+			"weak":
+				v = e.hp                                            # lowest health: finishes them off
+			"strong":
+				v = -e.max_hp                                       # the toughest one
+			"far":
+				v = -from.distance_to(e.global_position)
+			_:
+				v = from.distance_to(e.global_position)             # nearest to this platform
+		if v < best_v:
+			best_v = v
+			best = e
+	return best
+
+func _update_platforms(delta: float) -> void:
+	_ensure_platforms()
+	var wt: int = mini(weapon_tier, Weapons.AUTO_MAX_TIER)
+	var interval := auto_interval / attack_speed / auto_rate_factor()
+	var adm: float = Weapons.AUTO_DAMAGE[wt] * dmg_factor()
+	for i in PLATFORM_MODES.size():
+		if i >= auto_cannons:
+			_plat_in[i] = 0.0
+			_plat_target[i] = null
+			continue
+		_plat_in[i] = minf(_plat_in[i] + delta * 2.5, 1.0)
+		_plat_ang[i] = rad_to_deg(lerp_angle(deg_to_rad(_plat_ang[i]), deg_to_rad(_platform_goal(i)), 1.0 - exp(-4.0 * delta)))
+		_plat_flash[i] = maxf(_plat_flash[i] - delta, 0.0)
+		_plat_recoil[i] = maxf(_plat_recoil[i] - delta * 9.0, 0.0)
+		_plat_cd[i] -= delta
+		var from := _platform_world(i)
+		_plat_look[i] -= delta
+		var tgt: Enemy = _plat_target[i] if is_instance_valid(_plat_target[i]) else null
+		if tgt != null and (tgt.dead or from.distance_to(tgt.global_position) > auto_range * 1.1):
+			tgt = null
+			_plat_look[i] = 0.0
+		if _plat_look[i] <= 0.0:
+			var pick := _pick_target(i, from)
+			# keep the current target unless there is none: the turret must not twitch between mobs
+			if tgt == null or pick == null or PLATFORM_MODES[i] in ["weak", "strong", "threat"]:
+				tgt = pick
+			_plat_target[i] = tgt
+			_plat_look[i] = randf_range(0.6, 1.0)
+		# turn the turret: towards the target, or back out to the side when idle
+		var want: float = deg_to_rad(_plat_ang[i])
+		if tgt != null:
+			want = (tgt.global_position - from).angle()
+		_plat_aim[i] = _turn_to(_plat_aim[i], want, PLATFORM_TURN * delta)
+		if tgt != null and _plat_cd[i] <= 0.0 and absf(angle_difference(_plat_aim[i], want)) < 0.18:
+			_plat_cd[i] = interval * randf_range(0.95, 1.05)
+			var spread := 0.03 if wt == 0 else (0.02 if wt == 1 else 0.035)
+			var ang: float = _plat_aim[i] + randf_range(-spread, spread)
+			_fire(ang, adm, true, position + _platform_muzzle(i, wt))
+			_plat_flash[i] = 0.07
+			_plat_recoil[i] = 1.0
+
+func _turn_to(cur: float, want: float, step: float) -> float:
+	var d := angle_difference(cur, want)
+	if absf(d) <= step:
+		return want
+	return cur + signf(d) * step
 
 # Each auto-cannon upgrade also extends the range of all auto-cannons.
 func add_auto_cannon() -> bool:
@@ -340,7 +508,7 @@ func upgrade_weapon() -> bool:
 	if weapon_tier >= Weapons.MAX_TIER:
 		return false
 	weapon_tier += 1
-	refunded_damage_pts = refund_damage_points()
+	refunded_damage_pts = 0          # buffs stay when the weapon is upgraded
 	queue_redraw()
 	return true
 
@@ -357,8 +525,26 @@ func refund_damage_points() -> int:
 	return pts
 
 # Gold price of one Repair use (grows with the castle stage).
+# It grows with your level and with how much health the repair would actually give back.
 func repair_cost() -> int:
-	return 15 + tier * 5
+	var restore := minf(max_hp * REPAIR_HEAL, maxf(max_hp - hp, 0.0))
+	return 15 + tier * 5 + xp_level * 3 + int(restore * 0.15)
+
+# ---- Hiring refugees with gold: the price rises with every one hired of the same kind. ----
+const HIRE_BASE := 600
+const HIRE_PER_LEVEL := 40
+const HIRE_GROWTH := 1.12
+var hired: Dictionary = {}          # kind -> how many you have hired so far
+
+func hire_price(kind: String) -> int:
+	return int(round(float(HIRE_BASE + HIRE_PER_LEVEL * xp_level) * pow(HIRE_GROWTH, int(hired.get(kind, 0)))))
+
+func can_hire(kind: String) -> bool:
+	if not HELPERS_ON:
+		return false
+	if kind == "gunner":
+		return auto_cannons < max_auto() or auto_interval > AUTO_INTERVAL_MIN + 0.001
+	return true
 
 func use_skill(slot: int) -> bool:
 	if slot < 0 or slot >= skill_slots.size():
@@ -377,6 +563,17 @@ func use_skill(slot: int) -> bool:
 			skill_cd[slot] = BOOST_COOLDOWN
 			skill_cd_max[slot] = BOOST_COOLDOWN
 			return true
+		"dash":
+			var dd := Vector2(Input.get_action_strength("move_right") - Input.get_action_strength("move_left"), Input.get_action_strength("move_down") - Input.get_action_strength("move_up"))
+			if dd == Vector2.ZERO:
+				dd = _vel
+			if dd == Vector2.ZERO:
+				dd = Vector2.RIGHT.rotated(aim_angle)
+			_dash_dir = dd.normalized()
+			dash_time = DASH_TIME
+			skill_cd[slot] = DASH_COOLDOWN
+			skill_cd_max[slot] = DASH_COOLDOWN
+			return true
 	return false
 
 # Total damage multiplier (upgrades, allies and the Overcharge skill).
@@ -388,7 +585,8 @@ func to_dict() -> Dictionary:
 		"tier": tier,
 		"hp": hp,
 		"hp_bonus": hp_bonus,
-		"free_points": free_points,
+		"picks": picks,
+		"cls": cls,
 		"xp_level": xp_level,
 		"xp": xp,
 		"stat_pts": stat_pts.duplicate(),
@@ -406,6 +604,8 @@ func to_dict() -> Dictionary:
 		"scientists": scientists,
 		"engineers": engineers,
 		"mechanics": mechanics,
+		"mana_helpers": mana_helpers,
+		"hired": hired.duplicate(),
 		"skills": skill_slots.duplicate(),
 	}
 
@@ -420,6 +620,10 @@ func from_dict(d: Dictionary) -> void:
 	tier = clampi(int(d.get("tier", 0)), 0, TIER_NAMES.size() - 1)
 	hp_bonus = int(d.get("hp_bonus", 0))
 	free_points = maxi(int(d.get("free_points", 0)), 0)
+	picks = maxi(int(d.get("picks", 0)), 0)
+	cls = str(d.get("cls", "standard"))
+	if not CastleClass.valid(cls):
+		cls = "standard"
 	xp_level = maxi(int(d.get("xp_level", 1)), 1)
 	xp = maxi(int(d.get("xp", 0)), 0)
 	stat_pts = {}
@@ -443,10 +647,19 @@ func from_dict(d: Dictionary) -> void:
 	scientists = int(d.get("scientists", d.get("smiths", 0)))
 	engineers = int(d.get("engineers", 0))
 	mechanics = int(d.get("mechanics", d.get("medics", 0)))
+	mana_helpers = maxi(int(d.get("mana_helpers", 0)), 0)
+	hired = (d.get("hired", {}) as Dictionary).duplicate() if d.get("hired", {}) is Dictionary else {}
+	if not shield_on() and stat_pts.has("eshield"):
+		free_points += int(stat_pts["eshield"])           # points spent on the Energy Shield come back when it is not your class skill
+		stat_pts.erase("eshield")
+	if free_points > 0:
+		picks += ceili(float(free_points) / 5.0)         # old saves: unspent points become level-up choices
+		free_points = 0
 	var saved: Array = d.get("skills", [])
 	for i in skill_slots.size():
 		if i < saved.size() and str(saved[i]) != "" and str(saved[i]) != "barrier":
 			skill_slots[i] = str(saved[i])
+	_apply_class_skill()
 	queue_redraw()
 
 func _process(delta: float) -> void:
@@ -455,8 +668,12 @@ func _process(delta: float) -> void:
 	_sh_hit = maxf(_sh_hit - delta * 3.0, 0.0)
 	_sh_break = maxf(_sh_break - delta * 1.6, 0.0)
 	_muzzle = maxf(_muzzle - delta, 0.0)
+	_gat_rate = lerpf(_gat_rate, 9.0 if _muzzle > 0.0 else 0.0, 1.0 - exp(-8.0 * delta))
+	_gat_spin += (0.3 + _gat_rate) * delta
 	_lvlfx = maxf(_lvlfx - delta, 0.0)
-	energy = minf(energy + energy_regen * delta, max_energy)
+	push_fx = maxf(push_fx - delta * 2.2, 0.0)
+	dash_time = maxf(dash_time - delta, 0.0)
+	energy = minf(energy + energy_regen * delta, max_energy) if MANA_ON else max_energy
 	_fire_cd -= delta
 	var cap := shield_cap()
 	if shield < 0.0 or shield > cap:
@@ -515,8 +732,8 @@ func _process(delta: float) -> void:
 			Sfx.play("barrier_end")
 
 	# Manual weapon: hold left mouse button, costs energy
-	var cost: float = Weapons.ENERGY_COST[weapon_tier]
-	if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and _fire_cd <= 0.0 and energy >= cost:
+	var cost: float = 0.0 if boost_time > 0.0 else Weapons.cost(weapon_tier)
+	if can_fire and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and _fire_cd <= 0.0 and energy >= cost:
 		energy -= cost
 		_fire_cd = Weapons.INTERVAL[weapon_tier] / attack_speed
 		var dmg: float = Weapons.DAMAGE[weapon_tier]
@@ -530,14 +747,7 @@ func _process(delta: float) -> void:
 
 	# Auto-weapons: share one timer, so shots are evenly spread out.
 	# They use the manual weapon tier, up to the Gatling Gun.
-	if auto_cannons > 0:
-		_auto_timer -= delta
-		if _auto_timer <= 0.0:
-			var target := _nearest_enemy()
-			if target != null:
-				var adm: float = Weapons.AUTO_DAMAGE[mini(weapon_tier, Weapons.AUTO_MAX_TIER)]
-				_fire((target.global_position - global_position).angle(), adm * dmg_factor(), true)
-				_auto_timer = auto_interval / auto_cannons / attack_speed / auto_rate_factor()
+	_update_platforms(delta)
 
 	# Mechanics: slow repairs
 	if mechanics > 0 and hp < max_hp:
@@ -553,21 +763,27 @@ func _process(delta: float) -> void:
 
 # The castle can be flown around the map with the move keys (WASD by default).
 func _move(delta: float) -> void:
+	if dash_time > 0.0:
+		_vel = _dash_dir * DASH_SPEED
+		position += _vel * delta
+		return
 	var dir := Vector2(
 		Input.get_action_strength("move_right") - Input.get_action_strength("move_left"),
 		Input.get_action_strength("move_down") - Input.get_action_strength("move_up"))
 	if dir.length() > 1.0:
 		dir = dir.normalized()
-	_vel = _vel.lerp(dir * move_speed * move_mult * (slow_factor if slow_time > 0.0 else 1.0), 1.0 - exp(-7.0 * delta))
+	_vel = _vel.lerp(dir * move_speed * move_mult * CastleClass.speed(cls) * (slow_factor if slow_time > 0.0 else 1.0), 1.0 - exp(-7.0 * delta))
 	if _vel.length() < 1.0 and dir == Vector2.ZERO:
 		_vel = Vector2.ZERO
 		return
 	position += _vel * delta      # the camera follows, so the castle stays centered and the world scrolls
 
-func _fire(angle: float, dmg: float, is_auto: bool) -> void:
+func _fire(angle: float, dmg: float, is_auto: bool, from: Vector2 = Vector2.INF) -> void:
 	var dir := Vector2.RIGHT.rotated(angle)
-	var muzzle := position + dir * (hit_radius() * 0.6 + 14.0)
 	var wt: int = mini(weapon_tier, Weapons.AUTO_MAX_TIER) if is_auto else weapon_tier
+	var muzzle := position + _barrel_muzzle(wt, angle)
+	if from != Vector2.INF:
+		muzzle = from
 	var sound: String = Weapons.SOUNDS[wt]
 	Sfx.play(sound, -6.0 if is_auto else 0.0)
 	if wt == 4:
@@ -634,18 +850,6 @@ func _fire_beam(origin: Vector2, dir: Vector2, dmg: float) -> void:
 	fx.finish = origin + dir * length
 	get_parent().add_child(fx)
 
-func _nearest_enemy() -> Enemy:
-	var best: Enemy = null
-	var best_dist := auto_range
-	for e in Field.enemies():
-		if e.dead:
-			continue
-		var d := global_position.distance_to(e.global_position)
-		if d <= best_dist:
-			best = e
-			best_dist = d
-	return best
-
 # Where the laser sight ends: at the first enemy or ally on the aim line.
 func _laser_length() -> float:
 	var dir := Vector2.RIGHT.rotated(aim_angle)
@@ -683,19 +887,16 @@ func _draw() -> void:
 		var flick := 0.5 + 0.5 * sin(_anim * 14.0)
 		PixelFx.ring(self, Vector2.ZERO, r * 1.25, Color(1.0, 0.6, 0.15, 0.35 + 0.3 * flick), 4.0)
 		PixelFx.arc(self, Vector2.ZERO, r * 1.4, _anim * 3.0, _anim * 3.0 + 4.0, Color(1.0, 0.85, 0.3, 0.7), 3.0)
+	if push_fx > 0.0:
+		var pk := 1.0 - push_fx
+		PixelFx.ring(self, Vector2.ZERO, PUSH_RADIUS * pk + r, Color(0.7, 0.9, 1.0, 0.7 * push_fx), 8.0 * push_fx + 2.0)
+		PixelFx.ring(self, Vector2.ZERO, (PUSH_RADIUS * pk + r) * 0.8, Color(1, 1, 1, 0.5 * push_fx), 3.0)
+	if dash_time > 0.0:
+		for k in 4:
+			PixelFx.ring(self, -_dash_dir * float(k + 1) * 26.0, r * (1.0 - 0.12 * float(k)), Color(0.5, 0.9, 1.0, 0.35 - 0.07 * float(k)), 4.0)
 	if auto_cannons > 0:
 		PixelFx.ring(self, Vector2.ZERO, auto_range, Color(1, 1, 1, 0.12), 2.0)
-	var sr := maxf(6.0, rb * 0.13)
-	for i in max_auto():
-		var sp := slot_pos(i, rb)
-		PixelFx.disc(self, sp + Vector2(0.0, 2.0), sr + 2.0, Color(0.07, 0.04, 0.02, 0.8))
-		PixelFx.disc(self, sp, sr, Color(0.36, 0.22, 0.09))
-		if i < auto_cannons:
-			PixelFx.disc(self, sp, sr - 2.0, Color(0.72, 0.5, 0.18))
-			PixelFx.disc(self, sp, sr * 0.55, Weapons.COLORS[weapon_tier])
-		else:
-			PixelFx.disc(self, sp, sr - 2.0, Color(0.13, 0.08, 0.04))
-			PixelFx.ring(self, sp, sr, Color(0.72, 0.5, 0.18, 0.7), 1.5)
+	_draw_platforms()
 	var dir := Vector2.RIGHT.rotated(aim_angle)
 	if laser:
 		var laser_start := dir * (r + 20.0)
@@ -704,6 +905,7 @@ func _draw() -> void:
 		PixelFx.line(self, laser_start, laser_end, Color(1.0, 0.25, 0.25, 0.8), 1.8)
 		PixelFx.disc(self, laser_end, 4.0, Color(1.0, 0.35, 0.35, 0.9))
 	_draw_barrel(dir, r)
+	draw_set_transform(Vector2(0.0, bob), 0.0, Vector2.ONE)
 	_draw_energy_shield(r)
 	if barrier_time > 0.0:
 		var blink := 1.0
@@ -740,45 +942,105 @@ func _draw() -> void:
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 # The manual weapon changes its look with the weapon tier.
+# ---------- Gunner platforms ----------
+
+func _plat_palette() -> Dictionary:
+	if tier <= 1:
+		return {"body": Color(0.5, 0.34, 0.17), "dark": Color(0.27, 0.17, 0.08), "rim": Color(0.88, 0.68, 0.28), "glow": Color(1.0, 0.8, 0.4)}
+	if tier <= 4:
+		return {"body": Color(0.36, 0.42, 0.56), "dark": Color(0.16, 0.2, 0.3), "rim": Color(0.92, 0.74, 0.32), "glow": Color(0.5, 0.8, 1.0)}
+	return {"body": Color(0.26, 0.28, 0.37), "dark": Color(0.1, 0.11, 0.17), "rim": Color(0.4, 0.9, 1.0), "glow": Color(0.4, 0.95, 1.0)}
+
+func _draw_platforms() -> void:
+	if auto_cannons <= 0 or _plat_ang.is_empty():
+		return
+	var order: Array[int] = []
+	for i in mini(auto_cannons, PLATFORM_MODES.size()):
+		order.append(i)
+	var ys := {}
+	for i in order:
+		ys[i] = platform_pos(i, body_radius()).y
+	order.sort_custom(func(a: int, b: int) -> bool: return float(ys[a]) < float(ys[b]))      # lower ones are in front
+	var pal := _plat_palette()
+	for i in order:
+		_draw_platform(i, pal)
+
+func _draw_platform(i: int, pal: Dictionary) -> void:
+	var k := (0.9 + 0.06 * float(tier)) * ease(_plat_in[i], 0.4)
+	if k <= 0.02:
+		return
+	var c := platform_pos(i, body_radius()) + Vector2(0.0, _platform_bob(i))
+	var outline := Color(0.05, 0.04, 0.08)
+	# shadow on the ground far below
+	draw_set_transform(c + Vector2(8.0, 58.0 * k), 0.0, Vector2(1.0, 0.28))
+	PixelFx.disc(self, Vector2.ZERO, 20.0 * k, Color(0, 0, 0, 0.2))
+	# thruster glow under the plate
+	var g: Color = pal["glow"]
+	var flick := 0.6 + 0.4 * sin(_anim * 11.0 + float(i) * 2.0)
+	draw_set_transform(c + Vector2(0.0, 12.0 * k), 0.0, Vector2(1.0, 0.5))
+	PixelFx.disc(self, Vector2.ZERO, 11.0 * k, Color(g.r, g.g, g.b, 0.22 * flick))
+	PixelFx.disc(self, Vector2.ZERO, 6.0 * k, Color(g.r, g.g, g.b, 0.5 * flick))
+	# the plate (a squashed disc seen from the side)
+	draw_set_transform(c + Vector2(0.0, 3.0 * k), 0.0, Vector2(1.0, 0.72))
+	PixelFx.disc(self, Vector2(0.0, 3.0 * k), 19.0 * k, outline)
+	PixelFx.disc(self, Vector2(0.0, 3.0 * k), 17.0 * k, (pal["dark"] as Color))
+	PixelFx.disc(self, Vector2.ZERO, 19.0 * k, outline)
+	PixelFx.disc(self, Vector2.ZERO, 17.0 * k, (pal["body"] as Color))
+	PixelFx.ring(self, Vector2.ZERO, 16.0 * k, (pal["rim"] as Color), 2.0)
+	PixelFx.disc(self, Vector2.ZERO, 11.0 * k, (pal["dark"] as Color))
+	for r in 4:
+		var a := TAU * float(r) / 4.0 + 0.78
+		PixelFx.disc(self, Vector2.RIGHT.rotated(a) * 14.0 * k, 1.6, (pal["rim"] as Color))
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	# targeting-mode light on the rim
+	var mc: Color = MODE_COLORS[PLATFORM_MODES[i]]
+	PixelFx.disc(self, c + Vector2(0.0, 11.0 * k), 2.6, outline)
+	PixelFx.disc(self, c + Vector2(0.0, 11.0 * k), 1.8, mc)
+	# the turret: the same pixel-art model as the castle's gun, half the size
+	var wt: int = mini(weapon_tier, Weapons.AUTO_MAX_TIER)
+	var dir := Vector2.RIGHT.rotated(_plat_aim[i])
+	var piv := c + Vector2(0.0, -2.0 * k)
+	var tk := 0.48 * k
+	var tip := WeaponArt.draw(self, wt, _plat_aim[i], piv, _plat_recoil[i] > 0.15, _anim * (6.0 if _plat_target[i] != null else 0.5), tk)
+	if _plat_flash[i] > 0.0:
+		var col: Color = Weapons.COLORS[wt]
+		var f := _plat_flash[i] / 0.07
+		PixelFx.disc(self, tip + dir * 5.0, 9.0 * f, Color(col.r, col.g, col.b, 0.9))
+		PixelFx.disc(self, tip + dir * 5.0, 4.5 * f, Color(1, 1, 0.9, 0.95))
+
+# The gun on the castle: a baked pixel-art turret, sized to the castle, standing on the castle's middle and hovering with it.
+func _weapon_k() -> float:
+	return clampf(hit_radius() / 135.0, 0.85, 1.7)
+
+# Where shots leave the barrel (distance from the castle's centre).
+func muzzle_dist(w: int) -> float:
+	return WeaponArt.tip(w, _weapon_k())
+
+func _barrel_piv() -> Vector2:
+	var r := hit_radius()
+	var bob := roundf(sin(_anim * 1.5) * (3.0 + body_radius() * 0.05) / PixelCastle.PIXEL) * PixelCastle.PIXEL if _pix != null else sin(_anim * 1.5) * (3.0 + body_radius() * 0.05)
+	return Vector2(0.0, bob - r * 0.03)
+
+# The real muzzle of the castle's gun, relative to the castle (the same point the sprite's barrel ends at).
+func _barrel_muzzle(w: int, angle: float) -> Vector2:
+	return WeaponArt.muzzle(w, angle, _barrel_piv(), _weapon_k())
+
+func _platform_muzzle(i: int, w: int) -> Vector2:
+	var k := (0.9 + 0.06 * float(tier)) * ease(_plat_in[i], 0.4)
+	var c := platform_pos(i, body_radius()) + Vector2(0.0, _platform_bob(i))
+	return WeaponArt.muzzle(w, _plat_aim[i], c + Vector2(0.0, -2.0 * k), 0.48 * k)
+
 func _draw_barrel(dir: Vector2, r: float) -> void:
-	var tip := dir * (r + 22.0)
-	var col: Color = Weapons.COLORS[weapon_tier]
-	PixelFx.line(self, Vector2.ZERO, tip, Color(0.05, 0.05, 0.08, 0.8), 13.0)
-	PixelFx.disc(self, Vector2.ZERO, 10.0, Color(0.05, 0.05, 0.08, 0.8))
-	match weapon_tier:
-		0:
-			var side := dir.orthogonal() * 3.5
-			PixelFx.line(self, side, tip + side, Color(0.45, 0.46, 0.5), 4.5)
-			PixelFx.line(self, -side, tip - side, Color(0.45, 0.46, 0.5), 4.5)
-			PixelFx.disc(self, Vector2.ZERO, 8.0, Color(0.3, 0.3, 0.34))
-		1:
-			PixelFx.line(self, Vector2.ZERO, tip, Color.DIM_GRAY, 9.0)
-			PixelFx.line(self, dir * 10.0, dir * (r + 12.0), Color(0.3, 0.3, 0.34), 13.0)
-			PixelFx.disc(self, tip, 5.0, Color(0.15, 0.15, 0.18))
-		2:
-			# Gatling: three barrels that turn around each other, held by two rings
-			var side2 := dir.orthogonal()
-			for k in 3:
-				var off := side2 * sin(_anim * 14.0 + TAU * float(k) / 3.0) * 5.0
-				PixelFx.line(self, off, tip + off, Color(0.5, 0.5, 0.55), 4.0)
-			PixelFx.line(self, dir * (r * 0.6), dir * (r * 0.6 + 4.0), Color(0.2, 0.2, 0.24), 17.0)
-			PixelFx.line(self, dir * (r + 10.0), dir * (r + 14.0), Color(0.2, 0.2, 0.24), 17.0)
-			PixelFx.disc(self, Vector2.ZERO, 9.0, Color(0.3, 0.3, 0.34))
-		3:
-			PixelFx.line(self, Vector2.ZERO, dir * (r + 28.0), Color(0.35, 0.42, 0.3), 15.0)
-			PixelFx.line(self, dir * (r + 22.0), dir * (r + 29.0), Color(0.75, 0.3, 0.2), 16.0)
-		5:
-			PixelFx.line(self, Vector2.ZERO, tip, Color(0.16, 0.1, 0.26), 10.0)
-			PixelFx.line(self, Vector2.ZERO, tip, Color(0.4, 0.2, 0.65), 3.0)
-			PixelFx.disc(self, tip, 7.0, Color(0.04, 0.0, 0.1))
-			PixelFx.disc(self, tip, 12.0, Color(0.5, 0.15, 0.9, 0.3))
-			PixelFx.arc(self, tip, 9.0, _anim * 6.0, _anim * 6.0 + 4.0, Color(0.8, 0.55, 1.0, 0.9), 2.0)
-		4:
-			PixelFx.line(self, Vector2.ZERO, tip, Color(0.32, 0.36, 0.5), 8.0)
-			PixelFx.disc(self, tip, 6.0, Color(0.5, 0.95, 1.0, 0.9))
-			PixelFx.disc(self, tip, 10.0, Color(0.3, 0.9, 1.0, 0.25))
+	var w := weapon_tier
+	var k := _weapon_k()
+	var bob := roundf(sin(_anim * 1.5) * (3.0 + body_radius() * 0.05) / PixelCastle.PIXEL) * PixelCastle.PIXEL if _pix != null else sin(_anim * 1.5) * (3.0 + body_radius() * 0.05)
+	var piv := Vector2(0.0, bob - r * 0.03)
+	var tip := WeaponArt.draw(self, w, aim_angle, piv, _muzzle > 0.0, _gat_spin, k)
 	if _muzzle > 0.0:
-		PixelFx.disc(self, tip + dir * 6.0, 10.0 * (_muzzle / 0.07), Color(col.r, col.g, col.b, 0.9))
+		var col: Color = Weapons.COLORS[w]
+		var f := _muzzle / 0.07
+		PixelFx.disc(self, tip + dir * 5.0 * k, 12.0 * f * k, Color(col.r, col.g, col.b, 0.85))
+		PixelFx.disc(self, tip + dir * 5.0 * k, 6.0 * f * k, Color(1.0, 1.0, 0.9, 0.95))
 
 
 # ---------- Energy Shield: a glowing, slowly turning glass globe ----------

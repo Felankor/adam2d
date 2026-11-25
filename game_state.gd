@@ -14,6 +14,10 @@ const LEGACY_BAK := "user://savegame.bak"
 
 static var difficulty: int = 0               # 0 = Beginner, 1 = Seasoned
 static var pending_load: Dictionary = {}     # filled by the menu when a save is loaded
+static var map_mode: bool = false            # true: the game scene runs the handmade map instead of the wave mode
+static var map_id: String = "greenland"     # which expedition map the game scene runs
+static var dungeon_mode: bool = false        # true: wave mode as the Dungeon (entered from the hub with a Warden Sigil)
+static var hub_mode: bool = false            # true: the game scene is the safe hub (Phase 2)
 static var current_slot: int = -1            # the slot that autosave and Save write to
 static var _ready_done: bool = false
 static var reopen_slots: bool = false        # after deleting a slot the menu reopens the slot list

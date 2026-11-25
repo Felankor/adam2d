@@ -17,6 +17,9 @@ var _subtitle: Label
 var _settings: SettingsPanel
 
 func _ready() -> void:
+	GameState.dungeon_mode = false
+	GameState.map_mode = false
+	GameState.hub_mode = false
 	PixelUI.setup(get_tree())
 	MobArt.prewarm()
 	Settings.load_and_apply()
@@ -129,6 +132,7 @@ func _build_main() -> void:
 		_main_box.add_child(_button(label, _load_slot.bind(newest), MAIN_BTN_W))
 		_main_box.add_child(_button("Load Game", _open_slots.bind("load"), MAIN_BTN_W))
 	_main_box.add_child(_button("New Game", _on_new_game, MAIN_BTN_W))
+	_main_box.add_child(_button("The Hub  (new mode)", _on_expedition, MAIN_BTN_W))
 	_main_box.add_child(_button("Settings", _on_settings, MAIN_BTN_W))
 	_main_box.add_child(_button("Quit", _on_quit, MAIN_BTN_W))
 
@@ -224,6 +228,17 @@ func _load_slot(slot: int) -> void:
 	GameState.difficulty = clampi(int(save.get("difficulty", 0)), 0, 1)
 	GameState.current_slot = slot
 	GameState.pending_load = save
+	get_tree().change_scene_to_file("res://main.tscn")
+
+# Phase 2: the safe hub with its own profile (castle, gold, inventory, stash). Maps are entered from the Map Table.
+func _on_expedition() -> void:
+	Sfx.play("click")
+	GameState.difficulty = 0
+	GameState.current_slot = -1
+	GameState.pending_load = {}
+	GameState.dungeon_mode = false
+	GameState.map_mode = false
+	GameState.hub_mode = true
 	get_tree().change_scene_to_file("res://main.tscn")
 
 func _on_settings() -> void:

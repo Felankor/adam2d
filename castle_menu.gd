@@ -7,30 +7,31 @@ extends Control
 signal spend(id: String, count: int)
 signal weapon_upgrade
 signal reset_pressed
-signal exchange_pressed(count: int)
 signal laser_toggled(on: bool)
 signal continue_pressed
-
-const EXCHANGE_GOLD := 10            # Exchange: this much gold...
-const EXCHANGE_POINTS := 5           # ...buys this many stat points
-const EXCHANGE_RISE := 1.10          # every purchase makes the next one 10% more expensive
-const EXCHANGE_IDX := 100            # "held button" id of the exchange button
-
-# Price of the next exchange after n purchases so far.
-static func exchange_price(n: int) -> int:
-	return int(round(float(EXCHANGE_GOLD) * pow(EXCHANGE_RISE, float(n))))
+signal class_chosen(id: String)
+signal picks_requested
+signal hire_requested(kind: String)
 
 const STATS := [
 	{"id": "damage", "name": "Weapon damage", "icon": "damage"},
 	{"id": "attack", "name": "Attack speed", "icon": "atkspeed"},
-	{"id": "regen", "name": "Mana regen", "icon": "regen"},
-	{"id": "energy", "name": "Max mana", "icon": "energy"},
-	{"id": "health", "name": "Max health", "icon": "walls"},
+	{"id": "health", "name": "Max health", "icon": "b_health"},
 	{"id": "speed", "name": "Move speed", "icon": "speed"},
 	{"id": "autorate", "name": "Auto fire rate", "icon": "autorate"},
-	{"id": "armor", "name": "Armor", "icon": "shield"},
-	{"id": "eshield", "name": "Energy Shield", "icon": "eshield"},
+	{"id": "armor", "name": "Armor", "icon": "b_armor"},
 ]
+
+const STAT_TIPS := {
+	"damage": "How hard every shot of your weapon hits. Each point adds +1% to the current value.",
+	"attack": "How fast you can pull the trigger. Each point adds +1% to the current value.",
+	"regen": "How fast mana refills. Each point adds +1% to the current value.",
+	"energy": "Your maximum mana: the more you have, the longer you can keep firing.",
+	"health": "The maximum health of your castle.",
+	"speed": "How fast your castle flies.",
+	"autorate": "How often your Gunner turrets fire. It has a limit.",
+	"armor": "Armor takes a part of every hit. Weapons with armor penetration cancel it.",
+}
 
 # A glass tube in a bronze trough with text on it (health, mana, shield, xp): the same look as the HUD bars.
 class StatBar extends Control:
@@ -41,7 +42,7 @@ class StatBar extends Control:
 	var _t: float = 0.0
 
 	func _init() -> void:
-		custom_minimum_size = Vector2(0, 36)
+		custom_minimum_size = Vector2(0, 48)
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 	func _process(delta: float) -> void:
@@ -84,7 +85,15 @@ class StatBar extends Control:
 			draw_rect(Rect2(x + fw - u, y + u, u, th - 2.0 * u), Color(1, 1, 1, 0.7))
 		# glass streak across the top, even over the empty part
 		draw_rect(Rect2(x + 2.0 * u, y + 2.0, tw - 4.0 * u, 2.0), Color(1, 1, 1, 0.14))
-		PixelUI.text(self, Vector2(x + 8.0, y + th * 0.5 + 7.0), text, 20, Color.WHITE, HORIZONTAL_ALIGNMENT_LEFT, -1, 4)
+		var fsz := TextFit.best_size(PixelUI.ui_font(), text, PixelUI.mfs(20), tw - 24.0)
+		var base_y := y + th * 0.5 + float(fsz) * 0.35
+		var cut := text.find("   ")
+		if cut > 0:
+			# name on the left, the numbers lined up on the right
+			PixelUI.text(self, Vector2(x + 12.0, base_y), text.substr(0, cut), fsz, Color.WHITE, HORIZONTAL_ALIGNMENT_LEFT, -1, 4)
+			PixelUI.text(self, Vector2(x + 12.0, base_y), text.substr(cut).strip_edges(), fsz, Color.WHITE, HORIZONTAL_ALIGNMENT_RIGHT, tw - 24.0, 4)
+		else:
+			PixelUI.text(self, Vector2(x + 12.0, base_y), text, fsz, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, tw - 24.0, 4)
 
 # A section heading: a gold diamond, the title and a bronze rule running to the edge.
 class Ornament extends Control:
@@ -111,6 +120,7 @@ class Ornament extends Control:
 			draw_rect(Rect2(x0 + rw - 14.0, y - 4.0, 4.0, 8.0), Color(0.92, 0.78, 0.47))
 
 var base: Base
+var _coins_now: int = 0
 var _title: Label
 var _points: Label
 var _info: VBoxContainer
@@ -118,18 +128,15 @@ var _stat_names: Array[Label] = []
 var _stat_values: Array[Label] = []
 var _stat_pts: Array[Label] = []
 var _stat_buttons: Array[Button] = []
+var _stat_nodes: Array = []             # per stat row: [icon, name, value, points] (they all show the same tip)
 var _weapon_label: Label
 var _weapon_note: Label
 var _w_from: IconRect
 var _w_to: IconRect
 var _w_arrow: Label
 var _weapon_button: Button
-var _exchange_button: Button
 var _reset_button: Button
 var _reset_armed: bool = false
-var _ex_price: Label
-var _ex_points: Label
-var _exchange_ok: bool = false
 var _laser: CheckButton
 var _close: Button
 var _awaiting: bool = false
@@ -138,6 +145,9 @@ const HOLD_DELAY := 0.35
 const HOLD_STEP_TIME := 0.1
 const HOLD_MAX_POWER := 5
 var _held_idx: int = -1
+var _picks_button: Button
+var _class_note: Label
+var _class_buttons: Dictionary = {}
 var _held_time: float = 0.0
 var _held_tick: float = 0.0
 
@@ -158,7 +168,7 @@ func _ready() -> void:
 
 	var panel := PanelContainer.new()
 	var sb := PixelUI.box(PixelUI.WIN_BG, PixelUI.BRONZE)
-	sb.set_content_margin_all(26)
+	sb.set_content_margin_all(44)
 	panel.add_theme_stylebox_override("panel", sb)
 	center.add_child(panel)
 	PixelUI.fit(panel)
@@ -195,24 +205,57 @@ func _ready() -> void:
 	_points.add_theme_font_size_override("font_size", PixelUI.mfs(28))
 	_points.add_theme_color_override("font_color", PixelUI.GOOD)
 	_points.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	Tip.attach(_points, "Level-up picks", "Every new level lets you choose one of three buffs. Click to choose now.", "star")
 	var points_row := HBoxContainer.new()
 	points_row.add_theme_constant_override("separation", 12)
 	right.add_child(points_row)
 	points_row.add_child(_points)
 	_reset_button = Button.new()
 	_reset_button.focus_mode = Control.FOCUS_NONE
-	_reset_button.custom_minimum_size = Vector2(190, 36)
+	_reset_button.custom_minimum_size = Vector2(250, 52)
 	_reset_button.text = Loc.t("Reset points")
-	_reset_button.tooltip_text = Loc.t("Takes back all spent stat points so you can spend them again. Click twice to confirm.")
+	Tip.attach(_reset_button, "Reset points", "Takes back all spent stat points so you can spend them again. Click twice to confirm.", "star")
 	_reset_button.pressed.connect(_on_reset_pressed)
+	_reset_button.visible = false
 	points_row.add_child(_reset_button)
+	_picks_button = Button.new()
+	_picks_button.focus_mode = Control.FOCUS_NONE
+	_picks_button.custom_minimum_size = Vector2(250, 52)
+	_picks_button.text = Loc.t("Choose a buff")
+	_picks_button.pressed.connect(func() -> void: picks_requested.emit())
+	points_row.add_child(_picks_button)
 	var note := Label.new()
-	note.text = Loc.t("Hold + to spend faster") + "   |   " + Loc.t("Hover a name to see its default value")
+	note.text = Loc.t("Hover anything to read about it")
 	note.add_theme_font_size_override("font_size", PixelUI.mfs(16))
 	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	note.custom_minimum_size = Vector2(680, 0)
 	note.add_theme_color_override("font_color", PixelUI.DIM)
 	right.add_child(note)
+
+	# --- castle class ---
+	var cls_head := Ornament.new()
+	cls_head.text = Loc.t("Castle class")
+	right.add_child(cls_head)
+	var cls_row := HBoxContainer.new()
+	cls_row.add_theme_constant_override("separation", 10)
+	right.add_child(cls_row)
+	for cid: String in CastleClass.IDS:
+		var cb := Button.new()
+		cb.focus_mode = Control.FOCUS_NONE
+		cb.toggle_mode = true
+		cb.custom_minimum_size = Vector2(200, 50)
+		cb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		cb.text = Loc.t(CastleClass.cname(cid))
+		cb.pressed.connect(func() -> void: class_chosen.emit(cid))
+		Tip.attach(cb, CastleClass.cname(cid), str(CastleClass.info(cid)["note"]), "walls")
+		cls_row.add_child(cb)
+		_class_buttons[cid] = cb
+	_class_note = Label.new()
+	_class_note.add_theme_font_size_override("font_size", PixelUI.mfs(16))
+	_class_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_class_note.custom_minimum_size = Vector2(680, 0)
+	_class_note.add_theme_color_override("font_color", PixelUI.DIM)
+	right.add_child(_class_note)
 
 	var n := 1
 	for s in STATS:
@@ -229,9 +272,11 @@ func _ready() -> void:
 		icon.set_kind(str(s["icon"]))
 		row.add_child(icon)
 		var name_label := Label.new()
-		name_label.text = "[%d]  %s" % [n, Loc.t(str(s["name"]))]
+		name_label.text = Loc.t(str(s["name"]))
 		name_label.add_theme_font_size_override("font_size", PixelUI.mfs(22))
 		name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		name_label.custom_minimum_size = Vector2(260, 0)
+		name_label.set_meta("fit", "shrink")
 		name_label.mouse_filter = Control.MOUSE_FILTER_STOP
 		row.add_child(name_label)
 		_stat_names.append(name_label)
@@ -239,23 +284,27 @@ func _ready() -> void:
 		val.add_theme_font_size_override("font_size", PixelUI.mfs(24))
 		val.add_theme_color_override("font_color", PixelUI.GOLD)
 		val.add_theme_constant_override("outline_size", PixelUI.ol(4))
-		val.custom_minimum_size = Vector2(130, 0)
+		val.custom_minimum_size = Vector2(160, 0)
+		val.set_meta("fit", "shrink")
 		val.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		row.add_child(val)
 		_stat_values.append(val)
 		var pl := Label.new()
 		pl.add_theme_font_size_override("font_size", PixelUI.mfs(18))
 		pl.add_theme_color_override("font_color", PixelUI.GOOD.darkened(0.15))
-		pl.custom_minimum_size = Vector2(90, 0)
+		pl.custom_minimum_size = Vector2(150, 0)
+		pl.set_meta("fit", "shrink")
 		pl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		row.add_child(pl)
 		_stat_pts.append(pl)
+		_stat_nodes.append([icon, name_label, val, pl])
 		var btn := Button.new()
 		btn.text = "+"
 		btn.custom_minimum_size = Vector2(72, 40)
 		btn.focus_mode = Control.FOCUS_NONE
 		btn.button_down.connect(_on_hold_start.bind(n - 1))
 		btn.button_up.connect(_on_hold_end)
+		btn.visible = false
 		row.add_child(btn)
 		_stat_buttons.append(btn)
 		n += 1
@@ -305,66 +354,17 @@ func _ready() -> void:
 	_weapon_note = Label.new()
 	_weapon_note.add_theme_font_size_override("font_size", PixelUI.mfs(14))
 	_weapon_note.add_theme_color_override("font_color", PixelUI.DIM)
+	_weapon_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_weapon_note.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_weapon_note.custom_minimum_size = Vector2(150, 0)
 	note_row.add_child(_weapon_note)
 	_weapon_button = Button.new()
 	_weapon_button.focus_mode = Control.FOCUS_NONE
-	_weapon_button.custom_minimum_size = Vector2(190, 48)
+	_weapon_button.custom_minimum_size = Vector2(270, 56)
 	_weapon_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_weapon_button.pressed.connect(func() -> void: weapon_upgrade.emit())
+	Tip.attach(_weapon_button, "Upgrade weapon", "Buys the next weapon for gold. The points you spent on Weapon damage are given back.", "damage")
 	up.add_child(_weapon_button)
-
-	# --- exchange: gold -> stat points ---
-	var ex_head := Ornament.new()
-	ex_head.text = Loc.t("Exchange")
-	right.add_child(ex_head)
-	var ex_panel := PanelContainer.new()
-	ex_panel.add_theme_stylebox_override("panel", PixelUI.plate(Color(0.045, 0.032, 0.024, 0.9), PixelUI.BRONZE, 2))
-	right.add_child(ex_panel)
-	var ex := HBoxContainer.new()
-	ex.add_theme_constant_override("separation", 8)
-	ex_panel.add_child(ex)
-	var coin := IconRect.new()
-	coin.custom_minimum_size = Vector2(30, 30)
-	coin.with_bg = false
-	coin.kind = "coin"
-	coin.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	ex.add_child(coin)
-	_ex_price = Label.new()
-	_ex_price.add_theme_font_size_override("font_size", PixelUI.mfs(24))
-	_ex_price.add_theme_color_override("font_color", PixelUI.GOLD)
-	_ex_price.add_theme_constant_override("outline_size", PixelUI.ol(4))
-	ex.add_child(_ex_price)
-	var arrow := Label.new()
-	arrow.text = ">>"
-	arrow.add_theme_font_size_override("font_size", PixelUI.mfs(24))
-	arrow.add_theme_color_override("font_color", PixelUI.GOLD)
-	ex.add_child(arrow)
-	var star := IconRect.new()
-	star.custom_minimum_size = Vector2(30, 30)
-	star.with_bg = false
-	star.kind = "star"
-	star.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	ex.add_child(star)
-	_ex_points = Label.new()
-	_ex_points.add_theme_font_size_override("font_size", PixelUI.mfs(24))
-	_ex_points.add_theme_color_override("font_color", PixelUI.GOOD)
-	_ex_points.add_theme_constant_override("outline_size", PixelUI.ol(4))
-	ex.add_child(_ex_points)
-	var ex_note := Label.new()
-	ex_note.text = Loc.t("gold for stat points")
-	ex_note.add_theme_font_size_override("font_size", PixelUI.mfs(14))
-	ex_note.add_theme_color_override("font_color", PixelUI.DIM)
-	ex_note.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	ex_note.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	ex.add_child(ex_note)
-	_exchange_button = Button.new()
-	_exchange_button.focus_mode = Control.FOCUS_NONE
-	_exchange_button.custom_minimum_size = Vector2(190, 44)
-	_exchange_button.text = "Exchange"
-	_exchange_button.tooltip_text = Loc.t("Each exchange makes the next one 10% more expensive. Hold to buy faster.")
-	_exchange_button.button_down.connect(_on_hold_start.bind(EXCHANGE_IDX))
-	_exchange_button.button_up.connect(_on_hold_end)
-	ex.add_child(_exchange_button)
 
 	# --- laser sight toggle ---
 	var lz := HBoxContainer.new()
@@ -378,6 +378,8 @@ func _ready() -> void:
 	_laser = CheckButton.new()
 	_laser.text = Loc.t("Laser sight (aim line)")
 	_laser.focus_mode = Control.FOCUS_NONE
+	Tip.attach(_laser, "Laser sight", "Draws a red line from your castle along your aim, so you can see where your shots will go. It is only a visual aid.", "sight")
+	Tip.attach(lic, "Laser sight", "Draws a red line from your castle along your aim, so you can see where your shots will go. It is only a visual aid.", "sight")
 	_laser.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_laser.toggled.connect(func(on: bool) -> void: laser_toggled.emit(on))
 	lz.add_child(_laser)
@@ -400,15 +402,10 @@ func _on_hold_start(idx: int) -> void:
 	_held_idx = idx
 	_held_time = 0.0
 	_held_tick = HOLD_DELAY
-	if idx == EXCHANGE_IDX:
-		exchange_pressed.emit(1)
-	else:
-		spend.emit(str(STATS[idx]["id"]), 1)
+	spend.emit(str(STATS[idx]["id"]), 1)
 
 func _on_hold_end() -> void:
-	if _held_idx == EXCHANGE_IDX:
-		_exchange_button.text = Loc.t("Exchange")
-	elif _held_idx >= 0:
+	if _held_idx >= 0:
 		_stat_buttons[_held_idx].text = "MAX" if (str(STATS[_held_idx]["id"]) == "autorate" and base != null and base.auto_rate_maxed()) else "+"
 	_held_idx = -1
 
@@ -426,16 +423,7 @@ func _process(delta: float) -> void:
 	var amount := _hold_amount()
 	if _held_tick <= 0.0:
 		_held_tick = HOLD_STEP_TIME
-		if _held_idx == EXCHANGE_IDX:
-			exchange_pressed.emit(amount)
-		else:
-			spend.emit(str(STATS[_held_idx]["id"]), amount)
-	if _held_idx == EXCHANGE_IDX:
-		if not _exchange_ok:
-			_on_hold_end()
-			return
-		_exchange_button.text = "x%d" % amount if amount > 1 else Loc.t("Exchange")
-		return
+		spend.emit(str(STATS[_held_idx]["id"]), amount)
 	if base != null and base.free_points <= 0:
 		_on_hold_end()
 		return
@@ -461,50 +449,64 @@ func _heading(text: String) -> void:
 	o.text = Loc.t(text)
 	_info.add_child(o)
 
-func _dim(text: String) -> Label:
+func _dim(text: String, tip_title: String = "", tip_body: String = "", tip_icon: String = "") -> Label:
 	var l := Label.new()
 	l.text = text
 	l.add_theme_font_size_override("font_size", PixelUI.mfs(17))
 	l.add_theme_color_override("font_color", PixelUI.DIM)
-	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	l.custom_minimum_size = Vector2(540, 0)
+	l.autowrap_mode = TextServer.AUTOWRAP_OFF
+	l.custom_minimum_size = Vector2(380, 26)
+	l.set_meta("fit", "shrink")
 	_info.add_child(l)
+	if tip_title != "":
+		Tip.attach(l, tip_title, tip_body, tip_icon)
 	return l
 
-func _bar(v: float, mx: float, col: Color, text: String) -> void:
+func _bar(v: float, mx: float, col: Color, text: String, tip_title: String = "", tip_body: String = "", tip_icon: String = "") -> void:
 	var sb := StatBar.new()
 	sb.value = v
 	sb.max_value = mx
 	sb.col = col
 	sb.text = text
 	_info.add_child(sb)
+	if tip_title != "":
+		Tip.attach(sb, tip_title, tip_body, tip_icon)
 
 # A big number with a small caption under it, on a small bronze plate.
-func _tile(parent: Node, value: String, caption: String) -> void:
+func _tile(parent: Node, value: String, caption: String, tip_body: String = "") -> void:
 	var pc := PanelContainer.new()
 	pc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	pc.add_theme_stylebox_override("panel", PixelUI.plate(Color(0.045, 0.032, 0.024, 0.9), PixelUI.BRONZE, 2))
+	pc.custom_minimum_size = Vector2(190, 0)
+	var psb := PixelUI.plate(Color(0.045, 0.032, 0.024, 0.9), PixelUI.BRONZE, 2).duplicate() as StyleBox
+	psb.set_content_margin_all(12)
+	pc.add_theme_stylebox_override("panel", psb)
 	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 0)
+	box.add_theme_constant_override("separation", 4)
 	var v := Label.new()
 	v.text = value
 	v.add_theme_font_size_override("font_size", PixelUI.mfs(26))
 	v.add_theme_color_override("font_color", PixelUI.GOLD)
 	v.add_theme_constant_override("outline_size", PixelUI.ol(4))
+	v.custom_minimum_size = Vector2(170, 0)
+	v.set_meta("fit", "shrink")
 	box.add_child(v)
 	var c := Label.new()
 	c.text = Loc.t(caption)
-	c.add_theme_font_size_override("font_size", PixelUI.mfs(14))
+	c.add_theme_font_size_override("font_size", PixelUI.mfs(17))
 	c.add_theme_color_override("font_color", PixelUI.DIM)
+	c.custom_minimum_size = Vector2(170, 0)
+	c.set_meta("fit", "shrink")
 	box.add_child(c)
 	pc.add_child(box)
 	parent.add_child(pc)
+	if tip_body != "":
+		Tip.attach(v, caption, tip_body)
+		Tip.attach(c, caption, tip_body)
 
-func _pill(parent: Node, icon: String, count: int, tip: String) -> void:
+func _pill(parent: Node, icon: String, count: int, tip: String, desc: String) -> void:
 	var h := HBoxContainer.new()
 	h.add_theme_constant_override("separation", 6)
 	h.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	h.tooltip_text = Loc.t(tip)
 	var ic := IconRect.new()
 	ic.custom_minimum_size = Vector2(36, 36)
 	ic.set_kind(icon)
@@ -517,9 +519,59 @@ func _pill(parent: Node, icon: String, count: int, tip: String) -> void:
 	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	h.add_child(l)
 	parent.add_child(h)
+	var foot := "%s: %d" % [Loc.t("You have"), count]
+	Tip.attach(ic, tip, desc, icon, foot)
+	Tip.attach(l, tip, desc, icon, foot)
+
+# One helper kind: icon, name and how many you have, and what they give you in total.
+func _helper_row(icon: String, title: String, count: int, bonus: String, desc: String, kind: String = "") -> void:
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 10)
+	_info.add_child(h)
+	var ic := IconRect.new()
+	ic.custom_minimum_size = Vector2(44, 44)
+	ic.set_kind(icon)
+	ic.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	h.add_child(ic)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 0)
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	h.add_child(v)
+	var n := Label.new()
+	n.text = "%s  x%d" % [Loc.t(title), count]
+	n.add_theme_font_size_override("font_size", PixelUI.mfs(21))
+	n.add_theme_color_override("font_color", PixelUI.CREAM if count > 0 else PixelUI.DIM)
+	n.add_theme_constant_override("outline_size", PixelUI.ol(4))
+	n.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	n.clip_text = true
+	v.add_child(n)
+	var bl := Label.new()
+	bl.text = bonus
+	bl.add_theme_font_size_override("font_size", PixelUI.mfs(17))
+	bl.add_theme_color_override("font_color", PixelUI.GOOD if count > 0 else PixelUI.DIM)
+	bl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	bl.clip_text = true
+	v.add_child(bl)
+	var foot := "%s: %d" % [Loc.t("You have"), count]
+	for c: Control in [ic, n, bl]:
+		Tip.attach(c, title, desc, icon, foot)
+	if kind != "" and base != null:
+		var price := base.hire_price(kind)
+		var hb := Button.new()
+		hb.focus_mode = Control.FOCUS_NONE
+		hb.text = "%s  %d" % [Loc.t("Hire"), price]
+		hb.custom_minimum_size = Vector2(190, 40)
+		hb.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		hb.add_theme_font_size_override("font_size", PixelUI.mfs(18))
+		hb.disabled = _coins_now < price or not base.can_hire(kind)
+		hb.pressed.connect(func() -> void: hire_requested.emit(kind))
+		h.add_child(hb)
+		Tip.attach(hb, "Hire a refugee", "Pay gold to take in one more of these helpers. The price goes up with every one you hire.", icon, "%s: %d" % [Loc.t("Price"), price])
 
 # ctx: wave, region, difficulty, power (strings / numbers prepared by main)
 func refresh(coins: int, ctx: Dictionary) -> void:
+	_coins_now = coins
 	if base == null:
 		return
 	var b := base
@@ -536,15 +588,17 @@ func refresh(coins: int, ctx: Dictionary) -> void:
 	name_l.add_theme_font_size_override("font_size", PixelUI.mfs(30))
 	PixelUI.style_title(name_l)
 	_info.add_child(name_l)
-	_dim("%s %d   -   %s %d   -   %s   -   %s" % [Loc.t("Level"), b.xp_level, Loc.t("Wave"), int(ctx.get("wave", 1)), str(ctx.get("region", "")), str(ctx.get("difficulty", ""))])
-	_bar(float(b.xp), float(Base.xp_needed(b.xp_level)), Color(0.75, 0.55, 0.2), "XP   %d / %d" % [b.xp, Base.xp_needed(b.xp_level)])
+	Tip.attach(name_l, "Castle stage", "How big your castle is. Grow it at the Shipyard in the hub.", "walls")
+	_dim("%s %d   -   %s %d" % [Loc.t("Level"), b.xp_level, Loc.t("Wave"), int(ctx.get("wave", 1))])
+	_dim("%s   -   %s" % [str(ctx.get("region", "")), str(ctx.get("difficulty", ""))])
+	_bar(float(b.xp), float(Base.xp_needed(b.xp_level)), Color(0.75, 0.55, 0.2), "XP   %d / %d" % [b.xp, Base.xp_needed(b.xp_level)], "Experience", "Kills give XP. Every new level lets you choose a buff. A death in a map or the Dungeon costs 10% of the XP of your current level.", "star")
 
 	# --- vitals ---
 	_heading("Vitals")
-	_bar(b.hp, b.max_hp, Color(0.8, 0.22, 0.18), "%s   %d / %d" % [Loc.t("Health"), ceili(b.hp), ceili(b.max_hp)])
-	_bar(b.energy, b.max_energy, Color(0.22, 0.45, 0.9), "%s   %d / %d" % [Loc.t("Mana"), int(b.energy), int(b.max_energy)])
-	_bar(maxf(b.shield, 0.0), maxf(b.shield_cap(), 1.0), Color(0.3, 0.85, 0.95), "%s   %d / %d" % [Loc.t("Energy Shield"), ceili(maxf(b.shield, 0.0)), ceili(b.shield_cap())])
-	_dim("%s %.1f  (-%d%% %s)" % [Loc.t("Armor"), b.armor_points(), roundi((1.0 - Weapons.armor_mult(b.armor_points())) * 100.0), Loc.t("damage taken")])
+	_bar(b.hp, b.max_hp, Color(0.8, 0.22, 0.18), "%s   %d / %d" % [Loc.t("Health"), ceili(b.hp), ceili(b.max_hp)], "Health", "Your castle's health. At zero the castle falls. Repair it with the Repair skill, or Mechanics repair it slowly.", "walls")
+	if Base.MANA_ON:
+		_bar(b.energy, b.max_energy, Color(0.22, 0.45, 0.9), "%s   %d / %d" % [Loc.t("Mana"), int(b.energy), int(b.max_energy)], "Mana", "Every shot spends mana, and it refills over time. Mana regen and Max mana are stats you can raise.", "energy")
+	_dim("%s %.1f  (-%d%% %s)" % [Loc.t("Armor"), b.armor_points(), roundi((1.0 - Weapons.armor_mult(b.armor_points())) * 100.0), Loc.t("damage taken")], "Armor", "Armor takes a part of every hit. Enemy shells and beams have their own armor penetration that cancels some of it.", "shield")
 
 	# --- weapon ---
 	_heading("Weapon")
@@ -556,6 +610,7 @@ func refresh(coins: int, ctx: Dictionary) -> void:
 	wic.set_kind(Weapons.id_of(w))
 	wic.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	wrow.add_child(wic)
+	Tip.attach(wic, Weapons.name_of(w), Weapons.note_of(w), Weapons.id_of(w))
 	var wn := Label.new()
 	wn.text = Loc.t(Weapons.name_of(w))
 	wn.add_theme_font_size_override("font_size", PixelUI.mfs(26))
@@ -563,24 +618,30 @@ func refresh(coins: int, ctx: Dictionary) -> void:
 	wn.add_theme_constant_override("outline_size", PixelUI.ol(4))
 	wn.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	wrow.add_child(wn)
-	var tiles := HBoxContainer.new()
-	tiles.add_theme_constant_override("separation", 10)
+	Tip.attach(wn, Weapons.name_of(w), Weapons.note_of(w), Weapons.id_of(w))
+	var tiles := GridContainer.new()
+	tiles.columns = 2
+	tiles.add_theme_constant_override("h_separation", 10)
+	tiles.add_theme_constant_override("v_separation", 10)
 	_info.add_child(tiles)
-	_tile(tiles, "%.1f" % dmg, "Damage per shot")
-	_tile(tiles, "%.1f" % shots, "Shots per second")
-	_tile(tiles, "%d" % int(Weapons.ENERGY_COST[w]), "Mana per shot")
-	_tile(tiles, Loc.t("True damage") if Weapons.is_true(float(Weapons.PEN[w])) else "%d" % int(Weapons.PEN[w]), "Armor penetration")
+	_tile(tiles, "%.1f" % dmg, "Damage per shot", "How much damage one shot does, after your damage stat points.")
+	_tile(tiles, "%.1f" % shots, "Shots per second", "How many shots you can fire each second while you have mana.")
+	if Base.MANA_ON:
+		_tile(tiles, "%d" % int(Weapons.ENERGY_COST[w]), "Mana per shot", "How much mana every shot costs.")
+	_tile(tiles, Loc.t("True damage") if Weapons.is_true(float(Weapons.PEN[w])) else "%d" % int(Weapons.PEN[w]), "Armor penetration", "Cancels this many points of enemy armor, so armored mobs take more damage. True damage ignores armor and shields completely.")
 
-	# --- helpers and turrets ---
-	_heading("Helpers")
-	var pills := HBoxContainer.new()
-	pills.add_theme_constant_override("separation", 10)
-	_info.add_child(pills)
-	_pill(pills, "gunner", b.gunners, "Gunners")
-	_pill(pills, "scientist", b.scientists, "Scientists")
-	_pill(pills, "engineer", b.engineers, "Engineers")
-	_pill(pills, "mechanic", b.mechanics, "Mechanics")
-	_dim("%s %d / %d   -   %s %d" % [Loc.t("Turrets"), b.auto_cannons, b.max_auto(), Loc.t("Range"), int(b.auto_range)])
+	if Base.HELPERS_ON:
+		# --- helpers and turrets ---
+		_heading("Helpers")
+		var sci := (pow(1.01, float(b.scientists)) - 1.0) * 100.0
+		var eng := (pow(1.01, float(b.engineers)) - 1.0) * 100.0
+		var mk := (pow(1.01, float(b.mana_helpers)) - 1.0) * 100.0
+		_helper_row("gunner", "Gunners", b.gunners, "%s %d / %d   -   %s %d" % [Loc.t("Turrets"), b.auto_cannons, b.max_auto(), Loc.t("Range"), int(b.auto_range)],
+			"Each Gunner builds one hovering turret around the castle, up to the number your castle stage has room for. Range is how far they can shoot.", "gunner")
+		_helper_row("scientist", "Scientists", b.scientists, Loc.t("%s weapon damage") % ("+%.1f%%" % sci), "Each Scientist adds +1% weapon damage.", "scientist")
+		_helper_row("engineer", "Engineers", b.engineers, Loc.t("%s mana regen") % ("+%.1f%%" % eng), "Each Engineer adds +1% mana regen.", "engineer")
+		_helper_row("energy", "Mana Keepers", b.mana_helpers, Loc.t("%s max mana") % ("+%.1f%%" % mk), "Each Mana Keeper adds +1% max mana.", "energy")
+		_helper_row("mechanic", "Mechanics", b.mechanics, Loc.t("Repairs %.1f HP per second") % (float(b.mechanics) * 0.5), "Each Mechanic repairs 0.5 HP of the castle every second.", "mechanic")
 
 	# --- the rest, small ---
 	var gold_row := HBoxContainer.new()
@@ -598,10 +659,20 @@ func refresh(coins: int, ctx: Dictionary) -> void:
 	gl.add_theme_color_override("font_color", PixelUI.GOLD)
 	gl.add_theme_constant_override("outline_size", PixelUI.ol(4))
 	gold_row.add_child(gl)
-	_dim("%s %d   -   %s %d s / %d s   -   %s" % [Loc.t("Repair cost"), b.repair_cost(), Loc.t("Skills"), int(Base.BOOST_COOLDOWN), int(Base.REPAIR_COOLDOWN), str(ctx.get("stats", ""))])
-	_dim("%s %d" % [Loc.t("Power"), int(ctx.get("power", 0))])
+	Tip.attach(gc, "Gold", "Dropped by every kill. Spend it on weapon upgrades and the Shipyard.", "coin")
+	Tip.attach(gl, "Gold", "Dropped by every kill. Spend it on weapon upgrades and the Shipyard.", "coin")
+	_dim("%s %d" % [Loc.t("Repair cost"), b.repair_cost()], "Repair and skills", "What the Repair skill costs right now (it grows with your level and the health it would restore), and the cooldowns of your skills.", "repair")
+	_dim("%s %d s / %d s" % [Loc.t("Skills"), int(Base.BOOST_COOLDOWN), int(Base.REPAIR_COOLDOWN)], "Repair and skills", "What the Repair skill costs right now (it grows with your level and the health it would restore), and the cooldowns of your skills.", "repair")
+	_dim(str(ctx.get("stats", "")))
+	_dim("%s %d" % [Loc.t("Power"), int(ctx.get("power", 0))], "Power", "One number for how strong your castle is. Mobs have a power too, so you can compare.", "damage")
 
-	_points.text = "%s: %d" % [Loc.t("Stat points"), b.free_points]
+	_points.text = "%s: %d" % [Loc.t("Level-up picks"), b.picks]
+	_picks_button.visible = b.picks > 0
+	_class_note.text = Loc.t(str(CastleClass.info(b.cls)["note"]))
+	for cid: String in _class_buttons.keys():
+		var cbn: Button = _class_buttons[cid]
+		cbn.set_pressed_no_signal(cid == b.cls)
+		cbn.disabled = b.can_fire and cid != b.cls
 	var spent_total := 0
 	for k in b.stat_pts.keys():
 		spent_total += int(b.stat_pts[k])
@@ -622,7 +693,7 @@ func refresh(coins: int, ctx: Dictionary) -> void:
 			"health":
 				bv = "%d -> %d" % [int(Base.TIER_HP[b.tier] + b.hp_bonus), ceili(b.hp_total())]
 			"speed":
-				bv = "%d -> %d" % [int(b.move_speed), int(b.move_speed * b.move_mult)]
+				bv = "%d -> %d" % [int(b.move_speed), int(b.move_speed * b.move_mult * CastleClass.speed(b.cls))]
 			"armor":
 				bv = "%.1f -> %.1f" % [3.0 * float(b.tier), b.armor_points()]
 			"autorate":
@@ -630,15 +701,19 @@ func refresh(coins: int, ctx: Dictionary) -> void:
 			"eshield":
 				bv = "%d -> %d" % [int(b.max_hp * Base.SHIELD_BASE), int(b.shield_cap())]
 		var parts := bv.split(" -> ")
-		_stat_names[i].tooltip_text = "%s: %s" % [Loc.t("Default"), parts[0]]
+		var foot := "%s: %s" % [Loc.t("Default"), parts[0]]
+		for node: Control in _stat_nodes[i]:
+			Tip.attach(node, Loc.t(str(STATS[i]["name"])), str(STAT_TIPS.get(id, "")), str(STATS[i]["icon"]), foot)
+		Tip.attach(_stat_buttons[i], "Spend a stat point", "Level-up buffs raise this stat.", "star")
 		_stat_values[i].text = parts[1]
-		_stat_pts[i].text = "%d %s" % [pts, Loc.t("pts")]
+		_stat_pts[i].text = ("+%.1f" % (0.5 * float(pts))) if id == "armor" else ("+%d%%" % roundi((pow(1.01, float(pts)) - 1.0) * 100.0))
 		var maxed := id == "autorate" and b.auto_rate_maxed()
 		_stat_buttons[i].disabled = b.free_points <= 0 or maxed
 		if _held_idx != i:
 			_stat_buttons[i].text = "MAX" if maxed else "+"
 
 	_w_from.set_kind(Weapons.id_of(w))
+	Tip.attach(_w_from, Weapons.name_of(w), Weapons.note_of(w), Weapons.id_of(w), Loc.t("Your current weapon"))
 	if w >= Weapons.MAX_TIER:
 		_w_to.visible = false
 		_w_arrow.visible = false
@@ -652,14 +727,11 @@ func refresh(coins: int, ctx: Dictionary) -> void:
 		_w_arrow.visible = true
 		_w_to.set_kind(Weapons.id_of(w + 1))
 		var wprice := int(Weapons.UPGRADE_PRICE[w])
+		Tip.attach(_w_to, Weapons.name_of(w + 1), Weapons.note_of(w + 1), Weapons.id_of(w + 1), Loc.t("Upgrade price: %d gold") % wprice)
+		Tip.attach(_weapon_label, Weapons.name_of(w + 1), Weapons.note_of(w + 1), Weapons.id_of(w + 1), Loc.t("Upgrade price: %d gold") % wprice)
 		_weapon_label.text = Loc.t(Weapons.name_of(w + 1))
 		_weapon_note.text = Loc.t("Gunners use it too") if w + 1 <= Weapons.AUTO_MAX_TIER else Loc.t("Gunners stay with the Gatling Gun")
 		_weapon_button.text = "%s  %d" % [Loc.t("Upgrade"), wprice]
 		_weapon_button.icon = CoinTex.get_texture()
 		_weapon_button.disabled = coins < wprice
-	var price := int(ctx.get("exchange_price", EXCHANGE_GOLD))
-	_ex_price.text = "%d" % price
-	_ex_points.text = "+%d" % EXCHANGE_POINTS
-	_exchange_ok = coins >= price
-	_exchange_button.disabled = not _exchange_ok
 	_laser.set_pressed_no_signal(b.laser)

@@ -8,6 +8,9 @@ extends Node2D
 #   style "meteor" Stone Titan meteors: orange fireball falling from the sky
 #   style "spike"  Stone Titan stone spikes: grey spikes bursting up
 #   style "void"   Void Overlord singularity: purple vortex that pulls the castle in
+#   style "spore"  Savage Behemoth spore cloud: teal poison pool that slows and hurts over time
+#   style "smite"  Fallen Seraph: a golden pillar of light crashes down
+#   style "whirl"  Leviathan whirlpool: a blue vortex that pulls the castle in
 #   style "ring"   an expanding shockwave (Mud Colossus quake, Void nova); hits once when the wave passes the castle
 signal status(text: String, kind: String)
 
@@ -23,6 +26,7 @@ var slow_time: float = 0.0
 var true_damage: bool = false
 var ring_speed: float = 700.0
 var base_ref: Base = null
+var tint: Color = Color.WHITE       # multiplies the colours of spikes (vines are green, bone thorns are pale)
 
 var _t: float = 0.0
 var _blasted: bool = false
@@ -46,7 +50,16 @@ func _col() -> Color:
 			return Color(0.65, 0.62, 0.58)
 		"void":
 			return Color(0.65, 0.3, 1.0)
+		"spore":
+			return Color(0.25, 0.9, 0.6)
+		"smite":
+			return Color(1.0, 0.85, 0.35)
+		"whirl":
+			return Color(0.3, 0.7, 1.0)
 	return Color(0.9, 0.6, 0.3)
+
+func _tn(c: Color) -> Color:
+	return Color(c.r * tint.r, c.g * tint.g, c.b * tint.b, c.a)
 
 func _inside(extra: float = 0.0) -> bool:
 	return base_ref != null and is_instance_valid(base_ref) and base_ref.hp > 0.0 and base_ref.position.distance_to(position) <= radius + base_ref.hit_radius() * 0.6 + extra
@@ -104,6 +117,15 @@ func _blast() -> void:
 		"mud":
 			Fx.spawn(par, "spark", position, Color(0.55, 0.36, 0.16), "", 2.0, 0.55)
 			Sfx.play("explode", -6.0)
+		"whirl":
+			Fx.spawn(par, "spark", position, Color(0.5, 0.85, 1.0), "", 2.2, 0.6)
+			Sfx.play("explode", -6.0)
+		"smite":
+			Fx.spawn(par, "explosion", position, Color(1.0, 0.9, 0.5), "", radius / 90.0, 0.7)
+			Sfx.play("rocket_boom", -3.0)
+		"spore":
+			Fx.spawn(par, "spark", position, Color(0.3, 1.0, 0.7), "", 2.0, 0.55)
+			Sfx.play("explode", -7.0)
 		"void":
 			Fx.spawn(par, "void_blast", position, Color.WHITE, "", radius / 120.0, 0.7)
 			Sfx.play("boss_split", -4.0)
@@ -128,7 +150,7 @@ func _draw() -> void:
 		PixelFx.disc(self, Vector2.ZERO, radius, Color(col.r, col.g, col.b, 0.10 + 0.16 * k))
 		PixelFx.disc(self, Vector2.ZERO, radius * k, Color(col.r, col.g, col.b, 0.22 + 0.2 * blink))
 		PixelFx.ring(self, Vector2.ZERO, radius, Color(1.0, 0.3, 0.2, 0.55 + 0.35 * blink), 4.0)
-		if style == "void":
+		if style == "void" or style == "whirl":
 			PixelFx.ring(self, Vector2.ZERO, radius * 2.4, Color(0.65, 0.3, 1.0, 0.18), 2.0)
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 		if style == "meteor":
@@ -138,13 +160,17 @@ func _draw() -> void:
 			PixelFx.disc(self, mp, 26.0, Color(0.2, 0.08, 0.04))
 			PixelFx.disc(self, mp, 20.0, Color(1.0, 0.45, 0.1))
 			PixelFx.disc(self, mp + Vector2(-5, -5), 9.0, Color(1.0, 0.9, 0.5))
+		elif style == "smite":
+			var bw := 6.0 + 26.0 * k
+			PixelFx.line(self, Vector2(0, -900.0), Vector2.ZERO, Color(1.0, 0.9, 0.5, 0.15 + 0.3 * k), bw)
+			PixelFx.line(self, Vector2(0, -900.0), Vector2.ZERO, Color(1.0, 1.0, 0.9, 0.2 + 0.4 * k), bw * 0.4)
 		elif style == "spike":
 			var n := 7
 			for i in n:
 				var ang := TAU * float(i) / float(n) + _seed
 				var p := Vector2.RIGHT.rotated(ang) * radius * 0.55
 				var hh := 8.0 + 26.0 * k
-				PixelFx.line(self, p, p + Vector2(0, -hh), Color(0.55, 0.52, 0.5, 0.7), 10.0)
+				PixelFx.line(self, p, p + Vector2(0, -hh), _tn(Color(0.55, 0.52, 0.5, 0.7)), 10.0)
 		return
 	# blast flash and lingering pool
 	var age := _t
@@ -162,6 +188,21 @@ func _draw() -> void:
 			for i in 4:
 				var a0 := age * 3.0 + float(i) * TAU / 4.0
 				PixelFx.arc(self, Vector2.ZERO, radius * (0.55 + 0.12 * float(i)), a0, a0 + 1.6, Color(0.75, 0.4, 1.0, 0.8 * fade), 4.0)
+		"whirl":
+			PixelFx.disc(self, Vector2.ZERO, radius, Color(0.04, 0.16, 0.3, 0.55 * fade))
+			PixelFx.disc(self, Vector2.ZERO, radius * 0.4, Color(0.01, 0.05, 0.12, 0.85 * fade))
+			for i in 4:
+				var a1 := age * 3.2 + float(i) * TAU / 4.0
+				PixelFx.arc(self, Vector2.ZERO, radius * (0.55 + 0.12 * float(i)), a1, a1 + 1.6, Color(0.5, 0.85, 1.0, 0.8 * fade), 4.0)
+		"smite":
+			PixelFx.disc(self, Vector2.ZERO, radius * 0.9, Color(1.0, 0.9, 0.5, 0.4 * fade))
+			PixelFx.ring(self, Vector2.ZERO, radius * 0.9, Color(1.0, 0.95, 0.7, 0.8 * fade), 4.0)
+		"spore":
+			PixelFx.disc(self, Vector2.ZERO, radius, Color(0.04, 0.2, 0.16, 0.55 * fade))
+			for i in 9:
+				var sp := Vector2.RIGHT.rotated(float(i) * 0.8 + _seed + age * 0.4) * radius * (0.2 + 0.7 * fmod(float(i) * 0.41, 1.0))
+				var rise := fmod(age * 0.7 + float(i) * 0.23, 1.0)
+				PixelFx.disc(self, sp - Vector2(0, 26.0 * rise), 5.0 * (1.0 - rise) + 2.0, Color(0.4, 1.0, 0.75, 0.8 * (1.0 - rise) * fade))
 		"mud":
 			PixelFx.disc(self, Vector2.ZERO, radius, Color(0.32, 0.2, 0.08, 0.6 * fade))
 			for i in 8:
@@ -171,11 +212,11 @@ func _draw() -> void:
 			PixelFx.disc(self, Vector2.ZERO, radius * 0.8, Color(0.15, 0.05, 0.02, 0.5 * fade))
 			PixelFx.ring(self, Vector2.ZERO, radius * 0.8, Color(1.0, 0.4, 0.1, 0.7 * fade), 4.0)
 		"spike":
-			PixelFx.disc(self, Vector2.ZERO, radius, Color(0.3, 0.28, 0.26, 0.4 * fade))
+			PixelFx.disc(self, Vector2.ZERO, radius, _tn(Color(0.3, 0.28, 0.26, 0.4 * fade)))
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	if style == "spike":
 		for i in 9:
 			var ang := TAU * float(i) / 9.0 + _seed
 			var p := Vector2.RIGHT.rotated(ang) * radius * (0.25 + 0.55 * fmod(float(i) * 0.43, 1.0))
-			PixelFx.line(self, p, p + Vector2(0, -44.0 * fade), Color(0.12, 0.1, 0.1, fade), 16.0)
-			PixelFx.line(self, p, p + Vector2(0, -44.0 * fade), Color(0.72, 0.68, 0.62, fade), 10.0)
+			PixelFx.line(self, p, p + Vector2(0, -44.0 * fade), _tn(Color(0.12, 0.1, 0.1, fade)), 16.0)
+			PixelFx.line(self, p, p + Vector2(0, -44.0 * fade), _tn(Color(0.72, 0.68, 0.62, fade)), 10.0)

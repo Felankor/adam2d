@@ -23,6 +23,14 @@ const TRACKS := [
 		"gtr": 0, "drive": 1.6, "drums": 2, "wave": 1, "echo": 0.28},
 	{"bpm": 134.0, "root": 43, "prog": [0, -2, 3, -2], "lead": [12, NONE, 15, NONE, 14, 12, NONE, 10, 12, NONE, NONE, NONE, 10, NONE, 7, NONE],
 		"gtr": 0, "drive": 1.3, "drums": 0, "wave": 1, "echo": 0.18},
+	{"bpm": 108.0, "root": 40, "prog": [0, -4, -2, -5], "lead": [12, NONE, NONE, 10, NONE, NONE, 7, NONE, 10, NONE, NONE, 12, NONE, NONE, NONE, NONE],
+		"gtr": 0, "drive": 1.6, "drums": 2, "wave": 1, "echo": 0.28},
+	{"bpm": 150.0, "root": 45, "prog": [0, -2, -4, -2], "lead": [12, NONE, 12, NONE, 15, NONE, 12, 10, 12, NONE, NONE, NONE, 7, NONE, 10, NONE],
+		"gtr": 0, "drive": 1.0, "drums": 0, "wave": 2, "echo": 0.20},
+	{"bpm": 134.0, "root": 43, "prog": [0, -2, 3, -2], "lead": [12, NONE, 15, NONE, 14, 12, NONE, 10, 12, NONE, NONE, NONE, 10, NONE, 7, NONE],
+		"gtr": 0, "drive": 1.3, "drums": 0, "wave": 1, "echo": 0.18},
+	{"bpm": 108.0, "root": 40, "prog": [0, -4, -2, -5], "lead": [12, NONE, NONE, 10, NONE, NONE, 7, NONE, 10, NONE, NONE, 12, NONE, NONE, NONE, NONE],
+		"gtr": 0, "drive": 1.6, "drums": 2, "wave": 1, "echo": 0.28},
 	{"bpm": 172.0, "root": 41, "prog": [0, 1, 0, -2], "lead": [12, 13, NONE, 12, NONE, 8, NONE, NONE, 12, 13, NONE, 15, 13, NONE, 12, NONE],
 		"gtr": 1, "drive": 2.2, "drums": 1, "wave": 1, "echo": 0.14},
 	{"bpm": 126.0, "root": 47, "prog": [0, 5, 3, 7], "lead": [19, NONE, NONE, NONE, 16, NONE, NONE, NONE, 14, NONE, 16, NONE, 12, NONE, NONE, NONE],
@@ -96,6 +104,15 @@ func _process(_delta: float) -> void:
 		if key != _current_key:
 			_switch_to(key)
 	elif _thread == null:
+		# The finished tracks are res://audio/music/<biome>_<boss>.ogg (rendered offline, stereo).
+		# If the file is missing, the old built-in generator composes the track instead.
+		var path := "res://audio/music/%s.ogg" % key
+		if ResourceLoader.exists(path):
+			var res: Variant = load(path)
+			if res is AudioStreamOggVorbis:
+				(res as AudioStreamOggVorbis).loop = true
+				_cache[key] = res
+				return
 		_building_key = key
 		_thread = Thread.new()
 		_thread.start(_job.bind(_want_biome, _want_boss))
@@ -113,7 +130,7 @@ func _switch_to(key: String) -> void:
 	else:
 		_player.volume_db = -40.0
 	_tween.tween_callback(func() -> void:
-		_player.stream = _cache[key] as AudioStreamWAV
+		_player.stream = _cache[key] as AudioStream
 		_player.play())
 	_tween.tween_property(_player, "volume_db", _target_db(), 1.4)
 
@@ -137,7 +154,7 @@ static func build(biome: int, boss: bool) -> AudioStreamWAV:
 	var motif: Array = t["lead"]
 	var style := int(t["gtr"])
 	var kit := 1 if boss else int(t["drums"])
-	var hat16 := boss or biome == 3
+	var hat16 := boss or biome == 7
 	var wave := int(t["wave"])
 	var sl := int(step * float(RATE))                 # samples per step
 	for bar in BARS:

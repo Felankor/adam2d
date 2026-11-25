@@ -16,9 +16,39 @@ const SPEED_SCALE := 1.4    # all hostile mobs move this much faster than their 
 var space: bool = false
 
 var kind: String = "soldier"      # "soldier", "tank", "mech", "worm", "golem", "demon", "hunter", "void" (Boss uses "boss")
+# Movement domain: where a unit can be and what it can be blocked by. GROUND walks on land and goes round water and lava,
+# WATER floats only on water (no unit uses it yet), AIR flies over everything. Weapons and map rules can use this later.
+enum Domain { GROUND, WATER, AIR }
+const AIR_KINDS := ["bee", "hunter", "void", "herald", "fighter", "antflyer", "wisp", "phantom", "falcon", "warthog", "stealth"]
+const JET_KINDS := ["phantom", "falcon", "warthog", "stealth"]     # strafing jets: they fly in, fire, peel away and come back
+const JET_CAP := 90
+static var view_rect: Rect2 = Rect2()        # what the camera sees (+ margin): enemies off screen skip their extra drawing
+static var dbg_no_extras: bool = false      # debug switch (F4): skip wakes and ground markers
+const WATER_KINDS := ["destroyer", "cruiser", "missilecruiser", "carrier"]      # ships sail over everything (no pond avoidance)
+var domain_override: int = -1     # set it to force a domain (for example the Void Overlord boss flies)
+
+func domain() -> int:
+	if domain_override >= 0:
+		return domain_override
+	if space or kind in AIR_KINDS:                 # space starships, corvettes and drones fly too
+		return Domain.AIR
+	if kind in WATER_KINDS:
+		return Domain.WATER
+	return Domain.GROUND
+
+func is_ground() -> bool:
+	return domain() == Domain.GROUND
+
+func is_air() -> bool:
+	return domain() == Domain.AIR
+
+func is_water() -> bool:
+	return domain() == Domain.WATER
+
 var is_small: bool = false        # a small golem (spawned when a golem dies) does not split again
 var shoot_interval: float = 2.4
 var power_mult: float = 1.0       # manual tweak for the PowerScore (see power.gd)
+var mud: bool = false              # a Mud Golem (brown clay golem called by the Mud Colossus)
 var is_minion: bool = false       # summoned by a boss: no gold, vanishes when the boss dies
 var is_ally: bool = false
 var hp: float = 10.0
@@ -79,6 +109,12 @@ var _slow_time: float = 0.0         # while > 0 the enemy moves slower after a h
 var art_scale: float = 1.0          # extra size of the sprite (Heavy / Apocalypse Tank)
 var master: Enemy = null            # a Sinner remembers the Demon that spawned it
 var _sinners_alive: int = 0
+var stand_off: float = 0.0          # ships: keep this fraction of shoot_range from the target (0 = charge in)
+var _orbit: float = 1.0
+var _clones_alive: int = 0           # a Fallen Angel counts its living duplicates
+var _clone_cd: float = 6.0
+var _life_t: float = 0.0             # a duplicate fades after this many seconds (0 = lives on)
+var is_clone: bool = false
 var _sinner_cd: float = 0.5
 var _slam_cd: float = 5.0           # Golem: time to the next ground slam (summons earthworms)
 var _slam_t: float = 0.0
@@ -96,6 +132,8 @@ const LEAP_SPEED := 560.0
 var _leap_t: float = 0.0
 var _leap_cd: float = 0.0
 var _leap_dir := Vector2.RIGHT
+var _peel_t: float = 0.0              # jets: time left flying away after a strafing pass
+var _peel_dir := Vector2.RIGHT
 
 # Builds an enemy of the given kind with stats for the given level.
 # Enemy damage grows by +25% of the base value with every level cleared.
@@ -186,6 +224,353 @@ static func make(k: String, level: int) -> Enemy:
 			e.shoot_interval = 3.2
 			e._shoot_cd = randf_range(1.0, 2.5)
 			e._slam_cd = randf_range(3.5, 6.0)
+		"destroyer":  # Deep Ocean ship: small, fast and quick-firing
+			e.hp = (46.0 + lvl * 11.0) * GameState.hp_mult()
+			e.speed = minf(105.0 + lvl * 2.0, 185.0) * GameState.speed_mult()
+			e.damage = 1.4 * dmg_mult
+			e.armor = 10.0
+			e.shoots = true
+			e.shoot_range = randf_range(1140.0, 1380.0)      # 3x
+			e.shoot_interval = 0.9
+			e.stand_off = 0.85
+			e._shoot_cd = randf_range(0.3, 1.2)
+			e.dodge_chance = 0.25
+			e.dodge_cd_time = 1.0
+			e.dodge_dash = 280.0
+			e.reward = 7 + int(level * 0.7)
+			e.radius = 87.0
+		"cruiser":    # Deep Ocean ship: heavy guns, thick armour
+			e.hp = (130.0 + lvl * 30.0) * GameState.hp_mult()
+			e.speed = minf(40.0 + lvl * 1.2, 75.0) * GameState.speed_mult()
+			e.damage = 3.2 * dmg_mult
+			e.armor = 38.0
+			e.armor_pen = 10.0
+			e.shoots = true
+			e.shoot_range = randf_range(1560.0, 1800.0)      # 3x
+			e.shoot_interval = 2.2
+			e.stand_off = 0.38               # the only ship that tries to close the distance
+			e._shoot_cd = randf_range(0.8, 2.0)
+			e.reward = 16 + int(level * 1.0)
+			e.radius = 68.0
+		"missilecruiser":   # Deep Ocean ship: fires guided missiles from far away
+			e.hp = (100.0 + lvl * 24.0) * GameState.hp_mult()
+			e.speed = minf(38.0 + lvl * 1.1, 70.0) * GameState.speed_mult()
+			e.damage = 3.0 * dmg_mult
+			e.armor = 26.0
+			e.shoots = true
+			e.shoot_range = randf_range(2100.0, 2460.0)      # 3x
+			e.shoot_interval = 1.5               # much lower cooldown, 3-4 missiles per salvo
+			e.stand_off = 0.8
+			e._shoot_cd = randf_range(0.6, 1.8)
+			e.reward = 18 + int(level * 1.1)
+			e.radius = 136.0
+		"carrier":    # Deep Ocean ship: enormous; launches fighters
+			e.hp = (1800.0 + lvl * 380.0) * GameState.hp_mult()      # a rare mini boss
+			e.speed = minf(24.0 + lvl * 0.6, 42.0) * GameState.speed_mult()
+			e.damage = 8.0 * dmg_mult
+			e.armor = 55.0
+			e.armor_pen = 12.0
+			e.shoots = true
+			e.shoot_range = randf_range(2100.0, 2400.0)      # 3x
+			e.shoot_interval = 2.4
+			e.stand_off = 0.7
+			e._shoot_cd = randf_range(0.8, 1.6)
+			e.reward = 400 + int(level * 10.0)
+			e.radius = 320.0
+		"phantom":    # Deep Ocean jet: F-4, fires two guided missiles per pass
+			e.hp = (46.0 + lvl * 8.0) * GameState.hp_mult()
+			e.speed = minf(190.0 + lvl * 1.5, 250.0) * GameState.speed_mult()
+			e.damage = 1.8 * dmg_mult
+			e.armor = 8.0
+			e.shoots = true
+			e.shoot_range = randf_range(560.0, 680.0)
+			e.shoot_interval = 3.4
+			e._shoot_cd = randf_range(0.5, 2.0)
+			e.reward = 12 + int(level * 0.9)
+			e.radius = 22.0
+		"falcon":     # Deep Ocean jet: F-16, nimble, dodges, rakes the castle with tracer bursts
+			e.hp = (32.0 + lvl * 6.0) * GameState.hp_mult()
+			e.speed = minf(250.0 + lvl * 1.5, 320.0) * GameState.speed_mult()
+			e.damage = 0.8 * dmg_mult
+			e.armor = 4.0
+			e.shoots = true
+			e.shoot_range = randf_range(520.0, 620.0)
+			e.shoot_interval = 2.2
+			e._shoot_cd = randf_range(0.3, 1.5)
+			e.dodge_chance = 0.5
+			e.dodge_cd_time = 0.8
+			e.dodge_dash = 380.0
+			e.reward = 9 + int(level * 0.7)
+			e.radius = 18.0
+		"warthog":    # Deep Ocean jet: A-10, slow and tough, armour-piercing cannon bursts
+			e.hp = (95.0 + lvl * 18.0) * GameState.hp_mult()
+			e.speed = minf(150.0 + lvl * 1.2, 200.0) * GameState.speed_mult()
+			e.damage = 1.0 * dmg_mult
+			e.armor = 30.0
+			e.armor_pen = 10.0
+			e.shoots = true
+			e.shoot_range = randf_range(460.0, 540.0)
+			e.shoot_interval = 2.8
+			e._shoot_cd = randf_range(0.5, 2.0)
+			e.reward = 20 + int(level * 1.2)
+			e.radius = 26.0
+		"stealth":    # Deep Ocean jet: black flying wing with twin laser guns
+			e.hp = (130.0 + lvl * 24.0) * GameState.hp_mult()
+			e.speed = minf(200.0 + lvl * 1.5, 270.0) * GameState.speed_mult()
+			e.damage = 3.0 * dmg_mult
+			e.armor = 20.0
+			e.armor_pen = 15.0
+			e.shoots = true
+			e.shoot_range = randf_range(700.0, 800.0)
+			e.shoot_interval = 3.6
+			e._shoot_cd = randf_range(1.0, 2.5)
+			e.dodge_chance = 0.3
+			e.dodge_cd_time = 1.0
+			e.dodge_dash = 340.0
+			e.reward = 34 + int(level * 1.8)
+			e.radius = 30.0
+		"troll":      # Dark Continent: Troll - a big, slow brute with a club
+			e.hp = (55.0 + lvl * 16.0) * GameState.hp_mult()
+			e.speed = minf(48.0 + lvl * 1.2, 85.0) * GameState.speed_mult()
+			e.damage = 4.5 * dmg_mult
+			e.armor = 8.0
+			e.reward = 8 + int(level * 0.9)
+			e.radius = 24.0
+		"trollwarrior": # Troll Warrior: horned helm, shield and axe
+			e.hp = (80.0 + lvl * 22.0) * GameState.hp_mult()
+			e.speed = minf(52.0 + lvl * 1.2, 88.0) * GameState.speed_mult()
+			e.damage = 5.5 * dmg_mult
+			e.armor = 28.0
+			e.armor_pen = 8.0
+			e.reward = 12 + int(level * 1.1)
+			e.radius = 26.0
+		"trollcaptain": # Troll Captain: war banner, throws rocks from a distance
+			e.hp = (100.0 + lvl * 26.0) * GameState.hp_mult()
+			e.speed = minf(46.0 + lvl * 1.0, 80.0) * GameState.speed_mult()
+			e.damage = 4.0 * dmg_mult
+			e.armor = 18.0
+			e.shoots = true
+			e.shoot_range = randf_range(440.0, 520.0)
+			e.shoot_interval = 3.0
+			e._shoot_cd = randf_range(1.0, 2.5)
+			e.reward = 16 + int(level * 1.3)
+			e.radius = 28.0
+		"trollking":  # Troll King: hurls boulders and calls a Troll, a Warrior and a Captain
+			e.hp = (380.0 + lvl * 90.0) * GameState.hp_mult()
+			e.speed = minf(40.0 + lvl * 0.8, 62.0) * GameState.speed_mult()
+			e.damage = 7.0 * dmg_mult
+			e.armor = 30.0
+			e.armor_pen = 12.0
+			e.shoots = true
+			e.shoot_range = randf_range(520.0, 600.0)
+			e.shoot_interval = 4.0
+			e._shoot_cd = randf_range(1.5, 3.0)
+			e.reward = 80 + int(level * 3.0)
+			e.radius = 38.0
+		"titan":      # Titan: the biggest, toughest troll - heaves huge boulders
+			e.hp = (700.0 + lvl * 170.0) * GameState.hp_mult()
+			e.speed = minf(30.0 + lvl * 0.6, 50.0) * GameState.speed_mult()
+			e.damage = 9.0 * dmg_mult
+			e.armor = 45.0
+			e.armor_pen = 20.0
+			e.shoots = true
+			e.shoot_range = randf_range(560.0, 660.0)
+			e.shoot_interval = 3.4
+			e._shoot_cd = randf_range(1.5, 3.0)
+			e.reward = 140 + int(level * 4.0)
+			e.radius = 62.0
+		"pillar":     # Elite Titan: a destroyable pillar that pins the castle
+			e.hp = (160.0 + lvl * 50.0) * GameState.hp_mult()
+			e.speed = 0.0
+			e.damage = 0.0
+			e.armor = 15.0
+			e.reward = 0
+			e.radius = 30.0
+		"ant":        # Dark Continent: Ant Soldier - the smallest, fast and frail, comes in swarms
+			e.hp = (5.0 + lvl * 1.8) * GameState.hp_mult()
+			e.speed = minf(115.0 + lvl * 4.0, 250.0) * GameState.speed_mult()
+			e.damage = 0.6 * dmg_mult
+			e.reward = 1 + int(level * 0.15)
+			e.radius = 9.0
+		"antwarden":  # Royal Guard: armoured warden, slow, thick shell, big pincers
+			e.hp = (40.0 + lvl * 11.0) * GameState.hp_mult()
+			e.speed = minf(58.0 + lvl * 2.0, 100.0) * GameState.speed_mult()
+			e.damage = 2.4 * dmg_mult
+			e.armor = 28.0
+			e.armor_pen = 5.0
+			e.reward = 6 + int(level * 0.7)
+			e.radius = 20.0
+		"antspitter": # Royal Guard: spits acid from a distance
+			e.hp = (26.0 + lvl * 7.0) * GameState.hp_mult()
+			e.speed = minf(52.0 + lvl * 1.5, 90.0) * GameState.speed_mult()
+			e.damage = 1.8 * dmg_mult
+			e.armor = 6.0
+			e.shoots = true
+			e.shoot_range = randf_range(420.0, 500.0)
+			e.shoot_interval = 2.6
+			e._shoot_cd = randf_range(0.8, 2.5)
+			e.reward = 6 + int(level * 0.7)
+			e.radius = 18.0
+		"antflyer":   # Royal Guard: winged, flies over everything and dives at the castle
+			e.hp = (18.0 + lvl * 4.5) * GameState.hp_mult()
+			e.speed = minf(150.0 + lvl * 3.0, 240.0) * GameState.speed_mult()
+			e.damage = 1.6 * dmg_mult
+			e.armor = 4.0
+			e.dodge_chance = 0.3
+			e.dodge_cd_time = 1.0
+			e.dodge_dash = 300.0
+			e.reward = 5 + int(level * 0.6)
+			e.radius = 16.0
+		"antking":    # Ant King: calls one Royal Guard of each kind, then more when they are all gone
+			e.hp = (300.0 + lvl * 70.0) * GameState.hp_mult()
+			e.speed = minf(36.0 + lvl * 0.8, 60.0) * GameState.speed_mult()
+			e.damage = 5.0 * dmg_mult
+			e.armor = 30.0
+			e.armor_pen = 10.0
+			e.shoots = true
+			e.shoot_range = randf_range(520.0, 600.0)
+			e.shoot_interval = 3.6
+			e._shoot_cd = randf_range(1.5, 3.0)
+			e.reward = 60 + int(level * 2.4)
+			e.radius = 38.0
+		"antqueen":   # Ant Queen: barely moves, lays Ant Soldiers all the time
+			e.hp = (360.0 + lvl * 80.0) * GameState.hp_mult()
+			e.speed = minf(22.0 + lvl * 0.4, 36.0) * GameState.speed_mult()
+			e.damage = 3.0 * dmg_mult
+			e.armor = 20.0
+			e.reward = 70 + int(level * 3.0)
+			e.radius = 46.0
+		"cursed":     # Cursed Garden: the default soldier, darker and a little tougher
+			e.hp = (13.0 + lvl * 5.0) * GameState.hp_mult()
+			e.speed = minf(66.0 + lvl * 4.5, 170.0) * GameState.speed_mult()
+			e.damage = 1.2 * dmg_mult
+			e.reward = 1 + int(level * 0.5)
+			e.radius = 15.0
+		"crpg":       # Cursed Garden: rocket launcher soldier
+			e.hp = (16.0 + lvl * 5.5) * GameState.hp_mult()
+			e.speed = minf(52.0 + lvl * 2.0, 95.0) * GameState.speed_mult()
+			e.damage = 2.6 * dmg_mult
+			e.armor = 2.0
+			e.shoots = true
+			e.shoot_range = randf_range(430.0, 500.0)
+			e.shoot_interval = 3.4
+			e._shoot_cd = randf_range(1.0, 3.0)
+			e.reward = 4 + int(level * 0.6)
+			e.radius = 16.0
+		"cmini":      # Cursed Garden: minigunner, a steady stream of weak bullets
+			e.hp = (24.0 + lvl * 7.0) * GameState.hp_mult()
+			e.speed = minf(42.0 + lvl * 1.5, 80.0) * GameState.speed_mult()
+			e.damage = 0.4 * dmg_mult
+			e.armor = 4.0
+			e.shoots = true
+			e.shoot_range = randf_range(360.0, 430.0)
+			e.shoot_interval = 0.4
+			e._shoot_cd = randf_range(0.5, 2.0)
+			e.reward = 5 + int(level * 0.7)
+			e.radius = 17.0
+		"cgren":      # Cursed Garden: grenadier, lobs grenades that burst where they land
+			e.hp = (15.0 + lvl * 5.0) * GameState.hp_mult()
+			e.speed = minf(55.0 + lvl * 2.0, 100.0) * GameState.speed_mult()
+			e.damage = 2.2 * dmg_mult
+			e.shoots = true
+			e.shoot_range = randf_range(380.0, 450.0)
+			e.shoot_interval = 2.8
+			e._shoot_cd = randf_range(1.0, 2.5)
+			e.reward = 4 + int(level * 0.6)
+			e.radius = 16.0
+		"aatruck":    # Cursed Garden: armoured halftrack with an anti-air flak turret - made to shoot flying castles down
+			e.hp = (64.0 + lvl * 16.0) * GameState.hp_mult()
+			e.speed = minf(46.0 + lvl * 1.5, 85.0) * GameState.speed_mult()
+			e.damage = 1.0 * dmg_mult
+			e.armor = 20.0
+			e.armor_pen = 5.0
+			e.shoots = true
+			e.shoot_range = randf_range(620.0, 700.0)
+			e.shoot_interval = 0.9
+			e._shoot_cd = randf_range(0.5, 1.6)
+			e.reward = 14 + int(level * 1.0)
+			e.radius = 30.0
+		"soul":       # Forgotten Realm: Lesser Soul - the grey-white cousin of the Sinner, faster and frailer
+			e.hp = (16.0 + lvl * 4.0) * GameState.hp_mult()
+			e.speed = minf(46.0 + lvl * 2.5, 105.0) * 2.1 * GameState.speed_mult()
+			e.damage = 1.2 * dmg_mult
+			e.reward = 1 + int(level * 0.2)
+			e.radius = 15.0
+		"wisp":       # Forgotten Realm: Soul Wisp - a flying spark of light that bursts against the castle
+			e.hp = (8.0 + lvl * 1.4) * GameState.hp_mult()
+			e.speed = minf(150.0 + lvl * 2.0, 230.0) * GameState.speed_mult()
+			e.damage = 2.2 * dmg_mult
+			e.reward = 2 + int(level * 0.3)
+			e.radius = 13.0
+		"fallen":     # Forgotten Realm: Fallen Angel - hooded mini-boss, huge: white invincibility, dash and jump, true-damage blade, duplicates itself, calls Lesser Souls
+			e.hp = (260.0 + lvl * 48.0) * GameState.hp_mult()
+			e.speed = minf(100.0 + lvl * 1.0, 140.0) * GameState.speed_mult()
+			e.damage = 2.6 * dmg_mult
+			e.armor = 25.0
+			e.armor_pen = 15.0
+			e.shoots = true
+			e.shoot_range = randf_range(360.0, 440.0)
+			e.shoot_interval = 3.0
+			e._shoot_cd = randf_range(1.0, 2.5)
+			e.dodge_chance = 0.15
+			e.dodge_cd_time = 1.4
+			e.dodge_dash = 360.0
+			e.reward = 45 + int(level * 2.2)
+			e.radius = 46.0
+		"fighter":    # launched by a carrier: a fast kamikaze jet
+			e.hp = (7.0 + lvl * 1.0) * GameState.hp_mult()
+			e.speed = 235.0 * GameState.speed_mult()
+			e.damage = 1.1 * dmg_mult
+			e.reward = 0
+			e.radius = 14.0
+			e.is_minion = true
+		"angler":     # Deep Ocean: a tough, armoured seabed hunter that bites hard
+			e.hp = (52.0 + lvl * 13.0) * GameState.hp_mult()
+			e.speed = minf(70.0 + lvl * 2.0, 135.0) * GameState.speed_mult()
+			e.damage = 3.4 * dmg_mult
+			e.armor = 18.0
+			e.armor_pen = 10.0
+			e.dodge_chance = 0.15
+			e.dodge_cd_time = 1.2
+			e.dodge_dash = 240.0
+			e.reward = 7 + int(level * 0.8)
+			e.radius = 22.0
+		"thornling":  # Cursed Garden: a snapping plant on root legs that spits thorns
+			e.hp = (36.0 + lvl * 9.0) * GameState.hp_mult()
+			e.speed = minf(55.0 + lvl * 2.0, 110.0) * GameState.speed_mult()
+			e.damage = 2.4 * dmg_mult
+			e.armor = 12.0
+			e.shoots = true
+			e.shoot_range = randf_range(380.0, 460.0)
+			e.shoot_interval = 2.0
+			e._shoot_cd = randf_range(0.8, 2.0)
+			e.reward = 5 + int(level * 0.6)
+			e.radius = 20.0
+		"herald":     # Forgotten Realm: a flying angel that hovers at range and fires bolts of light
+			e.hp = (30.0 + lvl * 7.0) * GameState.hp_mult()
+			e.speed = minf(70.0 + lvl * 2.0, 130.0) * GameState.speed_mult()
+			e.damage = 2.2 * dmg_mult
+			e.armor = 10.0
+			e.shoots = true
+			e.shoot_range = randf_range(500.0, 640.0)
+			e.shoot_interval = 2.6
+			e._shoot_cd = randf_range(0.8, 2.4)
+			e.dodge_chance = 0.2
+			e.dodge_cd_time = 1.0
+			e.dodge_dash = 260.0
+			e.reward = 5 + int(level * 0.6)
+			e.radius = 22.0
+		"stalker":    # Dark Continent: a fast night predator that pounces from a distance and dodges
+			e.hp = (24.0 + lvl * 5.0) * GameState.hp_mult()
+			e.speed = minf(150.0 + lvl * 2.5, 260.0) * GameState.speed_mult()
+			e.damage = 1.8 * dmg_mult
+			e.armor = 4.0
+			e.dodge_chance = 0.35
+			e.dodge_cd_time = 0.8
+			e.dodge_dash = 300.0
+			e.reward = 4 + int(level * 0.5)
+			e.radius = 18.0
+			e._leap_cd = randf_range(0.5, 2.0)
 		"demon":      # Hell: faster and stronger than a golem, 9x its health (3x, then 3x again); leaps over lava
 			e.hp = (90.0 + lvl * 25.0) * 9.0 * GameState.hp_mult()
 			e.speed = minf(32.0 + lvl * 1.5, 70.0) * 1.6 * GameState.speed_mult()
@@ -259,6 +644,19 @@ static func make(k: String, level: int) -> Enemy:
 	e.max_hp = e.hp
 	return e
 
+# A Mud Golem called by the Mud Colossus around the castle: a golem in brown clay that charges in and smashes.
+static func make_mud_golem(level: int) -> Enemy:
+	var e := Enemy.make("golem", level)
+	e.mud = true
+	e.hp *= 0.8
+	e.max_hp = e.hp
+	e.damage *= 0.6
+	e.armor = 15.0
+	e.reward = 0
+	e.shoots = false
+	e.is_minion = true
+	return e
+
 # The smaller golem left behind when a golem is destroyed.
 static func make_small_golem(parent: Enemy) -> Enemy:
 	var e := Enemy.new()
@@ -304,6 +702,43 @@ static func make_bee(level: int) -> Enemy:
 	s.free()
 	return e
 
+# A stalker called by the Savage Behemoth: weaker, pays nothing, vanishes with the boss.
+static func make_stalker_minion(level: int) -> Enemy:
+	var e := Enemy.make("stalker", level)
+	e.hp *= 0.45
+	e.max_hp = e.hp
+	e.reward = 0
+	e.is_minion = true
+	e.radius = 15.0
+	return e
+
+# An angler called by the Leviathan: frail, pays nothing, vanishes with the boss.
+static func make_angler_minion(level: int) -> Enemy:
+	var e := Enemy.make("angler", level)
+	e.hp *= 0.4
+	e.max_hp = e.hp
+	e.reward = 0
+	e.is_minion = true
+	return e
+
+# A thornling called by the Thorn Queen: frail, pays nothing, vanishes with the boss.
+static func make_thornling_minion(level: int) -> Enemy:
+	var e := Enemy.make("thornling", level)
+	e.hp *= 0.4
+	e.max_hp = e.hp
+	e.reward = 0
+	e.is_minion = true
+	return e
+
+# A herald called by the Fallen Seraph: frail, pays nothing, vanishes with the boss.
+static func make_herald_minion(level: int) -> Enemy:
+	var e := Enemy.make("herald", level)
+	e.hp *= 0.4
+	e.max_hp = e.hp
+	e.reward = 0
+	e.is_minion = true
+	return e
+
 # A "lesser Void Overlord": half the speed and damage of its master.
 static func make_void_lesser(hp: float, dmg: float, spd: float) -> Enemy:
 	var e := Enemy.new()
@@ -341,6 +776,8 @@ func _ready() -> void:
 # Pixel-art body (see mob_art.gd). The vector drawing below is only used when no sprite exists.
 func _make_sprite() -> void:
 	_art_key = MobArt.key_for(kind, space, is_ally)
+	if mud and _art_key == "golem":
+		_art_key = "mudgolem"
 	if _art_key == "" or not MobArt.INFO.has(_art_key):
 		return
 	_art = MobArt.frames(_art_key)
@@ -371,7 +808,27 @@ func _update_sprite() -> void:
 	_sprite.scale = Vector2(k, k)
 	_sprite.position = Vector2(0.0, -sin(clampf(1.0 - _slam_t / SLAM_TIME, 0.0, 1.0) * PI) * 26.0) if _slam_t > 0.0 else Vector2.ZERO
 	if _leap_t > 0.0:
-		_sprite.position = Vector2(0.0, -sin(clampf(1.0 - _leap_t / LEAP_TIME, 0.0, 1.0) * PI) * 70.0)
+		_sprite.position = Vector2(0.0, -sin(clampf(1.0 - _leap_t / LEAP_TIME, 0.0, 1.0) * PI) * (34.0 if kind == "stalker" else 70.0))
+	var gait := MobArt.gait_of(_art_key)
+	if gait != 0 and _slam_t <= 0.0 and _leap_t <= 0.0:
+		var cyc := _walk * MobArt.frame_rate(_art_key) / float(maxi(n, 1)) * TAU      # one full walk cycle = TAU
+		var wob := float(get_instance_id() % 13)
+		if gait == 1:
+			var up := 0.5 + 0.5 * cos(cyc * 2.0)                  # highest when the legs pass, lowest at full stride
+			_sprite.position.y -= up * radius * 0.11
+			var st := (up - 0.5) * 0.07
+			_sprite.scale = Vector2(k * (1.0 - st), k * (1.0 + st))
+			if not MobArt.rotates(_art_key):
+				_sprite.rotation = sin(cyc) * 0.05                # a slight sway from side to side
+		elif gait == 2:
+			_sprite.position.y += sin(float(Time.get_ticks_msec()) * 0.05 + wob) * 0.7          # engine rumble
+		elif gait == 4:
+			var ms := float(Time.get_ticks_msec())
+			_sprite.position.y += sin(ms * 0.0021 + wob) * 1.8                                  # riding the swell
+			if not MobArt.rotates(_art_key):
+				_sprite.rotation = sin(ms * 0.0016 + wob) * 0.035                              # rolling a little
+		elif kind != "stealth":
+			_sprite.position.y += sin(float(Time.get_ticks_msec()) * 0.004 + wob) * radius * 0.12   # hover
 	_update_invuln_fx()
 	if MobArt.rotates(_art_key):
 		_sprite.rotation = _heading
@@ -408,8 +865,13 @@ func _update_invuln_fx() -> void:
 	_inv_sprite.position = _sprite.position
 	_inv_sprite.rotation = _sprite.rotation
 	_inv_sprite.flip_h = _sprite.flip_h
-	_inv_sprite.modulate = Color(1.0, 0.78, 0.2, (0.55 + 0.35 * glow) * fade)
-	_sprite.modulate = Color(1.25, 1.1, 0.7)
+	if kind == "fallen":
+		_inv_sprite.modulate = Color(0.8, 0.9, 1.0, (0.55 + 0.35 * glow) * fade)
+		_sprite.modulate = Color(1.1, 1.15, 1.3)
+	else:
+		_inv_sprite.modulate = Color(1.0, 0.78, 0.2, (0.55 + 0.35 * glow) * fade)
+		_sprite.modulate = Color(1.25, 1.1, 0.7)
+	_inv_shield.white = kind == "fallen"
 	_inv_shield.setup(radius, fade, glow)
 
 func _tick_common(delta: float) -> void:
@@ -430,6 +892,8 @@ func _move_speed() -> float:
 
 # Called on every hit: pushes the enemy back a little and slows it briefly.
 func _hit_reaction(from_dir: Vector2, strength: float) -> void:
+	if kind == "pillar":
+		return
 	_push = from_dir * strength
 	_slow_time = 0.4
 
@@ -441,6 +905,64 @@ func _special_tick(delta: float) -> void:
 	_leap_cd = maxf(_leap_cd - delta, 0.0)
 	var dist_t := position.distance_to(target)
 	match kind:
+		"pillar":
+			_sinner_cd -= delta
+			if _sinner_cd <= 0.0:
+				_sinner_cd = 0.25
+				if position.distance_to(target) < 330.0:
+					request.emit("pin", self, 1)
+		"trollking":
+			if _sinners_alive <= 0:
+				_sinner_cd -= delta
+				if _sinner_cd <= 0.0:
+					_sinners_alive = 3
+					_sinner_cd = 8.0
+					_scale_pop = 0.3
+					Sfx.play("boss_summon", -4.0)
+					request.emit("kingtrolls", self, 3)
+		"antking":
+			if _sinners_alive <= 0:
+				_sinner_cd -= delta
+				if _sinner_cd <= 0.0:
+					_sinners_alive = 3
+					_sinner_cd = 6.0
+					_scale_pop = 0.3
+					Sfx.play("boss_summon", -4.0)
+					request.emit("kingguards", self, 3)
+		"antqueen":
+			_sinner_cd -= delta
+			if _sinner_cd <= 0.0 and _sinners_alive < 14:
+				_sinner_cd = 3.5
+				_sinners_alive += 4
+				_scale_pop = 0.2
+				Sfx.play("boss_summon", -8.0)
+				request.emit("ants", self, 4)
+		"fallen":
+			if not is_clone:
+				if _sinners_alive <= 0:                 # calls a handful of Lesser Souls; when they are gone, more come
+					_sinner_cd -= delta
+					if _sinner_cd <= 0.0:
+						_sinners_alive = 4
+						_sinner_cd = 5.0
+						_scale_pop = 0.25
+						Sfx.play("boss_summon", -5.0)
+						request.emit("souls", self, 4)
+				_clone_cd -= delta
+				if _clone_cd <= 0.0 and _clones_alive <= 0 and dist_t < 900.0:
+					_clone_cd = 16.0
+					_clones_alive = 3
+					_scale_pop = 0.3
+					Sfx.play("boss_summon", -3.0)
+					request.emit("clones", self, 3)
+			else:
+				_life_t -= delta
+				if _life_t <= 0.0 and not dead:
+					dead = true
+					_tell_master()
+					Fx.spawn(get_parent(), "spark", position, Color(0.8, 0.9, 1.0), "", 1.6, 0.5, true)
+					died.emit(self)
+					queue_free()
+					return
 		"demon":
 			# spawns 5 Sinners; when every one of them is gone, 5 new ones come at once
 			if _sinners_alive <= 0:
@@ -494,8 +1016,76 @@ func _land() -> void:
 # One shot of a ranged mob (tanks, golems, demons).
 func _do_shot() -> void:
 	var f := Vector2.RIGHT.rotated(_heading)
-	var origin := position + f * 38.0 * maxf(art_scale, 1.0)
+	if kind in WATER_KINDS:
+		f = (target - position).normalized()      # guns and launchers swivel; the hull keeps its own heading
+	var origin := position + f * (radius * 1.0 if kind in WATER_KINDS else 38.0 * maxf(art_scale, 1.0))
 	match kind:
+		"cruiser":
+			var cside := f.orthogonal() * radius * 0.32
+			shoot.emit(origin + cside, damage)
+			shoot.emit(origin - cside, damage)
+			Sfx.play("tank_fire", -2.0)
+		"missilecruiser":
+			var nm := 3 + (randi() % 2)
+			for mi in nm:
+				var mside := f.orthogonal() * radius * 0.34 * (float(mi) - float(nm - 1) * 0.5) / (float(nm) * 0.5)
+				launch.emit("missile", origin + mside - f * float(mi % 2) * 14.0, target, damage)
+			Sfx.play("rocket", -3.0)
+		"trollcaptain":
+			launch.emit("rock", position + f * 26.0, target, damage)
+			Sfx.play("boss_summon", -12.0)
+		"trollking":
+			launch.emit("boulder", position + f * 40.0, target, damage)
+			Sfx.play("rocket", -4.0)
+		"titan":
+			launch.emit("boulder", position + f * 60.0, target, damage)
+			launch.emit("rock", position + f * 60.0 + f.orthogonal() * 22.0, target, damage * 0.5)
+			Sfx.play("rocket", -2.0)
+		"antspitter":
+			launch.emit("acid", position + f * 22.0, target, damage)
+			Sfx.play("dodge", -8.0)
+		"antking":
+			launch.emit("acidglob", position + f * 40.0, target, damage)
+			Sfx.play("boss_summon", -10.0)
+		"crpg":
+			launch.emit("rocket", position + f * 20.0, target, damage)
+			Sfx.play("rocket", -4.0)
+		"cmini":
+			launch.emit("bullet", position + f * 20.0, target + Vector2(randf_range(-32.0, 32.0), randf_range(-32.0, 32.0)), damage)
+			Sfx.play("tank_fire", -12.0)
+		"cgren":
+			launch.emit("grenade", position + f * 18.0, target, damage)
+			Sfx.play("dodge", -6.0)
+		"aatruck":
+			var aside := f.orthogonal() * (7.0 if randi() % 2 == 0 else -7.0)
+			launch.emit("flak", position + f * 26.0 + aside, target, damage)
+			Sfx.play("tank_fire", -8.0)
+		"fallen":
+			launch.emit("lightblade", origin, target, damage)
+			Sfx.play("boss_beam", -12.0)
+		"phantom":
+			var pside := f.orthogonal() * 12.0
+			launch.emit("missile", origin + pside, target, damage)
+			launch.emit("missile", origin - pside, target, damage)
+			Sfx.play("rocket", -3.0)
+		"falcon":
+			for i in 4:
+				launch.emit("tracer", origin - f * (float(i) * 16.0) + f.orthogonal() * (4.0 if i % 2 == 0 else -4.0), target, damage)
+			Sfx.play("tank_fire", -6.0)
+		"warthog":
+			for i in 6:
+				launch.emit("cannon", origin - f * (float(i) * 14.0), target, damage)
+			Sfx.play("tank_fire", -3.0)
+		"stealth":
+			var lside := f.orthogonal() * 14.0
+			launch.emit("laser", origin + lside, target, damage)
+			launch.emit("laser", origin - lside, target, damage)
+			Sfx.play("boss_beam", -10.0)
+		"carrier":
+			if _sinners_alive < JET_CAP:         # swarms of jets, all kinds (fewer when the frame rate sags)
+				var fps := Engine.get_frames_per_second()
+				request.emit("jets", self, 24 if fps >= 45 else (12 if fps >= 32 else 5))
+			Sfx.play("boss_summon", -6.0)
 		"heavytank":
 			var side := f.orthogonal() * 9.0
 			shoot.emit(origin + side, damage)         # the double barrel fires both shells together
@@ -509,6 +1099,12 @@ func _do_shot() -> void:
 		"golem":
 			launch.emit("rock", position + f * radius * 0.8, target, damage * (0.55 if is_small else 0.9))
 			Sfx.play("bolt", -4.0)
+		"thornling":
+			launch.emit("thorn", position + f * radius * 0.9, target, damage)
+			Sfx.play("bolt", -5.0)
+		"herald":
+			launch.emit("holy", position + f * radius * 0.8, target, damage)
+			Sfx.play("laser", -6.0)
 		"demon":
 			launch.emit("fireball", position + f * radius * 0.8, target, damage)
 			Sfx.play("rocket", -4.0)
@@ -519,7 +1115,10 @@ func _do_shot() -> void:
 # A Sinner that dies or reaches the castle tells its Demon, which then spawns new ones when all are gone.
 func _tell_master() -> void:
 	if master != null and is_instance_valid(master) and not master.dead:
-		master._sinners_alive = maxi(master._sinners_alive - 1, 0)
+		if is_clone:
+			master._clones_alive = maxi(master._clones_alive - 1, 0)
+		else:
+			master._sinners_alive = maxi(master._sinners_alive - 1, 0)
 
 # Critical hit: one strike that removes more than 25% of max health.
 func _is_crit(dealt: float) -> bool:
@@ -588,6 +1187,9 @@ func _process(delta: float) -> void:
 		return
 	_tick_common(delta)
 	_special_tick(delta)
+	if kind == "pillar":                        # a pillar never moves and never "arrives"
+		queue_redraw()
+		return
 	if _slam_t > 0.0:                           # the Golem leaps and slams the ground: it stands still meanwhile
 		_slam_t -= delta
 		_heading = (target - position).angle()
@@ -606,12 +1208,38 @@ func _process(delta: float) -> void:
 			if Backdrop.liquid_at(terrain_biome, position):
 				_leap_t = 0.2                   # still over the lava: keep going
 			else:
-				_leap_cd = 0.4
+				_leap_cd = randf_range(2.2, 3.4) if kind == "stalker" else (randf_range(3.0, 5.0) if kind == "fallen" else 0.4)
 				_scale_pop = 0.15
 		queue_redraw()
 		return
 	var to_target := target - position
 	var dist := to_target.length()
+	if kind in JET_KINDS and not is_ally:
+		if _peel_t > 0.0:                       # peeling away after a pass
+			_peel_t -= delta
+			_heading = _peel_dir.angle()
+			position += (_peel_dir * _move_speed() * 1.1 + _update_dodge(delta)) * delta
+			_walk += delta * 4.0
+			_shoot_cd = maxf(_shoot_cd, 0.4)
+			queue_redraw()
+			return
+		if dist <= shoot_range:                 # strafing run: keep flying at the castle and fire
+			_heading = to_target.angle()
+			_shoot_cd -= delta
+			if _shoot_cd <= 0.0:
+				_shoot_cd = shoot_interval
+				_do_shot()
+			position += (to_target / maxf(dist, 1.0) * _move_speed() * 0.8 + _update_dodge(delta)) * delta
+			_walk += delta * 4.0
+			if dist <= 300.0:
+				_peel_dir = (-to_target / maxf(dist, 1.0)).rotated(randf_range(0.5, 1.0) * (1.0 if randf() < 0.5 else -1.0))
+				_peel_t = randf_range(1.6, 2.4)
+			queue_redraw()
+			return
+	if kind in WATER_KINDS and not is_ally and stand_off > 0.0 and dist <= shoot_range:
+		_ship_move(delta, to_target, dist)
+		queue_redraw()
+		return
 	# Tanks stop in range and shell the base until they are destroyed.
 	if shoots and dist <= shoot_range:
 		_heading = to_target.angle()
@@ -630,9 +1258,20 @@ func _process(delta: float) -> void:
 		return
 	var dir := to_target / dist
 	_heading = dir.angle()
+	if kind == "stalker" and not is_ally and _leap_cd <= 0.0 and dist > reach + 170.0 and dist < reach + 420.0:
+		# pounce: a low, fast leap straight at the castle
+		_leap_dir = dir
+		_leap_t = LEAP_TIME * clampf((dist - reach - 40.0) / (LEAP_SPEED * LEAP_TIME), 0.3, 1.0)
+		Sfx.play("dodge", -5.0)
+		return
+	if kind == "fallen" and not is_ally and _leap_cd <= 0.0 and dist > shoot_range + 80.0 and dist < shoot_range + 520.0:
+		_leap_dir = dir                     # super-speed dash / jump toward the castle
+		_leap_t = LEAP_TIME * clampf((dist - shoot_range - 40.0) / (LEAP_SPEED * LEAP_TIME), 0.35, 1.0)
+		Sfx.play("dodge", -4.0)
+		return
 	var spd := _move_speed()
 	var step := (dir * spd + _update_dodge(delta)) * delta
-	if kind != "bee":
+	if is_ground():
 		step = _avoid_liquid(step, delta)
 	position += step
 	_walk += delta * spd * 0.12
@@ -673,6 +1312,30 @@ func _incoming_shot() -> Projectile:
 	return null
 
 # Returns the extra sideways velocity of a dodge dash (zero when not dodging).
+# Ships fight from a stand-off distance: close in only to a fraction of their range, back off
+# if the castle gets too near, otherwise sail slowly broadside and keep firing.
+func _ship_move(delta: float, to_target: Vector2, dist: float) -> void:
+	var dir := to_target / maxf(dist, 1.0)
+	var want := shoot_range * stand_off
+	var mv := Vector2.ZERO
+	if dist > want * 1.1:
+		mv = dir
+	elif dist < want * 0.7 or dist < radius + 260.0:
+		mv = -dir * 0.8
+	else:
+		mv = dir.orthogonal() * _orbit * 0.5
+		if randf() < delta * 0.05:
+			_orbit = -_orbit
+	var spd := _move_speed()
+	if mv.length() > 0.01:
+		_heading = lerp_angle(_heading, mv.angle(), clampf(delta * 1.6, 0.0, 1.0))
+	position += (mv * spd + _update_dodge(delta)) * delta
+	_walk += delta * spd * 0.12
+	_shoot_cd -= delta
+	if _shoot_cd <= 0.0:
+		_shoot_cd = shoot_interval
+		_do_shot()
+
 func _update_dodge(delta: float) -> Vector2:
 	if dodge_chance <= 0.0 or is_ally:
 		return Vector2.ZERO
@@ -709,7 +1372,7 @@ func take_damage(amount: float, pen: float = 0.0) -> void:
 		return
 	if _invuln > 0.0:                        # Apocalypse Tank shield: nothing gets through
 		Fx.spawn(par, "spark", position + Vector2(0.0, -radius * 0.4), Color(1.0, 0.9, 0.4), "", 1.2, 0.3)
-		_hit_sfx("block")
+		_hit_sfx("shield_hit")
 		return
 	var armor_factor := Weapons.armor_mult(armor, pen)
 	var raw := amount * armor_factor * dmg_taken_mult
@@ -724,7 +1387,7 @@ func take_damage(amount: float, pen: float = 0.0) -> void:
 	hp -= dealt
 	var crit := _is_crit(dealt)
 	_record_chunk(hp_before, crit)
-	if kind == "apoctank" and hp > 0.0 and _invuln <= 0.0 and _inv_cd <= 0.0 and (crit or hp < max_hp * 0.3):
+	if (kind == "apoctank" or (kind == "fallen" and not is_clone)) and hp > 0.0 and _invuln <= 0.0 and _inv_cd <= 0.0 and (crit or hp < max_hp * (0.3 if kind == "apoctank" else 0.6)):
 		_invuln = INVULN_TIME
 		_inv_cd = INVULN_COOLDOWN
 		_scale_pop = 0.25
@@ -736,8 +1399,10 @@ func take_damage(amount: float, pen: float = 0.0) -> void:
 	var kick := 1.6 if crit else 1.0
 	var back := -Vector2.RIGHT.rotated(_heading)
 	match kind:
-		"tank", "golem", "demon":
+		"tank", "golem", "demon", "heavytank", "stalker", "thornling", "angler", "cruiser", "missilecruiser", "carrier", "warthog", "fallen", "aatruck", "antking", "antqueen", "antwarden", "troll", "trollwarrior", "trollcaptain", "trollking", "titan":
 			_hit_reaction(back, (35.0 if kind == "tank" else 20.0) * kick)    # heavy: barely moves
+		"apoctank":
+			pass                                  # elite: no knockback and no hit-slow, shots do not push it around
 		"worm":
 			_hit_reaction(back, 300.0 * kick)
 		"mech":
@@ -748,7 +1413,7 @@ func take_damage(amount: float, pen: float = 0.0) -> void:
 	if absorbed > 0.0 and dealt <= 0.0:
 		num_col = Color(0.4, 0.9, 1.0)
 		Fx.spawn(par, "spark", position, Color(0.4, 0.9, 1.0), "", 1.0, 0.3)
-		_hit_sfx("block")
+		_hit_sfx("shield_hit")
 	elif crit:
 		num_col = Color(1.0, 0.35, 0.12)
 		_crit_effects(par, maxf(radius / 25.0, 1.0))
@@ -758,7 +1423,7 @@ func take_damage(amount: float, pen: float = 0.0) -> void:
 		_hit_sfx("block")
 	else:
 		Fx.spawn(par, "spark", position, Color(1.0, 0.85, 0.3), "", 1.0, 0.35)
-		_hit_sfx("hit")
+		_hit_sfx("hit_heavy" if kind in ["tank", "heavytank", "apoctank", "golem", "demon", "mech", "cruiser", "missilecruiser", "carrier", "warthog", "stealth", "fallen", "aatruck", "troll", "trollwarrior", "trollcaptain", "trollking", "titan"] else "hit")
 	var shown := str(int(ceil(dealt + absorbed)))
 	if crit:
 		shown += "!"
@@ -766,7 +1431,7 @@ func take_damage(amount: float, pen: float = 0.0) -> void:
 	if hp <= 0.0:
 		dead = true
 		_tell_master()
-		if kind == "tank" or kind == "hunter" or kind == "mech" or kind == "golem" or kind == "demon" or kind == "heavytank" or kind == "apoctank":
+		if kind == "tank" or kind == "hunter" or kind == "mech" or kind == "golem" or kind == "demon" or kind == "heavytank" or kind == "apoctank" or kind in JET_KINDS or kind == "antking" or kind == "antqueen" or kind == "trollking" or kind == "titan" or kind == "pillar" or kind == "carrier":
 			Fx.spawn(par, "explosion", position, Color.WHITE, "", 1.0, 0.6, true)
 			Sfx.play("explode")
 		else:
@@ -836,8 +1501,75 @@ func _draw_overlays() -> void:
 			PixelFx.arc(self, Vector2.ZERO, 26.0, -1.0, 1.0, Color(0.85, 1.0, 1.0, 0.6 * frac), 2.0)
 			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
+# A ship's bubbling wake: bubbles spring up along both sides of the hull and trail off behind it. They get
+# thicker the faster the ship sails and thin out when it stops to shoot. Drawn flat on the water (camera tilt).
+var _wake_prev: Vector2 = Vector2.ZERO
+var _wake_k: float = 0.3
+
+static var _bub_tex: Texture2D = null
+static var _bh1: PackedFloat32Array = PackedFloat32Array()
+static var _bh2: PackedFloat32Array = PackedFloat32Array()
+
+# One small cached bubble picture (soft fill, bright rim, highlight): each bubble is then a single draw call.
+static func _bubble_prep() -> void:
+	if _bub_tex != null:
+		return
+	var n := 24
+	var img := Image.create(n, n, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0, 0, 0, 0))
+	var c := float(n) * 0.5
+	for y in n:
+		for x in n:
+			var d := Vector2(float(x) + 0.5 - c, float(y) + 0.5 - c).length() / c
+			if d > 1.0:
+				continue
+			var col := Color(0.8, 0.95, 1.0, 0.16)
+			if d > 0.74:
+				col = Color(0.92, 0.99, 1.0, 0.95)
+			var hl := Vector2(float(x) + 0.5 - c * 0.7, float(y) + 0.5 - c * 0.7).length()
+			if hl < c * 0.2:
+				col = Color(1, 1, 1, 1)
+			img.set_pixel(x, y, col)
+	_bub_tex = ImageTexture.create_from_image(img)
+	for i in 16:
+		_bh1.append(fposmod(sin(float(i) * 12.9898) * 43758.5453, 1.0))
+		_bh2.append(fposmod(sin(float(i) * 78.233) * 12543.331, 1.0))
+
+func _draw_wake() -> void:
+	_bubble_prep()
+	var dt := maxf(get_process_delta_time(), 0.001)
+	var mv := position.distance_to(_wake_prev) / dt
+	_wake_prev = position
+	_wake_k = lerpf(_wake_k, clampf(mv / 50.0, 0.25, 1.0), 0.08)
+	var back := -Vector2.RIGHT.rotated(_heading)
+	var side := back.orthogonal()
+	var tm := float(Time.get_ticks_msec()) / 1000.0
+	var half := radius * 1.35            # about half the hull length
+	var beam := radius * 0.42
+	var n := 8 if kind != "carrier" else 12
+	var kscale := clampf(radius / 40.0, 0.8, 2.2)
+	var lim := _wake_k + 0.2
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2(1.0, MobArt.GROUND_SQUASH))
+	for i in n:
+		var h1 := _bh1[i]
+		if _bh2[i] > lim:
+			continue
+		var u := fposmod(tm * (0.55 + 0.4 * h1) + float(i) / float(n), 1.0)
+		var sg := 1.0 if i % 2 == 0 else -1.0
+		var along := lerpf(half * 0.65, -half * 1.3, u)
+		var lat := sg * beam * (0.95 + 0.9 * u)
+		var c := back * (-along) + side * lat
+		var r := (3.0 + 4.0 * h1) * (1.0 - 0.45 * u) * kscale
+		draw_texture_rect(_bub_tex, Rect2(c.x - r, c.y - r, r * 2.0, r * 2.0), false, Color(1, 1, 1, (1.0 - u) * 0.85))
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
 func _draw() -> void:
-	_draw_marker()
+	if view_rect.size.x > 0.0 and not view_rect.has_point(position):
+		return
+	if not dbg_no_extras:
+		if kind in WATER_KINDS and terrain_biome == 6:
+			_draw_wake()
+		_draw_marker()
 	if _sprite != null:
 		_draw_overlays()
 		_draw_bar()

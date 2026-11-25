@@ -22,13 +22,13 @@ const DEFAULTS := {
 	"move_left": KEY_A,
 	"move_down": KEY_S,
 	"move_right": KEY_D,
-	"pause_game": KEY_SPACE,
+	"pause_game": KEY_P,
 	"open_shop": KEY_TAB,
 	"toggle_info": KEY_I,
-	"skill_1": KEY_V,
-	"skill_2": KEY_B,
-	"skill_3": KEY_N,
-	"skill_4": KEY_M,
+	"skill_1": KEY_SPACE,
+	"skill_2": KEY_2,
+	"skill_3": KEY_3,
+	"skill_4": KEY_4,
 }
 
 static var _keys: Dictionary = {}
@@ -37,6 +37,11 @@ static func load_from(cfg: ConfigFile) -> void:
 	for a in ORDER:
 		var def: int = DEFAULTS[a]
 		_keys[a] = int(cfg.get_value("keys", a, def))
+	if int(cfg.get_value("keys", "ver", 1)) < 2:
+		# older saves: Space paused and 1 was skill slot 1 - move them to P and Space (only if still the old defaults)
+		if int(_keys["pause_game"]) == KEY_SPACE and int(_keys["skill_1"]) == KEY_1:
+			_keys["pause_game"] = KEY_P
+			_keys["skill_1"] = KEY_SPACE
 	_register()
 
 static func _ensure() -> void:

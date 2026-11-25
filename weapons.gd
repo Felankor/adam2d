@@ -11,8 +11,12 @@ const AUTO_MAX_TIER := 2             # Gunners can use up to the Gatling Gun
 
 # Manual fire
 const DAMAGE := [3.0, 8.0, 12.0, 32.0, 24.0, 40.0]
-const ENERGY_COST := [5.0, 20.0, 7.0, 30.0, 18.0, 36.0]
-const INTERVAL := [0.1, 0.25, 0.07, 0.6, 0.2, 0.5]
+const ENERGY_COST := [5.0, 6.0, 7.0, 30.0, 18.0, 36.0]
+
+# What a shot costs right now: nothing while mana is switched off (Base.MANA_ON).
+static func cost(tier: int) -> float:
+	return ENERGY_COST[tier] if Base.MANA_ON else 0.0
+const INTERVAL := [0.1, 0.085, 0.07, 0.6, 0.2, 0.5]
 # Auto-weapon damage per shot for Rifle / Machinegun / Gatling (they fire every auto_interval seconds)
 const AUTO_DAMAGE := [3.0, 6.0, 9.0]
 # Gold price of the upgrade that leads TO tier index+1
@@ -38,6 +42,19 @@ const TRUE_PEN := 1000.0
 const PEN := [0.0, 5.0, 9.0, 12.0, 25.0, TRUE_PEN]
 # Void Gun: splash radius of its blast (the Rocket Launcher has 110)
 const VOID_SPLASH := 200.0
+
+# One line about each weapon (the same sentences as the Help window).
+const NOTES := [
+	"Very fast, cheap, but weak: useless against armor.",
+	"Hard-hitting bursts with some armor penetration.",
+	"The fastest gun and the fastest bullets, with good armor penetration. The best weapon your Gunners can use.",
+	"Explodes: damages everything around the target.",
+	"Instant beam that pierces every mob on its line.",
+	"Dark orb with a huge blast. TRUE DAMAGE: ignores armor and shields.",
+]
+
+static func note_of(tier: int) -> String:
+	return Loc.t(NOTES[clampi(tier, 0, MAX_TIER)])
 
 static func armor_mult(armor: float, pen: float = 0.0) -> float:
 	return ARMOR_K / (ARMOR_K + maxf(armor - pen, 0.0))

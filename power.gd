@@ -28,10 +28,10 @@ static func armor_mult(armor: float, pen: float) -> float:
 
 # Threat limits for a rival castle, as a share of the TARGET's health, so stacked stat
 # points can never turn a rival into a one-shot machine. Both grow slowly with the level.
-const SHOT_FRAC_MIN := 0.02       # one hit: 2% of the target's max health at level 1 ...
-const SHOT_FRAC_MAX := 0.06       # ... up to 6% (well under the 25% critical-hit line)
-const DPS_FRAC_MIN := 0.025       # sustained: the target survives at least 40 s at level 1 ...
-const DPS_FRAC_MAX := 0.08        # ... and at least 12.5 s at high levels
+const SHOT_FRAC_MIN := 0.03       # one hit: 2% of the target's max health at level 1 ...
+const SHOT_FRAC_MAX := 0.09       # ... up to 6% (well under the 25% critical-hit line)
+const DPS_FRAC_MIN := 0.04       # sustained: the target survives at least 40 s at level 1 ...
+const DPS_FRAC_MAX := 0.15        # ... and at least 12.5 s at high levels
 
 static func level_t(level: int) -> float:
 	return clampf(float(level - 1) / 29.0, 0.0, 1.0)
@@ -54,9 +54,9 @@ static func of_enemy(e: Enemy, vs_armor: float = 0.0) -> float:
 # Damage per second of a castle with these stats (energy limits the fire rate).
 static func castle_dps(weapon_tier: int, energy_regen: float, dmg_mult: float, autos: int, auto_interval: float, atk: float = 1.0) -> float:
 	var interval: float = Weapons.INTERVAL[weapon_tier]
-	var cost: float = Weapons.ENERGY_COST[weapon_tier]
+	var cost: float = Weapons.cost(weapon_tier)
 	var dmg: float = Weapons.DAMAGE[weapon_tier]
-	var shots := minf(atk / interval, energy_regen / cost)
+	var shots := atk / interval if cost <= 0.0 else minf(atk / interval, energy_regen / cost)
 	var dps := dmg * shots
 	if autos > 0:
 		var adm: float = Weapons.AUTO_DAMAGE[mini(weapon_tier, Weapons.AUTO_MAX_TIER)]

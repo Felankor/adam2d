@@ -112,6 +112,9 @@ func _check_crit(delta: float) -> void:
 
 func _process(delta: float) -> void:
 	_t += delta
+	if _hub_seen != GameState.hub_mode:
+		apply_layout()
+	_hover_tip(delta)
 	if not is_equal_approx(_applied_scale, Settings.hud_scale):
 		_apply_scale()
 	if _rev_seen != HudLayout.rev:
@@ -120,7 +123,7 @@ func _process(delta: float) -> void:
 	_update_xp(delta)
 	if base != null:
 		var hr := clampf(base.hp / base.max_hp, 0.0, 1.0)
-		var er := clampf(base.energy / base.max_energy, 0.0, 1.0)
+		var er := _tube_frac()
 		_hp_front = lerpf(_hp_front, hr, 1.0 - exp(-14.0 * delta))
 		if hr > _hp_ghost:
 			_hp_ghost = hr
@@ -300,14 +303,14 @@ func part_rect(id: String) -> Rect2:
 			return Rect2(ox - 68.0, oy + float(HudArt.YC) * k - 31.0, 62.0, 62.0)
 		"skills":
 			var total := SLOT * 4.0 + HudLayout.num("skills", "gap") * 3.0
-			return Rect2((s.x - total) * 0.5, s.y - 92.0, total, SLOT)
+			return Rect2((s.x - total) * 0.5, s.y - 84.0, total, SLOT)
 		"minimap":
 			return Rect2(s.x - 30.0 - MAP_RADIUS * 2.0, s.y - 30.0 - MAP_RADIUS * 2.0, MAP_RADIUS * 2.0, MAP_RADIUS * 2.0)
 		"helpers":
 			var hs := _helper_size()
 			if HudLayout.text("helpers", "layout") == "column":
-				return Rect2(28.0, HELPERS_Y, hs.x, (hs.y + 8.0) * 3.0 + hs.y)
-			return Rect2(28.0, HELPERS_Y, (hs.x + 10.0) * 3.0 + hs.x, hs.y)
+				return Rect2(28.0, HELPERS_Y, hs.x, (hs.y + 8.0) * 4.0 + hs.y)
+			return Rect2(28.0, HELPERS_Y, (hs.x + 10.0) * 4.0 + hs.x, hs.y)
 		"gold":
 			return Rect2(s.x - 230.0, 44.0, 190.0, 42.0)
 		"fps":
@@ -326,6 +329,88 @@ func part_rect(id: String) -> Rect2:
 		"banner":
 			return Rect2(Settings.WORLD_SIZE.x * 0.5 - 400.0, 150.0, 800.0, 70.0)
 	return Rect2()
+
+# ---------- hover tips: rest the mouse on a HUD element for a moment to read what it is ----------
+
+const TIP_IDS := ["bars", "xp", "tag", "weapon", "skills", "minimap", "helpers", "gold", "info", "bossbar"]
+var _tip_key: String = ""
+var _tip_time: float = 0.0
+
+func _hover_tip(delta: float) -> void:
+	if edit_mode or not is_visible_in_tree() or get_tree().paused:
+		_tip_key = ""
+		Tip.hide_for(self)
+		return
+	var key := ""
+	for id: String in TIP_IDS:
+		var p: HudPart = _parts.get(id)
+		if p == null or not p.visible or not HudLayout.flag(id, "vis"):
+			continue
+		var m := p.get_local_mouse_position()
+		var r := part_rect(id)
+		if id == "skills":
+			var gap := HudLayout.num("skills", "gap")
+			for i in 4:
+				if Rect2(r.position.x + float(i) * (SLOT + gap), r.position.y, SLOT, SLOT).has_point(m):
+					key = "skills:%d" % i
+					break
+		elif r.has_point(m):
+			key = id
+		if key != "":
+			break
+	if key != _tip_key:
+		_tip_key = key
+		_tip_time = 0.0
+		Tip.hide_for(self)
+		return
+	if key == "":
+		return
+	_tip_time += delta
+	if _tip_time < 0.3:
+		return
+	var t := _tip_for(key)
+	Tip.show_text(self, t[0], t[1], t[2], t[3])
+
+func _tip_for(key: String) -> Array:
+	if key.begins_with("skills:"):
+		var i := int(key.get_slice(":", 1))
+		var key_text := Keybinds.key_text("skill_%d" % (i + 1))
+		var sid := ""
+		if base != null and i < base.skill_slots.size():
+			sid = base.skill_slots[i]
+		match sid:
+			"overcharge":
+				return ["Overcharge", Loc.t("Weapon damage +30%% for %d s. Cooldown %d s.") % [int(Base.BOOST_DURATION), int(Base.BOOST_COOLDOWN)], "damage", "%s: %s" % [Loc.t("Key"), key_text]]
+			"repair":
+				return ["Repair", "Costs gold, heals 50% of your max health. 1 s cooldown.", "repair", "%s: %s" % [Loc.t("Key"), key_text]]
+			"barrier":
+				return ["Barrier", "A shield around the castle for a few seconds.", "shield", "%s: %s" % [Loc.t("Key"), key_text]]
+			"dash":
+				return ["Dash", "A quick burst of speed in the direction you move. Nothing can hurt you while it lasts. Cooldown %d s." % int(Base.DASH_COOLDOWN), "speed", "%s: %s" % [Loc.t("Key"), key_text]]
+			"push":
+				return ["Mob Push", "A shockwave that throws the mobs around your castle back. Heavy mobs move less, bosses do not move. Cooldown %d s." % int(Base.PUSH_COOLDOWN), "shield", "%s: %s" % [Loc.t("Key"), key_text]]
+		return ["Empty skill slot", "Nothing is assigned to this slot yet.", "", "%s: %s" % [Loc.t("Key"), key_text]]
+	match key:
+		"bars":
+			return ["Health and Shield", "The red tube is your castle's health: at zero the castle falls. The blue tube is your Shield: it soaks damage and recharges while you are not hit. It only fills once you have Shield cards.", "walls", ""]
+		"xp":
+			return ["Experience", "Kills give XP. Every new level gives 5 stat points: open the Castle window to spend them. A death in a map or the Dungeon costs 10% of the XP of your current level.", "star", ""]
+		"tag":
+			return ["Castle stage", "How big your castle is. Grow it at the Shipyard in the hub.", "walls", ""]
+		"weapon":
+			var wt := base.weapon_tier if base != null else 0
+			return [Weapons.name_of(wt), Weapons.note_of(wt) + "\n" + Loc.t("Upgrade it for gold in the Castle window. Gunner turrets use it too, up to the Gatling Gun."), Weapons.id_of(wt), ""]
+		"minimap":
+			return ["Radar", "Shows the area around your castle. When no enemy is in range, an arrow points to the nearest one.", "sight", ""]
+		"helpers":
+			return ["Helpers", "Refugees that reached your castle. Gunners build a hovering turret, Scientists add weapon damage, Engineers add mana regen, Mana Keepers add max mana and Mechanics slowly repair the castle.", "gunner", ""]
+		"gold":
+			return ["Gold", "Dropped by every kill. Spend it on weapon upgrades and the Shipyard.", "coin", ""]
+		"info":
+			return ["Where you are", "The wave and region you are in, and the stage of your castle.", "skull", ""]
+		"bossbar":
+			return ["Boss health", "The boss falls when this bar is empty.", "skull", ""]
+	return ["", "", "", ""]
 
 # The point an element is scaled around (its middle, or the bottom-left corner for the pop-up stack).
 func pivot_of(id: String) -> Vector2:
@@ -346,8 +431,12 @@ func attach(id: String, nodes: Array) -> void:
 	apply_layout()
 
 # Pushes the layout (offset, size, opacity, visibility) onto the part nodes.
+const HUB_HIDDEN := ["minimap", "helpers", "skills"]
+var _hub_seen: bool = false
+
 func apply_layout() -> void:
 	_rev_seen = HudLayout.rev
+	_hub_seen = GameState.hub_mode
 	var s := _vs()
 	for id in HudLayout.IDS:
 		var p: HudPart = _parts.get(id)
@@ -355,6 +444,10 @@ func apply_layout() -> void:
 			continue
 		var sc := HudLayout.num(id, "scale")
 		var shown := HudLayout.flag(id, "vis")
+		if id == "helpers" and not Base.HELPERS_ON and not edit_mode:
+			shown = false            # helpers are switched off for now
+		if GameState.hub_mode and not edit_mode and HUB_HIDDEN.has(id):
+			shown = false            # nothing to fight in the hub: no radar, helper counters or skill bar
 		if id == "shield" and HudLayout.text("shield", "style") != "own":
 			sc = 1.0         # inside the health tube: nothing to place
 		p.size = s
@@ -436,6 +529,12 @@ func placed_rect(id: String) -> Rect2:
 
 # ---------- health, mana, level medallion ----------
 
+# The blue tube: the Shield (or mana, if it is ever switched back on).
+func _tube_frac() -> float:
+	if Base.MANA_ON:
+		return clampf(base.energy / base.max_energy, 0.0, 1.0)
+	return _shield_frac()
+
 func _shield_frac() -> float:
 	var cap := base.shield_cap()
 	if cap <= 0.0:
@@ -462,7 +561,7 @@ func _draw_bars(s: Vector2) -> void:
 	var xl := ox + float(cx + HudArt.TGAP) * k            # inner edge of the mana tube
 	var tw := float(tl) * k
 	var hr := clampf(base.hp / base.max_hp, 0.0, 1.0)
-	var er := clampf(base.energy / base.max_energy, 0.0, 1.0)
+	var er := _tube_frac()
 	var warn := HudLayout.flag("bars", "warn")
 	ci.draw_texture_rect(HudArt.bar_tex("back", e), Rect2(Vector2(ox, oy), Vector2(float(cw), float(HudArt.CH)) * k), false)
 	# damage trail, then the health liquid (it drains towards the left, away from the medallion)
@@ -491,7 +590,7 @@ func _draw_bars(s: Vector2) -> void:
 				ci.draw_rect(Rect2(xl + x_a * k, ty + 2.0 * k, (x_b - x_a) * k, th - 4.0 * k), Color(1, 1, 1, 0.28 * _en_gain))
 		_tube_end(xl + float(ew) * k, ty, th, k, true)
 	# energy shield as an ice layer inside the top of the health tube (the other style is its own tube, see _draw_shield_own)
-	if HudLayout.text("shield", "style") == "layer" and HudLayout.flag("shield", "vis") and _shield_value() > 0:
+	if Base.MANA_ON and HudLayout.text("shield", "style") == "layer" and HudLayout.flag("shield", "vis") and _shield_value() > 0:
 		var sw := floori(float(tl) * _shield_frac())
 		if sw > 0:
 			ci.draw_texture_rect_region(HudArt.bar_tex("ice_l", e), Rect2(xr - float(sw) * k, ty + k, float(sw) * k, 7.0 * k), Rect2(tl - sw, 0, sw, 7))
@@ -514,17 +613,22 @@ func _draw_bars(s: Vector2) -> void:
 		var nsz: int = {"small": 20, "normal": 30, "large": 40}[HudLayout.text("bars", "numsize")]
 		var hp_text := "%d / %d" % [ceili(base.hp), ceili(base.max_hp)]
 		var en_text := "%d / %d" % [int(base.energy), int(base.max_energy)]
+		if not Base.MANA_ON:
+			en_text = "%d / %d" % [_shield_value(), int(base.shield_cap())]
 		if mode == "value":
 			hp_text = str(ceili(base.hp))
-			en_text = str(int(base.energy))
+			en_text = str(int(base.energy)) if Base.MANA_ON else str(_shield_value())
 		var ny := ty + th * 0.5 + float(nsz) / 3.0
 		_tx(Vector2(xr - tw, ny), hp_text, nsz, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, tw, 5)
-		_tx(Vector2(xl, ny), en_text, nsz, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, tw, 5)
+		if Base.MANA_ON or base.shield_cap() > 0.0:
+			_tx(Vector2(xl, ny), en_text, nsz, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, tw, 5)
 	var lv_size := 40 if base.xp_level < 10 else 30
 	_tx(Vector2(s.x * 0.5 - 40.0, yc + (14.0 if lv_size == 40 else 11.0)), str(base.xp_level), lv_size, Color(1.0, 0.9, 0.55), HORIZONTAL_ALIGNMENT_CENTER, 80.0, 5)
 
 # The shield in a small bronze tube of its own, centred above the level medallion.
 func _draw_shield_own(s: Vector2) -> void:
+	if not Base.MANA_ON:
+		return                       # the blue tube is the shield now
 	var k := HUD_K
 	var cap := base.shield_cap()
 	if cap <= 0.0 and not edit_mode:
@@ -547,18 +651,18 @@ func _draw_shield_own(s: Vector2) -> void:
 		ci.draw_texture_rect_region(HudArt.tex("ice_l"), Rect2(x, y, float(sw) * k, h), Rect2(0, 0, sw, 7))
 		ci.draw_rect(Rect2(x + float(sw) * k - k, y + k, k, h - 2.0 * k), Color(1, 1, 1, 0.7))
 	if HudLayout.flag("shield", "text"):
-		_tx(Vector2(x, y + h * 0.5 + 7.0), "%s %d" % [Loc.t("Shield"), _shield_value()], 20, Color(0.85, 0.97, 1.0), HORIZONTAL_ALIGNMENT_CENTER, w, 4)
+		_tx(Vector2(x, y + h * 0.5 + 5.0), "%s %d" % [Loc.t("Shield"), _shield_value()], 15, Color(0.85, 0.97, 1.0), HORIZONTAL_ALIGNMENT_CENTER, w, 4)
 
 # Blinking "[Tab] Stat points: N" tag above the beam.
 func _draw_tag(s: Vector2) -> void:
-	var pts := base.free_points
+	var pts := base.picks
 	if pts <= 0:
 		if not edit_mode:
 			return
 		pts = 3
 	var top := part_rect("tag").position.y
 	var blink := 0.5 + 0.5 * sin(_t * 5.0)
-	var tag := "[%s]  %s: %d" % [Keybinds.key_text("open_shop"), Loc.t("Stat points"), pts]
+	var tag := "[%s]  %s: %d" % [Keybinds.key_text("open_shop"), Loc.t("Level-up picks"), pts]
 	var tag_w := PixelUI.font().get_string_size(tag, HORIZONTAL_ALIGNMENT_LEFT, -1, PixelUI.fs(20)).x + 30.0
 	var bob := roundf(sin(_t * 6.0) * 2.0) if HudLayout.flag("tag", "bounce") else 0.0
 	var tag_box := PixelUI.box(Color(0.1, 0.35, 0.16, 0.55 + 0.3 * blink), Color(0.35, 0.9, 0.5), 2)
@@ -733,6 +837,44 @@ func _draw_minimap(s: Vector2) -> void:
 			ci.draw_rect(_snap(c + rel, 3.0, 6.0), Color(1.0, 0.2, 0.2))
 	ci.draw_rect(_snap(c, 3.0, 12.0), Color(0, 0, 0, 0.6))
 	ci.draw_rect(_snap(c, 3.0, 9.0), Color(1.0, 0.6, 0.1))
+	_draw_radar_hint(c, HudLayout.num("minimap", "range"))
+
+# When you drift so far that the nearest enemy leaves the radar, the radar points at it: the rim glows,
+# an arrow sits on the rim, a sonar ring pings from it and a label gives the distance.
+func _draw_radar_hint(c: Vector2, range_px: float) -> void:
+	var best: Enemy = null
+	var best_d := INF
+	for e in Field.enemies():
+		if e.dead:
+			continue
+		var d := e.global_position.distance_to(base.global_position)
+		if d < best_d:
+			best_d = d
+			best = e
+	if best == null or best_d <= range_px:
+		return
+	var dir := (best.global_position - base.global_position) / best_d
+	var ang := dir.angle()
+	var fade := clampf((best_d - range_px) / 250.0, 0.0, 1.0)          # eases in as the last blip slips off the radar
+	var pulse := 0.5 + 0.5 * sin(_t * 5.0)
+	var amber := Color(1.0, 0.75, 0.2)
+	# glowing rim segment in the enemy's direction
+	ci.draw_arc(c, MAP_RADIUS - 1.0, ang - 0.55, ang + 0.55, 18, Color(amber.r, amber.g, amber.b, (0.35 + 0.5 * pulse) * fade), 4.0)
+	# sonar ping rolling in from the rim point
+	var rim := c + dir * (MAP_RADIUS - 3.0)
+	var ph := fposmod(_t * 0.9, 1.0)
+	ci.draw_arc(rim, 6.0 + 34.0 * ph, ang + PI - 1.1, ang + PI + 1.1, 14, Color(amber.r, amber.g, amber.b, 0.8 * (1.0 - ph) * fade), 3.0)
+	# arrow just outside the rim, bobbing outward
+	var ap := c + dir * (MAP_RADIUS + 8.0 + 4.0 * pulse)
+	var side := dir.orthogonal()
+	var pts := PackedVector2Array([ap + dir * 9.0, ap - dir * 5.0 + side * 8.0, ap - dir * 5.0 - side * 8.0])
+	ci.draw_colored_polygon(pts, Color(0.0, 0.0, 0.0, 0.7 * fade))
+	var pts2 := PackedVector2Array([ap + dir * 6.0, ap - dir * 3.0 + side * 5.0, ap - dir * 3.0 - side * 5.0])
+	ci.draw_colored_polygon(pts2, Color(amber.r, amber.g, amber.b, (0.7 + 0.3 * pulse) * fade))
+	# label above the radar, centred on it and inside the radar's width
+	var txt := "%s %d m" % [Loc.t("Nearest enemy"), int(best_d / 10.0)]
+	_cur = "minimap"
+	_tx(Vector2(c.x - MAP_RADIUS - 20.0, c.y - MAP_RADIUS - 42.0), txt, 15, Color(amber.r, amber.g, amber.b, fade), HORIZONTAL_ALIGNMENT_CENTER, MAP_RADIUS * 2.0 + 40.0, 4)
 
 # a square of `size` px centred on p, snapped to the 3 px pixel grid
 func _snap(p: Vector2, unit: float, size: float) -> Rect2:
@@ -832,7 +974,7 @@ func _draw_skills(s: Vector2) -> void:
 	var gap := HudLayout.num("skills", "gap")
 	var total := SLOT * 4.0 + gap * 3.0
 	var x0 := (s.x - total) * 0.5
-	var y := s.y - 92.0
+	var y := s.y - 84.0
 	var keys_on := HudLayout.flag("skills", "keys")
 	var cd_on := HudLayout.flag("skills", "cdnum")
 	for i in 4:
@@ -859,10 +1001,13 @@ func _draw_skills(s: Vector2) -> void:
 			if id == "repair":
 				var price := base.repair_cost()
 				var ok := coins >= price
-				_text(r.position + Vector2(SLOT - 40.0 - (8.0 if price >= 100 else 0.0), SLOT - 6), str(price), 18, Color(1.0, 0.85, 0.3) if ok else Color(1.0, 0.35, 0.3))
+				var ptxt := str(price) if price < 10000 else "%.1fK" % (float(price) / 1000.0)
+				ci.draw_rect(Rect2(r.position.x + 2.0, r.end.y - 22.0, SLOT - 4.0, 20.0), Color(0, 0, 0, 0.5))
+				_tx(Vector2(r.position.x, r.end.y - 6.0), ptxt, 16 if price < 1000 else 14, Color(1.0, 0.85, 0.3) if ok else Color(1.0, 0.35, 0.3), HORIZONTAL_ALIGNMENT_RIGHT, SLOT - 5.0, 4)
 		ci.draw_style_box(PixelUI.plate(Color(0, 0, 0, 0), (active_col if active else Color(0.8, 0.6, 0.3)) if id != "" else Color(0.4, 0.3, 0.2), 2), r)
 		if keys_on:
-			_text(r.position + Vector2(6, 18), Keybinds.key_text("skill_%d" % (i + 1)), 16, Color(1.0, 0.9, 0.5))
+			ci.draw_rect(Rect2(r.position.x + 2.0, r.position.y + 2.0, 20.0, 20.0), Color(0, 0, 0, 0.55))
+			_text(r.position + Vector2(7, 19), Keybinds.key_text("skill_%d" % (i + 1)), 15, Color(1.0, 0.9, 0.5))
 
 func _draw_skill_icon(id: String, r: Rect2) -> void:
 	var c := r.get_center()
@@ -875,6 +1020,10 @@ func _draw_skill_icon(id: String, r: Rect2) -> void:
 				ci.draw_rect(r, Color(1.0, 0.6, 0.15, 0.18 + 0.18 * glow))
 		"repair":
 			Icons.draw(ci, "repair", r.position, h / 64.0, false)
+		"dash":
+			Icons.draw(ci, "speed", r.position, h / 64.0, false)
+		"push":
+			Icons.draw(ci, "shield", r.position, h / 64.0, false)
 		"barrier":
 			var pts := PackedVector2Array([
 				c + Vector2(-0.30, -0.28) * h, c + Vector2(0.30, -0.28) * h,
@@ -900,7 +1049,7 @@ func _draw_weapon(pos: Vector2) -> void:
 # Wave plaque: the wave number, the region and the castle stage on a bronze plate.
 # Returns [width, height, baseline 1, divider y, baseline 2, baseline 3] (relative to the plate's corner).
 func _info_metrics() -> Array:
-	var wave := "%s %d" % [Loc.t("Wave"), info_wave]
+	var wave := Loc.t("Hub") if GameState.hub_mode else "%s %d" % [Loc.t("Wave"), info_wave]
 	var w := maxf(maxf(_tw("info", wave, 40), maxf(_tw("info", info_biome, 30), _tw("info", info_castle, 20))) + 52.0, 260.0)
 	var b1 := 14.0 + _cap("info", 40)
 	var dv := b1 + 9.0
@@ -915,7 +1064,7 @@ func _draw_info() -> void:
 	var r := Rect2(28.0, 20.0, w, h)
 	ci.draw_style_box(PixelUI.box(Color(0.085, 0.063, 0.045, 0.9), PixelUI.BRONZE, 2), r)
 	var tx := r.position.x + 26.0
-	var wave := "%s %d" % [Loc.t("Wave"), info_wave]
+	var wave := Loc.t("Hub") if GameState.hub_mode else "%s %d" % [Loc.t("Wave"), info_wave]
 	_tx(Vector2(tx, r.position.y + float(m[2])), wave, 40, PixelUI.GOLD, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 5)
 	ci.draw_rect(Rect2(tx, r.position.y + float(m[3]), w - 52.0, 2.0), Color(0.85, 0.65, 0.2, 0.55))
 	ci.draw_rect(Rect2(tx, r.position.y + float(m[3]) + 2.0, w - 52.0, 2.0), Color(0, 0, 0, 0.5))
@@ -941,20 +1090,20 @@ func _draw_info() -> void:
 func _helper_size() -> Vector2:
 	var most := 99
 	if base != null:
-		most = maxi(maxi(base.gunners, base.scientists), maxi(base.engineers, base.mechanics))
+		most = maxi(maxi(maxi(base.gunners, base.scientists), maxi(base.engineers, base.mechanics)), base.mana_helpers)
 	var cap := _cap("helpers", 40)
 	return Vector2(maxf(128.0, 62.0 + _tw("helpers", "x%d" % maxi(most, 10), 40) + 14.0), maxf(56.0, cap + 24.0))
 
 # Helper allies: a small bronze plate each with the icon and the count.
 func _draw_helpers() -> void:
-	var kinds := ["gunner", "scientist", "engineer", "mechanic"]
-	var counts := [base.gunners, base.scientists, base.engineers, base.mechanics]
+	var kinds := ["gunner", "scientist", "engineer", "energy", "mechanic"]
+	var counts := [base.gunners, base.scientists, base.engineers, base.mana_helpers, base.mechanics]
 	var ps := _helper_size()
 	var x := 28.0
 	var y := HELPERS_Y
 	var column := HudLayout.text("helpers", "layout") == "column"
 	var hide_empty := HudLayout.flag("helpers", "hide_empty") and not edit_mode
-	for i in 4:
+	for i in 5:
 		var kind: String = kinds[i]
 		var n: int = counts[i]
 		if hide_empty and n == 0:

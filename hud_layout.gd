@@ -7,7 +7,7 @@ extends RefCounted
 
 const IDS := ["bars", "shield", "xp", "tag", "weapon", "skills", "minimap", "helpers", "gold", "fps", "info", "notifier", "bossbar", "bosswarn", "banner", "levelup"]
 const NAMES := {
-	"bars": "Health & Mana", "shield": "Shield", "xp": "XP bar", "tag": "Stat points tag", "weapon": "Weapon",
+	"bars": "Health & Shield", "shield": "Shield", "xp": "XP bar", "tag": "Stat points tag", "weapon": "Weapon",
 	"skills": "Skills", "minimap": "Minimap", "helpers": "Helpers", "gold": "Coins", "fps": "FPS counter",
 	"info": "Wave info", "notifier": "Pop-ups", "bossbar": "Boss health bar", "bosswarn": "Boss warning", "banner": "Wave banner", "levelup": "Level-up burst",
 }

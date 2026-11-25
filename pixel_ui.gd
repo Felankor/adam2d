@@ -71,6 +71,10 @@ static func _fit_one(c: Control) -> void:
 		return
 	c.pivot_offset = c.size * 0.5
 	var s := Settings.menu_scale
+	# a window never grows past the screen: shrink it until it fits (with a little air around it)
+	if c.is_inside_tree() and c.size.x > 1.0 and c.size.y > 1.0:
+		var vs := c.get_viewport_rect().size
+		s = minf(s, minf(vs.x * 0.95 / c.size.x, vs.y * 0.95 / c.size.y))
 	c.scale = Vector2(s, s)
 
 # After the Menu size setting changed.
@@ -128,6 +132,8 @@ static func setup(tree: SceneTree) -> void:
 		_style_controls(_theme)
 	ThemeDB.fallback_font = ui_font()
 	root.theme = _theme
+	Tip.ensure(tree)
+	TextFit.hook(tree)
 
 # Bronze look for sliders, check buttons and drop-down lists (so no default blue widgets remain).
 static func _flat(col: Color, border: Color, bw: int = 2, r: int = 0) -> StyleBoxFlat:

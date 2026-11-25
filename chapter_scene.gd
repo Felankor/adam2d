@@ -17,7 +17,7 @@ const HOLD_MIN := 1.1
 const CARD_IN := 0.8
 const CARD_HOLD := 2.8
 const CARD_OUT := 1.2
-const ROMAN := ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"]
+const ROMAN := ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX"]
 
 var state: String = ""            # "", "summary", "in", "hold", "out", "card"
 var _t: float = 0.0
@@ -54,7 +54,7 @@ func _ready() -> void:
 	add_child(_center)
 	_panel = PanelContainer.new()
 	var sb := PixelUI.box(PixelUI.WIN_BG, PixelUI.BRONZE)
-	sb.set_content_margin_all(34)
+	sb.set_content_margin_all(46)
 	_panel.add_theme_stylebox_override("panel", sb)
 	_center.add_child(_panel)
 	PixelUI.fit(_panel)
@@ -78,9 +78,9 @@ func show_summary(info: Dictionary) -> void:
 	for c in _box.get_children():
 		c.queue_free()
 	_rows.clear()
-	_box.add_child(PixelTitle.make("CHAPTER COMPLETE", 46))
+	_box.add_child(PixelTitle.make(str(info.get("title", "CHAPTER COMPLETE")), 46))
 	_sub = Label.new()
-	_sub.text = "%s %s:  %s" % [Loc.t("Chapter"), str(info.get("roman", "I")), Loc.t(str(info.get("name", "")))]
+	_sub.text = Loc.t(str(info["sub"])) if info.has("sub") else "%s %s:  %s" % [Loc.t("Chapter"), str(info.get("roman", "I")), Loc.t(str(info.get("name", "")))]
 	_sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_sub.add_theme_font_size_override("font_size", PixelUI.mfs(30))
 	_sub.add_theme_color_override("font_color", PixelUI.CREAM)
@@ -114,7 +114,7 @@ func show_summary(info: Dictionary) -> void:
 	spacer.custom_minimum_size = Vector2(0, 6)
 	_box.add_child(spacer)
 	_continue = Button.new()
-	_continue.text = Loc.t("Continue!")
+	_continue.text = Loc.t(str(info.get("button", "Continue!")))
 	_continue.focus_mode = Control.FOCUS_NONE
 	_continue.custom_minimum_size = Vector2(380, 70)
 	_continue.size_flags_horizontal = Control.SIZE_SHRINK_CENTER

@@ -10,13 +10,16 @@ signal beam_fire(origin: Vector2, aim: Vector2, dmg: float)
 signal announce(text: String, icon: String)
 
 const HP_RATIO := 0.7               # health: 70% of the player's (then x HP_MULT)
-const SPEED_RATIO := 0.75           # move speed: 25% slower than the player
-const ATTACK_RATIO := 0.8           # attack speed: 20% slower than the player
-const DAMAGE_RATIO := 0.8           # damage: 20% lower than the player
-const HP_MULT := 100.0               # Rogue Castles are 100x tougher than the plain 70% copy (was 10x)
+const SPEED_RATIO := 0.9            # move speed: 10% slower than the player
+const ATTACK_RATIO := 1.0           # attack speed: as fast as the player
+const DAMAGE_RATIO := 1.0           # damage: the same as the player (still limited by the threat budget)
+const HP_MULT := 30.0                # Rogue Castles are 30x tougher than the plain 70% copy (was 100x: too much)
+const DMG_BOOST := 1.8               # ...but they hit harder: their budgeted damage is multiplied by this
 const ATTACK_MAX := 2.5            # attack speed ceiling (stat points can push the player far higher)
 const SCALE_MIN := 0.3             # damage multiplier floor
 const BEAM_CHARGE := 0.7
+const SALVO_EVERY := 7.0           # every few seconds it fires a spread of three shots
+const SALVO_SPREAD := 0.16         # radians between the three shots
 const STYLES := ["bullet", "bullet", "bullet", "rocket", "bullet", "void"]
 const SPEEDS := [700.0, 560.0, 820.0, 380.0, 700.0, 520.0]
 
@@ -30,8 +33,10 @@ var attack_speed: float = 1.0
 var barrier_time: float = 0.0
 var boost_time: float = 0.0
 var _barrier_cd: float = 0.0
-var _boost_cd: float = 6.0
-var _fire_cd: float = 1.5
+var _boost_cd: float = 4.0
+var _fire_cd: float = 1.0
+var _salvo_cd: float = 4.0
+var _flash_gun: float = 0.0
 var _anim: float = 0.0
 var _vel: Vector2 = Vector2.ZERO
 var _orbit_angle: float = 0.0
@@ -40,10 +45,16 @@ var _orbit_timer: float = 0.0
 var _beam_charge: float = 0.0
 var _beam_aim: Vector2 = Vector2.ZERO
 var boss_name: String = "Rogue Castle"
+var _brain: Brain = null           # shared tactical AI (see brain.gd): positioning, dodging, predictive aim
 var _pix: PixelCastle = null
+
+# The size of its turret: its muzzle sits just outside the castle, like the player's.
+func _gun_k() -> float:
+	return clampf((radius + 14.0) / float(WeaponArt.TIP[weapon_tier]), 0.7, 1.8)
 
 func _ready() -> void:
 	super._ready()
+	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	if PixelCastle.ENABLED:
 		z_index = 1
 		_pix = PixelCastle.new()
@@ -79,7 +90,7 @@ static func make_from(b: Base, level: int = 1, randomized: bool = false) -> Mini
 	var shot_scale := Power.shot_cap(b.max_hp, level) / maxf(raw * through, 0.001)
 	var dps_one := Power.castle_dps(wt, m.energy_regen, 1.0, 0, 1.5, m.attack_speed) * through
 	var dps_scale := Power.dps_cap(b.max_hp, level) / maxf(dps_one, 0.001)
-	m.weapon_scale = minf(scale, minf(shot_scale, dps_scale))
+	m.weapon_scale = minf(scale, minf(shot_scale, dps_scale)) * DMG_BOOST
 	m.speed = b.move_speed * b.move_mult * SPEED_RATIO
 	m.radius = b.body_radius()
 	m.damage = 3.0 * DAMAGE_RATIO
@@ -108,6 +119,8 @@ func _process(delta: float) -> void:
 	energy = minf(energy + energy_regen * delta, max_energy)
 	_barrier_cd = maxf(_barrier_cd - delta, 0.0)
 	_boost_cd = maxf(_boost_cd - delta, 0.0)
+	_salvo_cd = maxf(_salvo_cd - delta, 0.0)
+	_flash_gun = maxf(_flash_gun - delta, 0.0)
 	boost_time = maxf(boost_time - delta, 0.0)
 	barrier_time = maxf(barrier_time - delta, 0.0)
 	_heading = (target - position).angle()
@@ -118,29 +131,30 @@ func _process(delta: float) -> void:
 		_pix.update_look(tier, radius, 0.55 + 0.45 * clampf(_flash / 0.12, 0.0, 1.0), _anim, sin(_anim * 1.5) * (3.0 + radius * 0.05), radius * 2.6)
 	queue_redraw()
 
-# Hovers around the player at a distance, changing its spot now and then.
+# Each Rogue Castle gets its own personality: cautious ones kite from afar, aggressive ones press in close.
+func _brain_get() -> Brain:
+	if _brain == null:
+		var aggr := randf_range(0.2, 0.8)
+		_brain = Brain.new(randf_range(0.55, 0.85), aggr, lerpf(540.0, 380.0, aggr), lerpf(780.0, 560.0, aggr))
+	return _brain
+
+# Holds a distance from the player, circles, sidesteps incoming shots and backs off when hurt (see brain.gd).
 func _move(delta: float) -> void:
-	_orbit_timer -= delta
-	if _orbit_timer <= 0.0:
-		_orbit_timer = randf_range(2.5, 4.5)
-		_orbit_angle = randf() * TAU
-		_orbit_dist = randf_range(520.0, 780.0)
-	var spot := target + Vector2.RIGHT.rotated(_orbit_angle) * _orbit_dist
-	var to_spot := spot - position
-	var want := to_spot.normalized() * minf(speed, to_spot.length() * 2.0)
-	_vel = _vel.lerp(want, 1.0 - exp(-4.0 * delta))
+	var br := _brain_get()
+	var far := position.distance_to(target) > br.lod_far
+	_vel = br.tick(delta, position, target, hp / maxf(max_hp, 1.0), energy / maxf(max_energy, 1.0), speed, radius, far)
 	position += _vel * delta
 
 func _skills() -> void:
-	if _boost_cd <= 0.0 and energy >= max_energy * 0.5 and position.distance_to(target) < 1100.0:
+	if _boost_cd <= 0.0 and energy >= max_energy * 0.5 and position.distance_to(target) < 1100.0 and _brain_get().opening():
 		boost_time = Base.BOOST_DURATION
 		_boost_cd = Base.BOOST_COOLDOWN
 		announce.emit(Loc.t("The Rogue Castle overcharges its weapon!"), "damage")
 
 func _shoot(delta: float) -> void:
-	var cost: float = Weapons.ENERGY_COST[weapon_tier]
+	var cost: float = Weapons.cost(weapon_tier)
 	var dmg: float = Weapons.DAMAGE[weapon_tier] * weapon_scale * (Base.BOOST_MULT if boost_time > 0.0 else 1.0)
-	var origin := position + Vector2.RIGHT.rotated(_heading) * (radius + 14.0)
+	var origin := position + WeaponArt.muzzle(weapon_tier, _heading, Vector2(0.0, sin(_anim * 1.5) * (3.0 + radius * 0.05) - radius * 0.03), _gun_k())
 	if _beam_charge > 0.0:
 		# Laser Gun: the aim point was locked when the shot was ready.
 		_beam_charge -= delta
@@ -153,16 +167,22 @@ func _shoot(delta: float) -> void:
 	if _fire_cd > 0.0 or energy < cost or position.distance_to(target) > 1150.0:
 		return
 	energy -= cost
+	_flash_gun = 0.07
 	_fire_cd = Weapons.INTERVAL[weapon_tier] / attack_speed
 	if weapon_tier == 4:
 		_beam_charge = BEAM_CHARGE
-		_beam_aim = target
+		_beam_aim = _brain_get().lead(target, BEAM_CHARGE)
 		Sfx.play("beam_charge", -8.0)
 		return
-	var aim := target
-	if weapon_tier == 0 or weapon_tier == 2:
-		aim += Vector2(randf_range(-40.0, 40.0), randf_range(-40.0, 40.0))
+	var aim := _brain_get().aim_point(origin, target, float(SPEEDS[weapon_tier]))      # leads a moving target; accuracy follows its skill
 	Sfx.play(str(Weapons.SOUNDS[weapon_tier]), -9.0)
+	if _salvo_cd <= 0.0:
+		# a salvo: the same shot three times in a fan, so one dodge is not enough
+		_salvo_cd = SALVO_EVERY * randf_range(0.8, 1.2)
+		var base_dir := (aim - origin)
+		for k in [-1, 0, 1]:
+			fire.emit(origin, origin + base_dir.rotated(float(k) * SALVO_SPREAD), dmg * 0.7, str(STYLES[weapon_tier]))
+		return
 	fire.emit(origin, aim, dmg, str(STYLES[weapon_tier]))
 
 func take_damage(amount: float, pen: float = 0.0) -> void:
@@ -177,6 +197,7 @@ func take_damage(amount: float, pen: float = 0.0) -> void:
 	Enemy.dealt_total += dealt
 	var hp_before := hp
 	hp -= dealt
+	_brain_get().note_damage(dealt / maxf(max_hp, 1.0))
 	var crit := _is_crit(dealt)
 	_record_chunk(hp_before, crit)
 	_flash = 0.12
@@ -204,8 +225,14 @@ func _draw() -> void:
 		draw_set_transform(Vector2(0.0, bob), 0.0, Vector2.ONE)
 	var dir := Vector2.RIGHT.rotated(_heading)
 	var col: Color = Weapons.COLORS[weapon_tier]
-	PixelFx.line(self, Vector2.ZERO, dir * (r + 14.0), Color(0.05, 0.05, 0.08, 0.8), 13.0)
-	PixelFx.line(self, Vector2.ZERO, dir * (r + 12.0), col, 8.0)
+	var gk := _gun_k()
+	var piv := Vector2(0.0, bob - r * 0.03)
+	var tipp := -Vector2(0.0, bob) + WeaponArt.draw(self, weapon_tier, _heading, piv, _flash_gun > 0.0, _anim * 3.0, gk)
+	draw_set_transform(Vector2(0.0, bob), 0.0, Vector2.ONE)
+	if _flash_gun > 0.0:
+		var f := _flash_gun / 0.07
+		PixelFx.disc(self, tipp + dir * 5.0 * gk, 12.0 * f * gk, Color(col.r, col.g, col.b, 0.85))
+		PixelFx.disc(self, tipp + dir * 5.0 * gk, 6.0 * f * gk, Color(1.0, 1.0, 0.9, 0.95))
 	if boost_time > 0.0:
 		PixelFx.ring(self, Vector2.ZERO, r * 1.25, Color(1.0, 0.45, 0.15, 0.5), 4.0)
 	if barrier_time > 0.0:
@@ -218,15 +245,35 @@ func _draw() -> void:
 	_draw_bar()
 
 func _draw_bar() -> void:
-	var w := maxf(220.0, radius * 2.4)
-	var pos := Vector2(-w * 0.5, -radius * 1.9 - 30.0)
+	var w := maxf(300.0, radius * 2.6)
+	var bh := 26.0
+	var pos := Vector2(-w * 0.5, -radius * 1.9 - 36.0)
 	var frac := clampf(hp / max_hp, 0.0, 1.0)
-	draw_rect(Rect2(pos, Vector2(w, 18.0)), Color(0.12, 0.0, 0.02, 0.85))
-	draw_rect(Rect2(pos, Vector2(w * frac, 18.0)), Color(0.9, 0.2, 0.2))
-	_draw_chunk(pos.x, pos.y, w, 18.0, 1.0)
-	draw_rect(Rect2(pos, Vector2(w, 18.0)), Color(1.0, 0.7, 0.7), false, 2.0)
-	_draw_armor_tag(pos + Vector2(-34.0, 3.0))
-	var font := ThemeDB.fallback_font
-	var title := "%s  (%d)" % [boss_name, int(power())]
-	draw_string_outline(font, pos + Vector2(0, -6), title, HORIZONTAL_ALIGNMENT_CENTER, w, PixelUI.fs(16), 4, Color.BLACK)
-	draw_string(font, pos + Vector2(0, -6), title, HORIZONTAL_ALIGNMENT_CENTER, w, PixelUI.fs(16), Color(1.0, 0.8, 0.8))
+	draw_rect(Rect2(pos, Vector2(w, bh)), Color(0.12, 0.0, 0.02, 0.85))
+	draw_rect(Rect2(pos, Vector2(w * frac, bh)), Color(0.9, 0.2, 0.2))
+	_draw_chunk(pos.x, pos.y, w, bh, 1.0)
+	draw_rect(Rect2(pos, Vector2(w, bh)), Color(1.0, 0.7, 0.7), false, 2.0)
+	_draw_armor_tag(pos + Vector2(-34.0, 5.0))
+	# the name above the bar, shrunk until it fits the bar's width
+	var title := "%s  (%d)" % [Loc.t(boss_name), int(power())]
+	var tsz := 22
+	while tsz > 10 and PixelUI.ui_font().get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, PixelUI.mfs(tsz)).x > w:
+		tsz -= 1
+	var tw := PixelUI.ui_font().get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, PixelUI.mfs(tsz)).x
+	PixelUI.text(self, Vector2(pos.x + (w - tw) * 0.5, pos.y - 8.0), title, tsz, Color(1.0, 0.8, 0.8), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 4)
+	# the health numbers inside the bar
+	var nums := "%s / %s" % [_short_num(hp), _short_num(max_hp)]
+	var nsz := 18
+	var nw := PixelUI.ui_font().get_string_size(nums, HORIZONTAL_ALIGNMENT_LEFT, -1, PixelUI.mfs(nsz)).x
+	PixelUI.text(self, Vector2(pos.x + (w - nw) * 0.5, pos.y + bh - 6.0), nums, nsz, Color.WHITE, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 4)
+
+# 1,234 -> 1.2K, 1,234,567 -> 1.2M
+func _short_num(v: float) -> String:
+	var n := maxf(v, 0.0)
+	if n >= 1000000.0:
+		return "%.1fM" % (n / 1000000.0)
+	if n >= 10000.0:
+		return "%dK" % int(n / 1000.0)
+	if n >= 1000.0:
+		return "%.1fK" % (n / 1000.0)
+	return str(int(ceil(n)))

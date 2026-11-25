@@ -21,6 +21,7 @@ func setup(biome: int) -> void:
 	Backdrop.request(biome)
 	for t in _tiles:
 		t.biome = biome
+		t.material = Backdrop.ocean_material() if biome == 6 else null      # the open sea has animated waves
 		t.queue_redraw()
 
 # The terrain is built on a background thread; show it as soon as it is ready.

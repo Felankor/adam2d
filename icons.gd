@@ -104,6 +104,10 @@ static func draw_raw(ci: CanvasItem, kind: String, origin: Vector2, k: float, wi
 			_wrench_plus(ci)
 		"walls":
 			_walls(ci)
+		"b_health":
+			_health_heart(ci)
+		"b_armor":
+			_armor_plate(ci)
 		"sight":
 			_sight(ci)
 		"speed":
@@ -132,6 +136,15 @@ static func draw_raw(ci: CanvasItem, kind: String, origin: Vector2, k: float, wi
 			_skull(ci)
 		"star":
 			_star(ci)
+		# loot
+		"shard":
+			_shard(ci)
+		"resin":
+			_resin(ci)
+		"heart":
+			_rogue_heart(ci)
+		"sigil":
+			_sigil(ci)
 	ci.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 static func _speed(ci: CanvasItem) -> void:
@@ -326,6 +339,39 @@ static func _walls(ci: CanvasItem) -> void:
 	ci.draw_rect(Rect2(0, 54, 64, 10), BG)
 	ci.draw_rect(Rect2(1, 1, 62, 62), Color(1, 1, 1, 0.18), false, 2.0)
 
+# Max health: a red heart with a white cross.
+static func _health_heart(ci: CanvasItem) -> void:
+	var red := Color(0.86, 0.18, 0.24)
+	var dark := Color(0.52, 0.07, 0.14)
+	var light := Color(1.0, 0.55, 0.55)
+	for cx in [22.0, 42.0]:
+		ci.draw_circle(Vector2(cx, 25.0), 12.0, red)
+	ci.draw_colored_polygon(PackedVector2Array([Vector2(10.5, 29.0), Vector2(53.5, 29.0), Vector2(32.0, 55.0)]), red)
+	ci.draw_colored_polygon(PackedVector2Array([Vector2(40.0, 33.0), Vector2(53.0, 30.0), Vector2(32.0, 55.0)]), dark)
+	ci.draw_circle(Vector2(18.0, 20.0), 4.0, light)
+	ci.draw_circle(Vector2(38.0, 20.0), 3.0, light.darkened(0.2))
+	ci.draw_rect(Rect2(28.5, 20.0, 7.0, 21.0), Color.WHITE)
+	ci.draw_rect(Rect2(21.5, 27.0, 21.0, 7.0), Color.WHITE)
+	ci.draw_rect(Rect2(28.5, 20.0, 7.0, 21.0), Color(0.75, 0.8, 0.85), false, 1.0)
+
+# Armor: a steel breastplate with gold trim and rivets.
+static func _armor_plate(ci: CanvasItem) -> void:
+	var body := PackedVector2Array([Vector2(14, 12), Vector2(26, 10), Vector2(32, 17), Vector2(38, 10), Vector2(50, 12), Vector2(59, 21), Vector2(52, 31), Vector2(50, 53), Vector2(32, 59), Vector2(14, 53), Vector2(12, 31), Vector2(5, 21)])
+	ci.draw_colored_polygon(body, Color(0.52, 0.57, 0.66))
+	var inner := PackedVector2Array()
+	for p in body:
+		inner.append(Vector2(32, 36) + (p - Vector2(32, 36)) * 0.72)
+	ci.draw_colored_polygon(inner, Color(0.76, 0.81, 0.88))
+	ci.draw_colored_polygon(PackedVector2Array([Vector2(32, 20), Vector2(46, 15), Vector2(44, 50), Vector2(32, 55)]), Color(0.6, 0.65, 0.74))
+	ci.draw_line(Vector2(32, 20), Vector2(32, 56), Color(0.3, 0.33, 0.42), 2.5)
+	ci.draw_line(Vector2(29.5, 22), Vector2(29.5, 54), Color(0.95, 0.97, 1.0), 1.5)
+	ci.draw_line(Vector2(16, 44), Vector2(48, 44), Color(0.3, 0.33, 0.42), 2.0)
+	var trim := body.duplicate()
+	trim.append(body[0])
+	ci.draw_polyline(trim, Color(0.92, 0.72, 0.28), 3.0)
+	for rv in [Vector2(19, 24), Vector2(45, 24), Vector2(19, 38), Vector2(45, 38), Vector2(22, 50), Vector2(42, 50)]:
+		ci.draw_circle(rv, 2.0, Color(0.98, 0.85, 0.45))
+
 static func _sight(ci: CanvasItem) -> void:
 	ci.draw_arc(Vector2(40, 32), 14.0, 0.0, TAU, 32, Color(1.0, 0.3, 0.3), 3.0)
 	ci.draw_circle(Vector2(40, 32), 3.0, Color(1.0, 0.4, 0.4))
@@ -460,3 +506,67 @@ static func _star(ci: CanvasItem) -> void:
 	var outline := pts.duplicate()
 	outline.append(pts[0])
 	ci.draw_polyline(outline, Color(1.0, 0.6, 0.1), 2.5)
+
+
+# ---- loot icons ----
+
+# Floatstone Shard: a cyan crystal with light and dark facets.
+static func _shard(ci: CanvasItem) -> void:
+	var out := Color(0.05, 0.1, 0.2)
+	var body := PackedVector2Array([Vector2(32, 5), Vector2(49, 25), Vector2(41, 58), Vector2(22, 58), Vector2(14, 27)])
+	ci.draw_colored_polygon(body, Color(0.35, 0.78, 0.95))
+	ci.draw_colored_polygon(PackedVector2Array([Vector2(32, 5), Vector2(14, 27), Vector2(30, 36)]), Color(0.75, 0.96, 1.0))
+	ci.draw_colored_polygon(PackedVector2Array([Vector2(32, 5), Vector2(49, 25), Vector2(33, 37)]), Color(0.2, 0.55, 0.85))
+	ci.draw_colored_polygon(PackedVector2Array([Vector2(14, 27), Vector2(30, 36), Vector2(22, 58)]), Color(0.3, 0.7, 0.92))
+	ci.draw_colored_polygon(PackedVector2Array([Vector2(33, 37), Vector2(49, 25), Vector2(41, 58), Vector2(22, 58), Vector2(30, 36)]), Color(0.15, 0.42, 0.72))
+	var ring := body.duplicate()
+	ring.append(body[0])
+	ci.draw_polyline(ring, out, 2.5)
+	ci.draw_line(Vector2(30, 36), Vector2(32, 5), out, 1.5)
+	ci.draw_line(Vector2(30, 36), Vector2(22, 58), out, 1.5)
+	ci.draw_line(Vector2(30, 36), Vector2(49, 25), out, 1.5)
+	ci.draw_circle(Vector2(24, 24), 2.5, Color(1, 1, 1, 0.9))
+
+# Sky Resin: a drop of amber with a shine.
+static func _resin(ci: CanvasItem) -> void:
+	var out := Color(0.25, 0.1, 0.02)
+	ci.draw_circle(Vector2(32, 40), 19.0, out)
+	ci.draw_colored_polygon(PackedVector2Array([Vector2(32, 4), Vector2(15, 36), Vector2(49, 36)]), out)
+	ci.draw_circle(Vector2(32, 40), 17.0, Color(0.95, 0.62, 0.12))
+	ci.draw_colored_polygon(PackedVector2Array([Vector2(32, 8), Vector2(18, 36), Vector2(46, 36)]), Color(0.98, 0.7, 0.18))
+	ci.draw_arc(Vector2(32, 40), 14.0, 0.3, PI - 0.3, 14, Color(0.7, 0.38, 0.06), 4.0)
+	ci.draw_circle(Vector2(25, 36), 4.5, Color(1.0, 0.92, 0.55))
+	ci.draw_circle(Vector2(22, 41), 1.8, Color(1.0, 0.95, 0.7))
+
+# Rogue Heart: a red heart in an iron frame, with a glowing crack.
+static func _rogue_heart(ci: CanvasItem) -> void:
+	var out := Color(0.2, 0.02, 0.06)
+	ci.draw_circle(Vector2(22, 24), 15.0, out)
+	ci.draw_circle(Vector2(42, 24), 15.0, out)
+	ci.draw_colored_polygon(PackedVector2Array([Vector2(7, 28), Vector2(57, 28), Vector2(32, 58)]), out)
+	ci.draw_circle(Vector2(22, 24), 12.5, Color(0.85, 0.12, 0.2))
+	ci.draw_circle(Vector2(42, 24), 12.5, Color(0.85, 0.12, 0.2))
+	ci.draw_colored_polygon(PackedVector2Array([Vector2(10, 28), Vector2(54, 28), Vector2(32, 54)]), Color(0.85, 0.12, 0.2))
+	ci.draw_colored_polygon(PackedVector2Array([Vector2(32, 54), Vector2(54, 28), Vector2(34, 28)]), Color(0.6, 0.06, 0.14))
+	ci.draw_circle(Vector2(17, 19), 4.0, Color(1.0, 0.65, 0.7))
+	ci.draw_polyline(PackedVector2Array([Vector2(32, 16), Vector2(28, 26), Vector2(35, 33), Vector2(30, 45)]), Color(1.0, 0.85, 0.3), 2.5)
+	ci.draw_arc(Vector2(32, 34), 25.0, PI * 0.15, PI * 0.85, 12, Color(0.55, 0.57, 0.65), 3.0)
+
+# Warden Sigil: a gold seal with a violet diamond.
+static func _sigil(ci: CanvasItem) -> void:
+	var out := Color(0.2, 0.1, 0.02)
+	ci.draw_circle(Vector2(32, 32), 27.0, out)
+	ci.draw_circle(Vector2(32, 32), 25.0, Color(0.95, 0.74, 0.22))
+	ci.draw_circle(Vector2(32, 32), 19.0, Color(0.62, 0.42, 0.1))
+	ci.draw_circle(Vector2(32, 32), 17.0, Color(0.38, 0.24, 0.08))
+	for i in 8:
+		var a := TAU * float(i) / 8.0
+		ci.draw_circle(Vector2(32, 32) + Vector2.RIGHT.rotated(a) * 22.0, 1.8, Color(1.0, 0.92, 0.55))
+	var d := PackedVector2Array([Vector2(32, 13), Vector2(47, 32), Vector2(32, 51), Vector2(17, 32)])
+	ci.draw_colored_polygon(d, Color(0.5, 0.2, 0.85))
+	ci.draw_colored_polygon(PackedVector2Array([Vector2(32, 13), Vector2(17, 32), Vector2(32, 32)]), Color(0.78, 0.5, 1.0))
+	ci.draw_colored_polygon(PackedVector2Array([Vector2(32, 32), Vector2(47, 32), Vector2(32, 51)]), Color(0.32, 0.1, 0.6))
+	var ring := d.duplicate()
+	ring.append(d[0])
+	ci.draw_polyline(ring, Color(0.15, 0.04, 0.3), 2.0)
+	ci.draw_circle(Vector2(32, 32), 3.0, Color(1.0, 0.95, 0.7))

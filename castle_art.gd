@@ -10,6 +10,13 @@ const H := 310
 const GY := 155.0            # picture row of the ground point (0, 0, 0)
 const TOP := 11.0            # height of the grass surface
 const TIERS := 10
+const SCALE := 1.5           # the castles are drawn (and their hit circle is sized) this much bigger than the raw art
+const PIXEL := 3.0           # one art pixel on screen, the same as the mobs (MobArt.PX)
+
+# The baked pictures are the 1-unit-per-pixel renders re-sampled so that one picture pixel is PIXEL screen pixels
+# at the castle's size: factor = PIXEL * 48 / (body radius). If SCALE or the body radius changes, bake them again.
+static func factor(tier: int) -> float:
+	return PIXEL * 48.0 / ((42.0 + 5.0 * float(tier)) * SCALE)
 
 # flag cloth anchors per tier: [x, y, z (top of the pole), cloth colour]
 static func flags(tier: int) -> Array:
@@ -17,24 +24,24 @@ static func flags(tier: int) -> Array:
 	var red := Color(0.85, 0.16, 0.2)
 	match tier:
 		0:
-			return [[-4.4, -19.6, 58.8, gold]]
+			return [[0.0, 0.0, 131.7, gold]]
 		1:
-			return [[0.0, -12.2, 138.8, red]]
+			return [[0.0, 0.0, 188.7, red]]
 		2:
-			return [[0.0, -16.3, 174.8, red]]
+			return [[0.0, 0.0, 168.6, red]]
 		3:
-			return [[0.0, -16.4, 194.8, Color(0.7, 0.12, 0.18)]]
+			return [[0.0, 0.0, 186.2, Color(0.7, 0.12, 0.18)]]
 		4:
-			return [[0.0, -20.8, 200.0, red]]
+			return [[0.0, 0.0, 186.4, red]]
 		5:
-			return [[0.0, -12.8, 125.0, red]]
+			return [[0.0, 0.0, 165.8, red]]
 		6:
-			return [[0.0, -14.4, 171.0, red]]
+			return [[0.0, 0.0, 97.7, red]]
 		7:
-			return [[0.0, -16.0, 149.0, red]]
+			return [[0.0, 0.0, 143.7, red]]
 		8:
-			return [[0.0, -6.4, 200.0, red]]
-	return [[0.0, -8.0, 160.0, Color(0.8, 0.1, 0.1)]]
+			return [[0.0, 0.0, 158.5, red]]
+	return [[0.0, 0.0, 120.2, Color(0.8, 0.1, 0.1)]]
 
 static var _tex: Dictionary = {}
 

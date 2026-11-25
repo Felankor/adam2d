@@ -26,6 +26,10 @@ var max_range: float = 3200.0
 var _travelled: float = 0.0
 var _t: float = 0.0
 
+# Only guided projectiles (Apocalypse Tank missiles, seeking Void Orbs) can be shot down; everything else flies through our shots.
+func is_guided() -> bool:
+	return homing > 0.0
+
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_PAUSABLE
 	if not pierce:
@@ -51,7 +55,7 @@ func _process(delta: float) -> void:
 			queue_free()
 			return
 	elif base_ref != null and position.distance_to(base_ref.position) <= reach:
-		if style == "rock" or style == "missile" or style == "voidorb":
+		if style == "rock" or style == "missile" or style == "voidorb" or style == "holy" or style == "thorn" or style == "bubble" or style == "laser" or style == "lightblade" or style == "acid":
 			Fx.spawn(get_parent(), "explosion", position, Color.WHITE, "", 0.7, 0.45)
 		hit_base.emit(damage)
 		queue_free()
@@ -69,6 +73,41 @@ func _draw() -> void:
 			PixelFx.disc(self, Vector2.ZERO, 11.0, Color(0.15, 0.05, 0.02))
 			PixelFx.disc(self, Vector2.ZERO, 9.0, Color(0.95, 0.45, 0.1))
 			PixelFx.disc(self, Vector2.ZERO, 5.0, Color(1.0, 0.85, 0.3))
+		"tracer":
+			PixelFx.line(self, Vector2.ZERO, -dir * 26.0, Color(1.0, 0.7, 0.2, 0.5), 5.0)
+			PixelFx.line(self, Vector2.ZERO, -dir * 14.0, Color(1.0, 0.95, 0.6), 3.0)
+			PixelFx.disc(self, Vector2.ZERO, 3.0, Color.WHITE)
+		"cannon":
+			PixelFx.line(self, Vector2.ZERO, -dir * 34.0, Color(1.0, 0.55, 0.1, 0.55), 7.0)
+			PixelFx.line(self, Vector2.ZERO, -dir * 18.0, Color(1.0, 0.9, 0.4), 4.0)
+			PixelFx.disc(self, Vector2.ZERO, 4.0, Color(1.0, 1.0, 0.85))
+		"laser":
+			PixelFx.line(self, Vector2.ZERO, -dir * 64.0, Color(1.0, 0.1, 0.2, 0.4), 10.0)
+			PixelFx.line(self, Vector2.ZERO, -dir * 52.0, Color(1.0, 0.3, 0.35), 5.0)
+			PixelFx.line(self, Vector2.ZERO, -dir * 40.0, Color(1.0, 0.85, 0.9), 2.0)
+			PixelFx.disc(self, Vector2.ZERO, 5.0, Color(1.0, 0.9, 0.95))
+		"lightblade":
+			var bs := dir.orthogonal()
+			PixelFx.line(self, -dir * 6.0, -dir * 40.0, Color(0.7, 0.85, 1.0, 0.45), 9.0)
+			PixelFx.line(self, bs * 12.0 - dir * 4.0, dir * 8.0, Color(0.85, 0.93, 1.0), 4.0)
+			PixelFx.line(self, -bs * 12.0 - dir * 4.0, dir * 8.0, Color(0.85, 0.93, 1.0), 4.0)
+			PixelFx.line(self, bs * 7.0, -bs * 7.0, Color(1.0, 1.0, 1.0), 6.0)
+			PixelFx.disc(self, dir * 6.0, 6.0, Color(0.95, 0.98, 1.0))
+		"grenade":
+			PixelFx.disc(self, Vector2.ZERO, 9.0, Color(0.05, 0.08, 0.04))
+			PixelFx.disc(self, Vector2.ZERO, 7.0, Color(0.22, 0.4, 0.17))
+			PixelFx.disc(self, Vector2(-2.0, -2.0), 3.0, Color(0.45, 0.7, 0.35))
+			PixelFx.disc(self, -dir * 8.0 + Vector2(0.0, -4.0), 3.0 + floorf((0.5 + 0.5 * sin(_t * 30.0)) * 2.0), Color(1.0, 0.7, 0.2))
+		"flak":
+			PixelFx.line(self, Vector2.ZERO, -dir * 24.0, Color(0.8, 0.5, 1.0, 0.5), 6.0)
+			PixelFx.line(self, Vector2.ZERO, -dir * 12.0, Color(1.0, 0.9, 1.0), 3.0)
+			PixelFx.disc(self, Vector2.ZERO, 5.0, Color(0.85, 0.55, 1.0))
+			PixelFx.disc(self, Vector2.ZERO, 2.5, Color.WHITE)
+		"acid":
+			PixelFx.line(self, Vector2.ZERO, -dir * 22.0, Color(0.3, 0.8, 0.2, 0.45), 8.0)
+			PixelFx.disc(self, Vector2.ZERO, 8.0, Color(0.05, 0.2, 0.05))
+			PixelFx.disc(self, Vector2.ZERO, 6.0, Color(0.35, 0.85, 0.2))
+			PixelFx.disc(self, Vector2(-2.0, -2.0), 2.5, Color(0.8, 1.0, 0.5))
 		"bullet":
 			PixelFx.line(self, Vector2.ZERO, -dir * 22.0, Color(1.0, 0.35, 0.3, 0.6), 3.0)
 			PixelFx.disc(self, Vector2.ZERO, 6.0, Color(0.15, 0.03, 0.02))
@@ -106,6 +145,28 @@ func _draw() -> void:
 			PixelFx.line(self, -dir * 12.0, -dir * 12.0 + side2 * 7.0, Color(0.7, 0.1, 0.1), 3.0)
 			PixelFx.line(self, -dir * 12.0, -dir * 12.0 - side2 * 7.0, Color(0.7, 0.1, 0.1), 3.0)
 			PixelFx.disc(self, dir * 12.0, 4.5, Color(0.95, 0.2, 0.15))
+		"holy":
+			var hp := floorf((0.5 + 0.5 * sin(_t * 20.0)) * 2.0)
+			PixelFx.line(self, Vector2.ZERO, -dir * 44.0, Color(1.0, 0.9, 0.45, 0.45), 10.0)
+			PixelFx.line(self, -dir * 4.0, -dir * 26.0, Color(1.0, 1.0, 0.85, 0.8), 4.0)
+			PixelFx.disc(self, Vector2.ZERO, 12.0 + 2.0 * hp, Color(1.0, 0.85, 0.3, 0.5))
+			PixelFx.disc(self, Vector2.ZERO, 8.0, Color(1.0, 0.95, 0.65))
+			PixelFx.disc(self, Vector2.ZERO, 4.0, Color.WHITE)
+		"thorn":
+			var side3 := dir.orthogonal()
+			PixelFx.line(self, -dir * 4.0, -dir * 30.0, Color(0.3, 0.7, 0.2, 0.4), 6.0)
+			PixelFx.line(self, -dir * 16.0, dir * 14.0, Color(0.08, 0.14, 0.06), 7.0)
+			PixelFx.line(self, -dir * 16.0, dir * 14.0, Color(0.3, 0.55, 0.2), 4.0)
+			PixelFx.line(self, dir * 14.0, dir * 22.0, Color(0.95, 0.9, 0.75), 4.0)
+			PixelFx.line(self, -dir * 6.0, -dir * 10.0 + side3 * 6.0, Color(0.85, 0.8, 0.65), 2.0)
+			PixelFx.line(self, -dir * 6.0, -dir * 10.0 - side3 * 6.0, Color(0.85, 0.8, 0.65), 2.0)
+			PixelFx.disc(self, dir * 20.0, 3.0, Color(0.8, 0.2, 0.6))
+		"bubble":
+			var bp := floorf((0.5 + 0.5 * sin(_t * 9.0)) * 2.0)
+			PixelFx.disc(self, Vector2.ZERO, 17.0 + bp, Color(0.4, 0.8, 1.0, 0.25))
+			PixelFx.disc(self, Vector2.ZERO, 13.0, Color(0.55, 0.9, 1.0, 0.5))
+			PixelFx.disc(self, Vector2.ZERO, 9.0, Color(0.3, 0.6, 0.85, 0.5))
+			PixelFx.disc(self, Vector2(-4, -4), 4.0, Color(0.95, 1.0, 1.0, 0.9))
 		"voidorb":
 			var vp := floorf((0.5 + 0.5 * sin(_t * 12.0)) * 3.0)
 			PixelFx.line(self, Vector2.ZERO, -dir * 36.0, Color(0.5, 0.1, 0.9, 0.5), 12.0)

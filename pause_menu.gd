@@ -13,6 +13,8 @@ var _quit_btn: Button
 var _settings: SettingsPanel
 var _help: HelpPanel
 var _quit_armed: bool = false
+var _quit_text: String = "Quit to Main Menu"
+var _quit_armed_text: String = "Click again to confirm (unsaved progress is lost)"
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -31,7 +33,7 @@ func _ready() -> void:
 
 	var panel := PanelContainer.new()
 	var sb := PixelUI.box(PixelUI.WIN_BG, PixelUI.BRONZE)
-	sb.set_content_margin_all(32)
+	sb.set_content_margin_all(46)
 	panel.add_theme_stylebox_override("panel", sb)
 	center.add_child(panel)
 	PixelUI.fit(panel)
@@ -72,9 +74,19 @@ func _ready() -> void:
 	_help.back_pressed.connect(_show_main)
 	holder.add_child(_help)
 
+const BUTTON_TIPS := {
+	"Resume": "Closes this menu and goes back to the game.",
+	"Save": "Saves your castle, gold and items.",
+	"Settings": "Graphics, sound, controls and the HUD editor.",
+	"Help": "How the game works: controls, weapons, enemies and more.",
+	"Quit to Main Menu": "Leaves the game for the main menu. Click twice to confirm.",
+}
+
 func _button(text: String, handler: Callable) -> Button:
 	var b := Button.new()
 	b.text = text
+	if BUTTON_TIPS.has(text):
+		Tip.attach(b, text, str(BUTTON_TIPS[text]))
 	b.focus_mode = Control.FOCUS_NONE
 	b.custom_minimum_size = Vector2(480, 68)
 	b.add_theme_font_size_override("font_size", PixelUI.mfs(30))
@@ -97,6 +109,12 @@ func go_back() -> bool:
 		return true
 	return false
 
+# Hub and map modes name the quit button differently.
+func configure_quit(text: String, armed_text: String) -> void:
+	_quit_text = text
+	_quit_armed_text = armed_text
+	_reset_quit()
+
 func set_status(text: String) -> void:
 	_status.text = text
 
@@ -108,7 +126,7 @@ func _show_main() -> void:
 
 func _reset_quit() -> void:
 	_quit_armed = false
-	_quit_btn.text = "Quit to Main Menu"
+	_quit_btn.text = _quit_text
 
 func _on_resume() -> void:
 	Sfx.play("click")
@@ -135,6 +153,6 @@ func _on_quit() -> void:
 	Sfx.play("click")
 	if not _quit_armed:
 		_quit_armed = true
-		_quit_btn.text = "Click again to confirm (unsaved progress is lost)"
+		_quit_btn.text = _quit_armed_text
 		return
 	quit_requested.emit()

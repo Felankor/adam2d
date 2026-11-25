@@ -9,6 +9,18 @@ static var _players: Array[AudioStreamPlayer] = []
 static var _host: Node
 static var _next: int = 0
 
+# Rapid fire can start dozens of sounds a second. To keep it clean: a big pool of voices, a minimum gap and a voice cap per
+# sound (name -> [min gap in ms, max voices at once]), and when every voice is busy the one that is nearly finished is
+# reused, so a fresh shot never cuts off a long sound in the middle.
+const LIMITS := {
+	"rifle": [30, 6], "carbine": [30, 6], "gatling": [25, 6], "mg": [30, 6], "shoot": [30, 5], "auto": [25, 5],
+	"laser": [35, 5], "void": [40, 5], "rocket": [60, 4],
+	"hit": [22, 5], "hit_heavy": [28, 5], "shield_hit": [30, 3], "laser_hit": [22, 4], "block": [30, 3], "crit": [40, 3], "kill": [45, 5], "boss_hit": [60, 3],
+	"explode": [70, 4], "rocket_boom": [70, 4], "void_boom": [80, 3], "base_hit": [90, 2],
+}
+const POOL := 32
+static var _last_ms: Dictionary = {}
+
 static func play(sound: String, volume_db: float = 0.0) -> void:
 	var tree := Engine.get_main_loop() as SceneTree
 	if tree == null:
@@ -18,26 +30,65 @@ static func play(sound: String, volume_db: float = 0.0) -> void:
 		_host.name = "SfxHost"
 		_host.process_mode = Node.PROCESS_MODE_ALWAYS
 		_players.clear()
-		for i in 12:
+		for i in POOL:
 			var np := AudioStreamPlayer.new()
 			_host.add_child(np)
 			_players.append(np)
 		tree.root.add_child.call_deferred(_host)
+	var now := Time.get_ticks_msec()
+	var lim: Array = LIMITS.get(sound, [])
+	if not lim.is_empty():
+		if now - int(_last_ms.get(sound, -1000)) < int(lim[0]):
+			return
+		var same := 0
+		for p in _players:
+			if p.playing and p.has_meta("snd") and p.get_meta("snd") == sound:
+				same += 1
+		if same >= int(lim[1]):
+			return
 	var stream := _stream_for(sound)
 	if stream == null:
 		return
-	var player := _players[_next]
-	_next = (_next + 1) % _players.size()
-	if not player.is_inside_tree():
+	var player: AudioStreamPlayer = null
+	var best := -1.0
+	for p in _players:
+		if not p.is_inside_tree():
+			continue
+		if not p.playing:
+			player = p
+			break
+		var len_s := p.stream.get_length() if p.stream != null else 0.0
+		var prog := p.get_playback_position() / maxf(len_s, 0.05)
+		if prog > best:
+			best = prog
+			player = p
+	if player == null:
 		return
+	_last_ms[sound] = now
+	player.set_meta("snd", sound)
 	player.stream = stream
-	player.volume_db = volume_db + linear_to_db(maxf(Settings.sfx_volume, 0.0001))
+	# weapons and impacts get a little random pitch and loudness, so fast repeats never form a buzzing tone
+	var jit: float = float(JITTER.get(sound, 0.0))
+	player.pitch_scale = 1.0 + randf_range(-jit, jit) if jit > 0.0 else 1.0
+	player.volume_db = volume_db + linear_to_db(maxf(Settings.sfx_volume, 0.0001)) + (randf_range(-1.5, 1.0) if jit > 0.0 else 0.0)
 	player.play()
 
+# The finished sounds live in res://audio/sfx/ (rendered offline). Gunshots, hits and explosions have a few
+# recorded-style variants (name_1, name_2, ...) and one is picked at random, so rapid fire does not sound like a loop.
+# If a file is missing, the sound is generated in code below instead, so the game always has sound.
+const JITTER := {"rifle": 0.05, "carbine": 0.04, "gatling": 0.06, "mg": 0.06, "shoot": 0.05, "auto": 0.06, "laser": 0.05, "void": 0.05, "rocket": 0.04,
+	"hit": 0.07, "hit_heavy": 0.05, "shield_hit": 0.05, "kill": 0.06, "block": 0.05, "crit": 0.03, "laser_hit": 0.08, "boss_hit": 0.04, "explode": 0.05, "rocket_boom": 0.05, "tank_fire": 0.04, "base_hit": 0.04}
+const VARIANTS := {"rifle": 3, "carbine": 3, "gatling": 3, "mg": 2, "hit": 4, "hit_heavy": 3, "shield_hit": 2, "kill": 3, "laser": 4, "laser_hit": 3, "void": 3, "block": 3, "explode": 2, "rocket_boom": 2}
+
 static func _stream_for(sound: String) -> AudioStreamWAV:
-	if not _cache.has(sound):
-		_cache[sound] = _build(sound)
-	return _cache[sound] as AudioStreamWAV
+	var key := sound
+	if VARIANTS.has(sound):
+		key = "%s_%d" % [sound, 1 + randi() % int(VARIANTS[sound])]
+	if not _cache.has(key):
+		var path := "res://audio/sfx/%s.wav" % key
+		var res: Variant = load(path) if ResourceLoader.exists(path) else null
+		_cache[key] = res if res is AudioStreamWAV else _build(sound)
+	return _cache[key] as AudioStreamWAV
 
 # ---------- synthesis helpers ----------
 
